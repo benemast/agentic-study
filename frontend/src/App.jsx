@@ -15,7 +15,7 @@ import { useSessionStore,
   removeSessionIdFromUrl
 } from './components/SessionManager';
 
-import WorkflowBuilder from './components/n8n_workflow'; //'./components/WorkflowBuilder';
+import WorkflowBuilder from './components/WorkflowBuilder';
 
 
 // Navigation Components (keeping your existing design)

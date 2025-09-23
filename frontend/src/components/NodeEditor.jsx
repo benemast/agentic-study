@@ -1,3 +1,4 @@
+// frontend/src/components/NodeEditor.jsx
 import React, { useState, useEffect, useCallback, memo } from 'react';
 
 const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {

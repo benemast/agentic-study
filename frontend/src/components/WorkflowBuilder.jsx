@@ -1,3 +1,4 @@
+// frontend/src/components/WorkflowBuilder.jsx
 import React, { useState, useCallback, useMemo, useEffect, memo } from 'react';
 import ReactFlow, {
   MiniMap,
@@ -10,7 +11,6 @@ import ReactFlow, {
   Panel,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Plus, Brain } from 'lucide-react';
 
 import CustomNode from './CustomNode';
 import Sidebar from './WorkflowSidebar';
@@ -19,6 +19,7 @@ import WorkflowToolbar from './WorkflowToolbar';
 import { useWorkflowState } from '../hooks/useWorkflowState';
 import { useWorkflowValidation } from '../hooks/useWorkflowValidation';
 import { NODE_TEMPLATES, TAILWIND_COLORS } from '../constants/nodeTemplates';
+import { ICONS } from '../constants/icons';
 
 // Notification Banner Component
 const NotificationBanner = memo(({ notification }) => {
@@ -38,19 +39,35 @@ NotificationBanner.displayName = 'NotificationBanner';
 // Main WorkflowBuilder Component
 const WorkflowBuilder = () => {
   const workflowState = useWorkflowState();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
 
   // Initialize workflow from session
   const initialWorkflow = useMemo(() => 
     workflowState.getWorkflowFromSession(), 
     [workflowState]
   );
+
+   // Calculate initial node counter based on existing nodes to prevent ID collisions
+  const getInitialNodeCounter = useCallback(() => {
+    if (initialWorkflow.nodes.length === 0) return 0;
+    
+    let maxCounter = 0;
+    initialWorkflow.nodes.forEach(node => {
+      // Extract counter from node ID (e.g., "gather-data-5" -> 5)
+      const match = node.id.match(/-(\d+)$/);
+      if (match) {
+        const counter = parseInt(match[1], 10);
+        maxCounter = Math.max(maxCounter, counter);
+      }
+    });
+    return maxCounter + 1; // Start from next available number
+  }, [initialWorkflow.nodes]);
   
   // State declarations
   const [nodes, setNodes, onNodesChange] = useNodesState(initialWorkflow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialWorkflow.edges);
   const [showNodePanel, setShowNodePanel] = useState(false);
-  const [nodeCounter, setNodeCounter] = useState(0);
+  const [nodeCounter, setNodeCounter] = useState(getInitialNodeCounter);
   const [editingNode, setEditingNode] = useState(null);
   const [notification, setNotification] = useState(null);
   const [connectionState, setConnectionState] = useState({
@@ -59,6 +76,10 @@ const WorkflowBuilder = () => {
     sourceHandleId: null,
     sourceHandleType: null
   });
+
+  // Get icon components
+  const PlusIcon = ICONS.Plus.component;
+  const BrainIcon = ICONS.Brain.component;
 
   // Workflow validation
   const workflowValidation = useWorkflowValidation(nodes, edges);
@@ -106,32 +127,45 @@ const WorkflowBuilder = () => {
     
     if (!sourceNode || !targetNode) return;
     
-    const sourceConnections = edges.filter(e => e.source === params.source);
-    const targetConnections = edges.filter(e => e.target === params.target);
+    // Check handle-specific connections
+    const sourceHandle = params.sourceHandle || 'output-0';
+    const targetHandle = params.targetHandle || 'input-0';
     
-    const sourceLimit = sourceNode.data.maxOutputConnections;
-    const targetLimit = targetNode.data.maxInputConnections;
+    const sourceHandleConnections = edges.filter(e => 
+      e.source === params.source && (e.sourceHandle || 'output-0') === sourceHandle
+    );
+    const targetHandleConnections = edges.filter(e => 
+      e.target === params.target && (e.targetHandle || 'input-0') === targetHandle
+    );
     
-    if (sourceConnections.length >= sourceLimit) {
-      showNotification(`This node can only have ${sourceLimit} outgoing connection${sourceLimit > 1 ? 's' : ''}`);
+    const sourceHandleLimit = 1; // Can be made configurable later
+    const targetHandleLimit = 1; // Can be made configurable later
+    
+    if (sourceHandleConnections.length >= sourceHandleLimit) {
+      showNotification(`Source handle already has the maximum of ${sourceHandleLimit} connection${sourceHandleLimit > 1 ? 's' : ''}`);
       return;
     }
     
-    if (targetConnections.length >= targetLimit) {
-      showNotification(`This node can only have ${targetLimit} incoming connection${targetLimit > 1 ? 's' : ''}`);
+    if (targetHandleConnections.length >= targetHandleLimit) {
+      showNotification(`Target handle already has the maximum of ${targetHandleLimit} connection${targetHandleLimit > 1 ? 's' : ''}`);
       return;
     }
     
     setEdges(prevEdges => addEdge(params, prevEdges));
-    workflowState?.trackInteraction?.('nodes_connected', { source: params.source, target: params.target });
+    workflowState?.trackInteraction?.('nodes_connected', { 
+      source: params.source, 
+      target: params.target,
+      sourceHandle,
+      targetHandle 
+    });
   }, [setEdges, workflowState, nodes, edges, showNotification]);
 
   const onConnectStart = useCallback((event, { nodeId, handleId, handleType }) => {
     setConnectionState({
       isConnecting: true,
       sourceNodeId: nodeId,
-      sourceHandleId: handleId,
-      sourceHandleType: handleType
+      sourceHandleId: handleId || 'output-0',
+      sourceHandleType: handleType || 'source'
     });
   }, []);
 
@@ -157,11 +191,11 @@ const WorkflowBuilder = () => {
     
     if (!nodeTemplate) return;
     
-    const { zoom } = getViewport();
+    const zoom = getViewport().zoom || 1;
 
     const position = screenToFlowPosition({ 
-      x: event.clientX - (100 * zoom), 
-      y: event.clientY - (50 * zoom)
+      x: event.clientX - (100 * zoom), // Centering the node (assuming node width ~200px)
+      y: event.clientY - (50 * zoom)   // Centering the node (assuming node height ~100px)
     });
 
     const newNode = {
@@ -185,7 +219,7 @@ const WorkflowBuilder = () => {
     setNodes(prevNodes => [...prevNodes, newNode]);
     setNodeCounter(prev => prev + 1);
     workflowState?.trackInteraction?.('node_added', { type: nodeTemplate.id, position });
-  }, [nodeCounter, setNodes, workflowState, screenToFlowPosition]);
+  }, [nodeCounter, setNodes, workflowState, screenToFlowPosition, getViewport]);
 
   const onDragStart = useCallback((event, nodeTemplate) => {
     event.dataTransfer.setData('application/reactflow', nodeTemplate.id);
@@ -210,37 +244,44 @@ const WorkflowBuilder = () => {
   }, [workflowState, nodes.length, edges.length, showNotification]);
 
   const clearWorkflow = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    workflowState?.trackInteraction?.('workflow_cleared');
-  }, [setNodes, setEdges, workflowState]);
+      setNodes([]);
+      setEdges([]);
+      workflowState?.trackInteraction?.('workflow_cleared');
+    }, [setNodes, setEdges, workflowState]);
+  
+    const miniMapNodeColor = useCallback((node) => {
+      return TAILWIND_COLORS[node?.data?.color] || '#6b7280';
+    }, []);
+  
+    // Connection validation - now per handle instead of per node
+    const isValidConnection = useCallback((connection) => {
+      if (!connection?.source || !connection?.target || connection.source === connection.target) {
+        return false;
+      }
+  
+      const sourceNode = nodes.find(n => n.id === connection.source);
+      const targetNode = nodes.find(n => n.id === connection.target);
+  
+      if (!sourceNode || !targetNode) return false;
 
-  const miniMapNodeColor = useCallback((node) => {
-    return TAILWIND_COLORS[node?.data?.color] || '#6b7280';
-  }, []);
+    // Check connections for specific handles
+    const sourceHandle = connection.sourceHandle || 'output-0';
+    const targetHandle = connection.targetHandle || 'input-0';
 
-  // Connection validation
-  const isValidConnection = useCallback((connection) => {
-    if (!connection?.source || !connection?.target || connection.source === connection.target) {
-      return false;
-    }
-
-    const sourceNode = nodes.find(n => n.id === connection.source);
-    const targetNode = nodes.find(n => n.id === connection.target);
-
-    if (!sourceNode || !targetNode) return false;
-
-    const sourceConnections = edges.filter(e => 
-      e.source === sourceNode.id && (!connection.sourceHandle || e.sourceHandle === connection.sourceHandle)
+    // Count existing connections for the specific handles
+    const sourceHandleConnections = edges.filter(e => 
+      e.source === sourceNode.id && (e.sourceHandle || 'output-0') === sourceHandle
     );
-    const targetConnections = edges.filter(e => 
-      e.target === targetNode.id && (!connection.targetHandle || e.targetHandle === connection.targetHandle)
+    const targetHandleConnections = edges.filter(e => 
+      e.target === targetNode.id && (e.targetHandle || 'input-0') === targetHandle
     );
 
-    const sourceLimit = sourceNode.data.maxOutputConnections || 1;
-    const targetLimit = targetNode.data.maxInputConnections || 1;
+    // Each handle can only have one connection (you can modify this logic as needed)
+    const sourceHandleLimit = 1; // Could be made configurable per handle
+    const targetHandleLimit = 1; // Could be made configurable per handle
 
-    return sourceConnections.length < sourceLimit && targetConnections.length < targetLimit;
+    return sourceHandleConnections.length < sourceHandleLimit && 
+           targetHandleConnections.length < targetHandleLimit;
   }, [edges, nodes]);
 
   // Enhanced nodes with connection state and callbacks
@@ -250,11 +291,13 @@ const WorkflowBuilder = () => {
       data: {
         ...node.data,
         connectionState,
+        currentEdges: edges,
+        isValidConnection,
         onDelete: deleteNode,
         onEdit: editNode
       }
-    })), 
-    [nodes, connectionState, deleteNode, editNode]
+    })),     
+    [nodes, connectionState, edges, isValidConnection, deleteNode, editNode]
   );
 
   // Node types
@@ -328,7 +371,7 @@ const WorkflowBuilder = () => {
             {nodes.length === 0 && (
               <Panel position="center">
                 <div className="text-center p-8 bg-white rounded-lg shadow-lg border border-gray-200 max-w-md">
-                  <Brain size={48} className="mx-auto mb-4 text-gray-400" />
+                  <BrainIcon size={48} className="mx-auto mb-4 text-gray-400" />
                   <h3 className="text-lg font-medium text-gray-800 mb-2">
                     Start Building Your Workflow
                   </h3>
@@ -339,7 +382,7 @@ const WorkflowBuilder = () => {
                     onClick={() => setShowNodePanel(true)}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    <Plus size={16} />
+                    <PlusIcon size={16} />
                     Add Your First Node
                   </button>
                 </div>

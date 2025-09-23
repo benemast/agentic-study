@@ -1,3 +1,4 @@
+// frontend/src/stores/workflowStore.js
 import { create } from 'zustand'
 import {
   addEdge,

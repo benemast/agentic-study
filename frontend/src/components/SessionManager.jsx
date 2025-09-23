@@ -1,3 +1,4 @@
+// frontend/src/components/SessionManager.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';

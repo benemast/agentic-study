@@ -1,17 +1,10 @@
+// frontend/src/components/CustomNode.jsx
 import React, { memo, useCallback, useMemo } from 'react';
 import { Position } from 'reactflow';
-import { Database, Filter, BarChart3, Brain, Download, Edit3, Trash2 } from 'lucide-react';
 import NodeHandle from './NodeHandle';
+import { renderIcon, ICONS } from '../constants/icons';
 
-const ICON_COMPONENTS = {
-  Database,
-  Filter,
-  BarChart3,
-  Brain,
-  Download,
-};
-
-const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
+const CustomNode = memo(({ data, selected, id, nodes }) => {
   const { 
     label, 
     type, 
@@ -20,6 +13,8 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
     hasOutput = 1, 
     iconName,
     connectionState = { isConnecting: false },
+    currentEdges = [], 
+    isValidConnection, 
     onDelete,
     onEdit
   } = data;
@@ -34,31 +29,57 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
     onEdit?.(id);
   }, [onEdit, id]);
 
-  const IconComponent = ICON_COMPONENTS[iconName] || Database;
+  const IconComponent = renderIcon(iconName, { size: 20, className: "text-white" });
+  const EditIcon = ICONS.Edit3.component;
+  const TrashIcon = ICONS.Trash2.component;
   
   const getHandleHighlight = useCallback((handleType, handleIndex) => {
     if (!connectionState.isConnecting) return 'normal';
     
+    // If this is the source node, highlight the specific handle being dragged from
     if (connectionState.sourceNodeId === id) {
-      if (handleType === connectionState.sourceHandleType) {
+      if (handleType === 'source' && connectionState.sourceHandleType === 'source') {
         const sourceHandleIndex = connectionState.sourceHandleId ? 
           parseInt(connectionState.sourceHandleId.split('-')[1]) || 0 : 0;
         return handleIndex === sourceHandleIndex ? 'source' : 'normal';
       }
       return 'normal';
-    } else if (handleType === 'target' && connectionState.sourceHandleType === 'source') {
+    }
+    
+    // If this is a potential target node, check if this specific handle can accept the connection
+    if (handleType === 'target' && connectionState.sourceHandleType === 'source') {
+      const targetHandleId = `input-${handleIndex}`;
+      
+      // Check if this specific target handle already has a connection
+      const targetHandleConnections = currentEdges.filter(e => 
+        e.target === id && (e.targetHandle || 'input-0') === targetHandleId
+      );
+      
+      // If handle is already at limit, don't highlight
+      if (targetHandleConnections.length >= 1) return 'normal';
+      
+      // Check if the source handle is already connected
+      const sourceHandleConnections = currentEdges.filter(e => 
+        e.source === connectionState.sourceNodeId && 
+        (e.sourceHandle || 'output-0') === connectionState.sourceHandleId
+      );
+      
+      // If source handle is already at limit, don't highlight
+      if (sourceHandleConnections.length >= 1) return 'normal';
+      
       const mockConnection = {
         source: connectionState.sourceNodeId,
         target: id,
         sourceHandle: connectionState.sourceHandleId,
-        targetHandle: `input-${handleIndex}`
+        targetHandle: targetHandleId
       };
       
-      return isValidConnection?.(mockConnection) ? 'target' : 'normal';
+      const isValid = isValidConnection?.(mockConnection);
+      return isValid ? 'target' : 'normal';
     }
     
     return 'normal';
-  }, [connectionState, id, isValidConnection]);
+  }, [connectionState, id, isValidConnection, currentEdges]);
 
   const nodeClassName = useMemo(() => {
     let baseClass = 'relative bg-white rounded-lg shadow-lg border-2 transition-all duration-200 min-w-[200px] group';
@@ -96,13 +117,14 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
     hasInput > 0 ? Array.from({ length: hasInput }, (_, idx) => {
       const highlight = getHandleHighlight('target', idx);
       const isHighlighted = highlight === 'target';
+      const handleId = `input-${idx}`;
       
       return (
         <NodeHandle
           key={`input-${id}-${idx}`}
           type="target"
           position={Position.Top}
-          id={`input-${idx}`}
+          id={handleId}
           index={idx}
           total={hasInput}
           isHighlighted={isHighlighted}
@@ -115,13 +137,14 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
     hasOutput > 0 ? Array.from({ length: hasOutput }, (_, idx) => {
       const highlight = getHandleHighlight('source', idx);
       const isHighlighted = highlight === 'source';
+      const handleId = `output-${idx}`;
       
       return (
         <NodeHandle
           key={`output-${id}-${idx}`}
           type="source"
           position={Position.Bottom}
-          id={`output-${idx}`}
+          id={handleId}
           index={idx}
           total={hasOutput}
           isHighlighted={isHighlighted}
@@ -159,14 +182,14 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
           className="p-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 shadow-lg"
           title="Edit node"
         >
-          <Edit3 size={12} />
+          <EditIcon size={12} />
         </button>
         <button
           onClick={handleDelete}
           className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-lg"
           title="Delete node"
         >
-          <Trash2 size={12} />
+          <TrashIcon size={12} />
         </button>
       </div>
       
@@ -175,14 +198,11 @@ const CustomNode = memo(({ data, selected, id, isValidConnection, nodes }) => {
           <div className={`p-2 rounded-lg ${color} transition-all duration-200 ${
             connectionState.isConnecting && hasValidTargets ? 'ring-2 ring-green-300' : ''
           }`}>
-            <IconComponent size={20} className="text-white" />
+            {IconComponent}
           </div>
           <div>
             <h3 className="font-medium text-gray-800">{label}</h3>
             <p className="text-xs text-gray-500">{type}</p>
-            {connectionState.isConnecting && hasValidTargets && (
-              <p className="text-xs text-green-600 font-medium">✓ Valid target</p>
-            )}
           </div>
         </div>
       </div>

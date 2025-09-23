@@ -1,3 +1,4 @@
+# backend/app/models/session.py
 from sqlalchemy import Column, String, DateTime, Integer, JSON, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime

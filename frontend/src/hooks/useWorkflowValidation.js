@@ -1,3 +1,4 @@
+// frontend/src/hooks/useWorkflowValidation.js
 import { useMemo } from 'react';
 
 export const useWorkflowValidation = (nodes, edges) => {

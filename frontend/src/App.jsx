@@ -1,3 +1,4 @@
+// frontend/src/App.jsx
 import React, { useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 
@@ -15,8 +16,8 @@ import { useSessionStore,
   removeSessionIdFromUrl
 } from './components/SessionManager';
 
+import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
 import WorkflowBuilder from './components/WorkflowBuilder';
-
 
 // Navigation Components (keeping your existing design)
 const NavItem = ({ icon, label, isActive, onClick, badge = null }) => (
@@ -184,7 +185,7 @@ const TopBar = ({ activeView, onSave, onHelp }) => {
   );
 };
 
-// Main Content Components (keeping your existing ones)
+// Main Content Components
 const DashboardView = () => {
   const { sessionData, incrementWorkflowsCreated } = useSessionStore();
   
@@ -241,6 +242,31 @@ const DashboardView = () => {
         </div>
       </div>
 
+      {/* Demographics Summary */}
+      {sessionData.demographics && (
+        <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Participant Profile</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <span className="text-gray-600">Experience Level:</span>
+              <p className="font-medium capitalize">{sessionData.demographics.programming_experience?.replace('-', ' ')}</p>
+            </div>
+            <div>
+              <span className="text-gray-600">AI/ML Background:</span>
+              <p className="font-medium capitalize">{sessionData.demographics.ai_ml_experience?.replace('-', ' ')}</p>
+            </div>
+            <div>
+              <span className="text-gray-600">Education:</span>
+              <p className="font-medium capitalize">{sessionData.demographics.education?.replace('-', ' ')}</p>
+            </div>
+            <div>
+              <span className="text-gray-600">Time Available:</span>
+              <p className="font-medium">{sessionData.demographics.time_availability}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Recent Activity - now shows real interactions */}
       <div className="bg-white rounded-lg shadow">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -288,23 +314,66 @@ const PlaceholderView = ({ viewName }) => (
   </div>
 );
 
-// Main App Component - Enhanced with Session Management
+// Main App Component - Enhanced with Demographics
 const App = () => {
   const [activeView, setActiveView] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false);
+  const [appState, setAppState] = useState('initializing'); // 'initializing', 'demographics', 'welcome', 'main'
 
-  // Check if user should see welcome screen
+  const sessionData = useSessionStore(state => state.sessionData);
+  const trackInteraction = useSessionStore(state => state.trackInteraction);
+
+  // Determine what to show based on session state
   React.useEffect(() => {
+    const urlSessionId = getSessionIdFromUrl();
     const hasSeenWelcome = localStorage.getItem('agentic-study-welcomed');
-    if (!hasSeenWelcome) {
-      setShowWelcome(true);
+    
+    // If there's a session ID in URL, user is likely returning
+    if (urlSessionId) {
+      if (sessionData.demographicsCompleted) {
+        setAppState('main');
+      } else {
+        setAppState('demographics');
+      }
+    } else {
+      // New user flow
+      if (sessionData.demographicsCompleted) {
+        if (hasSeenWelcome) {
+          setAppState('main');
+        } else {
+          setAppState('welcome');
+        }
+      } else {
+        setAppState('demographics');
+      }
     }
-  }, []);
+  }, [sessionData.demographicsCompleted]);
+
+  const handleDemographicsComplete = (demographicsData) => {
+    trackInteraction('demographics_flow_completed', {
+      has_url_session: !!getSessionIdFromUrl(),
+      demographics_summary: {
+        age: demographicsData.age,
+        education: demographicsData.education,
+        programming_experience: demographicsData.programming_experience,
+        ai_ml_experience: demographicsData.ai_ml_experience
+      }
+    });
+
+    // Check if user has seen welcome before
+    const hasSeenWelcome = localStorage.getItem('agentic-study-welcomed');
+    if (hasSeenWelcome || getSessionIdFromUrl()) {
+      // Skip welcome for returning users
+      setAppState('main');
+    } else {
+      setAppState('welcome');
+    }
+  };
 
   const handleWelcomeContinue = () => {
     localStorage.setItem('agentic-study-welcomed', 'true');
-    setShowWelcome(false);
+    trackInteraction('welcome_completed');
+    setAppState('main');
   };
 
   const handleSave = () => {
@@ -342,8 +411,36 @@ const App = () => {
     }
   };
 
-  // Show welcome screen for new users
-  if (showWelcome) {
+  // Show different screens based on app state
+  if (appState === 'initializing') {
+    return (
+      <SessionInitializer>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full mx-4">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                Initializing Study Session
+              </h2>
+              <p className="text-gray-600">
+                Setting up your research session...
+              </p>
+            </div>
+          </div>
+        </div>
+      </SessionInitializer>
+    );
+  }
+
+  if (appState === 'demographics') {
+    return (
+      <SessionInitializer>
+        <DemographicsQuestionnaire onComplete={handleDemographicsComplete} />
+      </SessionInitializer>
+    );
+  }
+
+  if (appState === 'welcome') {
     return (
       <SessionInitializer>
         <WelcomeScreen onContinue={handleWelcomeContinue} />
@@ -351,7 +448,7 @@ const App = () => {
     );
   }
 
-  // Main app layout with session management
+  // Main app layout
   return (
     <SessionInitializer>
       <div className="h-screen bg-gray-50 flex">

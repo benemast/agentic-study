@@ -1,11 +1,4 @@
-export const ICON_MAP = {
-  Database: 'Database',
-  Filter: 'Filter', 
-  BarChart3: 'BarChart3',
-  Brain: 'Brain',
-  Download: 'Download',
-};
-
+// frontend/src/constants/nodeTemplates.js
 export const TAILWIND_COLORS = {
   'bg-blue-500': '#3b82f6',
   'bg-green-500': '#10b981', 
@@ -15,6 +8,8 @@ export const TAILWIND_COLORS = {
   'bg-yellow-500': '#eab308',
 };
 
+// Define node templates with properties
+// including id, label, type, icon, color, category, and connection limits
 export const NODE_TEMPLATES = [
   {
     id: 'gather-data',
@@ -32,7 +27,7 @@ export const NODE_TEMPLATES = [
     id: 'logic-if', 
     label: 'Logic If',
     type: 'Conditional',
-    icon: 'Filter',
+    icon: 'Split',
     color: 'bg-yellow-500',
     category: 'logic',
     hasInput: 1,
@@ -41,10 +36,46 @@ export const NODE_TEMPLATES = [
     maxOutputConnections: 1
   },
   {
+    id: 'combine-data', 
+    label: 'Combine Data',
+    type: 'Conditional',
+    icon: 'Merge',
+    color: 'bg-yellow-500',
+    category: 'logic',
+    hasInput: 2,
+    hasOutput: 1,
+    maxInputConnections: 1,
+    maxOutputConnections: 1
+  },
+  {
+    id: 'sort-data',
+    label: 'Sort Data',
+    type: 'Data Processing',
+    icon: 'ArrowDownNarrowWide',
+    color: 'bg-green-500',
+    category: 'processing',
+    hasInput: 1,
+    hasOutput: 1,
+    maxInputConnections: 1,
+    maxOutputConnections: 1
+  },
+  {
+    id: 'filter-data',
+    label: 'Filter Data', 
+    type: 'Data Processing',
+    icon: 'Filter',
+    color: 'bg-green-500',
+    category: 'processing',
+    hasInput: 1,
+    hasOutput: 1,
+    maxInputConnections: 1,
+    maxOutputConnections: 1
+  },
+  {
     id: 'clean-data',
     label: 'Clean Data', 
     type: 'Data Processing',
-    icon: 'Filter',
+    icon: 'BrushCleaning',
     color: 'bg-green-500',
     category: 'processing',
     hasInput: 1,

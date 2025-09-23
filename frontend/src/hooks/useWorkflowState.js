@@ -1,3 +1,4 @@
+// frontend/src/hooks/useWorkflowState.js
 import { useCallback } from 'react';
 import { useSessionStore } from '../components/SessionManager';
 

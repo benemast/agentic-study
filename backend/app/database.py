@@ -1,3 +1,4 @@
+# backend/app/database.py
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool

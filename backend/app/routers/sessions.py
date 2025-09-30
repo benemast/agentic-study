@@ -1,7 +1,7 @@
 # backend/app/routers/sessions.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, true
 from typing import List, Optional, Dict, Any
 import json
 from datetime import datetime, timedelta
@@ -10,13 +10,16 @@ from app.database import get_db
 from app.models.session import Session as SessionModel, Interaction as InteractionModel
 from app.schemas.session import (
     SessionCreate, SessionResponse, InteractionCreate, InteractionResponse, 
-    SessionEnd, SessionSync, SessionQuickSave, SessionValidate
+    SessionEnd, SessionUpdate, SessionSync, SessionQuickSave, SessionValidate
 )
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 @router.post("/", response_model=SessionResponse)
-async def create_session(session_data: SessionCreate, db: Session = Depends(get_db)):
+async def create_session(
+    session_data: SessionCreate, 
+    db: Session = Depends(get_db)
+    ):
     """Create a new user session with enhanced metadata"""
     
     # Get next participant ID
@@ -78,7 +81,8 @@ async def validate_session(session_id: str, db: Session = Depends(get_db)):
         "session_id": session.session_id,
         "participant_id": session.participant_id,
         "last_activity": session.last_activity,
-        "session_age_minutes": (datetime.utcnow() - session.start_time).total_seconds() / 60
+        "session_age_minutes": (datetime.utcnow() - session.start_time).total_seconds() / 60,
+        "has_demographics": session.has_demographics
     }
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -98,6 +102,54 @@ async def get_session(session_id: str, db: Session = Depends(get_db)):
         participant_id=session.participant_id,
         start_time=session.start_time,
         is_active=session.is_active == "true"
+    )
+
+@router.patch("/{session_id}", response_model=SessionResponse)
+async def update_session(
+    session_id: str, 
+    session_update: SessionUpdate, 
+    db: Session = Depends(get_db)
+):
+    """Update session data with enhanced metadata"""
+    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Update session data
+    if session_update.session_data:
+        session.session_data = session_update.session_data
+    
+    # Update last activity
+    if session_update.last_activity:
+        session.last_activity = datetime.fromisoformat(session_update.last_activity.replace('Z', '+00:00'))
+    
+    # Update connection status
+    if session_update.connection_status:
+        if session_update.connection_status not in ["online", "offline", "error"]:
+            raise HTTPException(status_code=400, detail="Invalid connection_status")
+        session.connection_status = session_update.connection_status
+    
+    # Update metadata if provided
+    if session_update.metadata:
+        current_metadata = session.session_metadata or {}
+        current_metadata.update(session_update.metadata)
+        session.session_metadata = current_metadata
+    
+    # Update has_demographics if provided
+    if session_update.has_demographics is not None:
+        session.has_demographics = session_update.has_demographics
+
+    db.commit()
+    db.refresh(session)
+    
+    return SessionResponse(
+        session_id=session.session_id,
+        participant_id=session.participant_id,
+        start_time=session.start_time,
+        is_active=session.is_active,
+        last_activity=session.last_activity,
+        has_demographics=session.has_demographics        
     )
 
 @router.post("/{session_id}/sync")

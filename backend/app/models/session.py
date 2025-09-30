@@ -20,6 +20,7 @@ class Session(Base):
     session_metadata = Column(JSON, nullable=True)  # Changed from 'metadata' to 'session_metadata'
     is_active = Column(String, default="true")
     connection_status = Column(String, default="online")  # online, offline, error, ended
+    has_demographics = Column(Boolean, default=False)
     
     # Indexes for performance
     __table_args__ = (

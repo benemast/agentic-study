@@ -45,8 +45,12 @@ def get_db():
 def create_tables():
     try:
         from app.models.session import Base
+        # Import demographics to ensure it's registered with Base
+        from app.models.demographics import Demographics
+        
         Base.metadata.create_all(bind=engine)
         print("✅ Database tables created successfully")
+        print("📊 Tables: sessions, interactions, session_errors, demographics")
     except Exception as e:
         print(f"❌ Failed to create database tables: {e}")
         raise

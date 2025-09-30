@@ -7,6 +7,10 @@ import { persist } from 'zustand/middleware';
 let isInitializing = false;
 let autoSyncInterval = null;
 
+// Fixed API URL - remove template literal issue
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+console.log('API Base URL:', API_BASE_URL);
+
 // Utility functions
 const generateSessionId = () => {
   if (window.crypto && window.crypto.getRandomValues) {
@@ -23,9 +27,6 @@ const generateSessionId = () => {
   }
   return result;
 };
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-console.log('API Base URL:', API_BASE_URL);
 
 const getSessionIdFromUrl = () => {
   const urlParams = new URLSearchParams(window.location.search);
@@ -88,7 +89,7 @@ const useSessionStore = create(
       // Initialize session with all enhancements
       initializeSession: async () => {
         if (isInitializing) {
-          console.log('⏸️ Session initialization already in progress, skipping...');
+          console.log('Session initialization already in progress, skipping...');
           return;
         }
         
@@ -98,12 +99,42 @@ const useSessionStore = create(
           const urlSessionId = getSessionIdFromUrl();
           const existingSession = get().sessionId;
           
+          // Clear localStorage if URL session differs from persisted session
+          if (urlSessionId && existingSession && urlSessionId !== existingSession) {
+            console.log(`Session mismatch detected: URL(${urlSessionId}) != Persisted(${existingSession})`);
+            console.log('Clearing old session data from localStorage...');
+            localStorage.removeItem('agentic-study-session');
+
+            // Reset store to initial state
+            set({
+              sessionId: null,
+              participantId: null,
+              sessionStartTime: null,
+              isSessionActive: false,
+              sessionSource: 'new',
+              sessionData: {
+                workflowsCreated: 0,
+                workflowsExecuted: 0,
+                totalTimeSpent: 0,
+                currentView: 'dashboard',
+                interactions: []
+              },
+              lastActivity: Date.now(),
+              sessionMetadata: getSessionMetadata()
+            });
+
+            // Clear any other persisted state if needed
+            localStorage.removeItem('agentic-study-welcomed');
+            set()
+            localStorage.removeItem('agentic-study-completed-demographics');
+          }
+          
           let sessionIdToUse = null;
           let sessionSource = 'new';
 
           // Priority: URL > localStorage > create new
           if (urlSessionId) {
-            console.log('🔗 Found session ID in URL:', urlSessionId);
+            console.log('Found session ID in URL:', urlSessionId);
             sessionIdToUse = urlSessionId;
             sessionSource = 'url';
             
@@ -114,7 +145,7 @@ const useSessionStore = create(
                 const response = await fetch(`${API_BASE_URL}/sessions/${urlSessionId}`);
                 if (response.ok) {
                   const sessionData = await response.json();
-                  console.log('✅ Restored session from URL:', sessionData);
+                  console.log('Restored session from URL:', sessionData);
                   
                   set({
                     sessionId: urlSessionId,
@@ -132,16 +163,16 @@ const useSessionStore = create(
                   return;
                 }
               } catch (error) {
-                console.error('❌ Failed to fetch session from URL:', error);
+                console.error('Failed to fetch session from URL:', error);
                 get().handleSessionError(error, 'url_restoration');
               }
             }
             
-            console.log('⚠️ Session not found on server, creating new one');
+            console.log('Session not found on server, creating new one');
             sessionSource = 'new';
             sessionIdToUse = generateSessionId();
           } else if (existingSession) {
-            console.log('💾 Found existing session in localStorage:', existingSession);
+            console.log('Found existing session in localStorage:', existingSession);
             sessionIdToUse = existingSession;
             sessionSource = 'localStorage';
             
@@ -159,12 +190,12 @@ const useSessionStore = create(
               get().updateLastActivity();
               return;
             } else {
-              console.log('⚠️ Existing session invalid, creating new one');
+              console.log('Existing session invalid, creating new one');
               sessionSource = 'new';
               sessionIdToUse = generateSessionId();
             }
           } else {
-            console.log('🆕 Creating new session');
+            console.log('Creating new session');
             sessionIdToUse = generateSessionId();
             sessionSource = 'new';
           }
@@ -175,7 +206,7 @@ const useSessionStore = create(
             const metadata = getSessionMetadata();
             
             try {
-              const response = await fetch('${API_BASE_URL}/sessions', {
+              const response = await fetch(`${API_BASE_URL}/sessions`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -207,12 +238,12 @@ const useSessionStore = create(
                 get().startAutoSync();
                 get().updateLastActivity();
                 
-                console.log('✅ Session created and added to URL:', sessionIdToUse);
+                console.log('Session created and added to URL:', sessionIdToUse);
               } else {
                 throw new Error('Failed to create session on server');
               }
             } catch (error) {
-              console.error('❌ Failed to create session:', error);
+              console.error('Failed to create session:', error);
               get().handleSessionError(error, 'session_creation');
               
               // Still set session locally for offline capability
@@ -262,7 +293,7 @@ const useSessionStore = create(
       checkSessionTimeout: () => {
         const { lastActivity, sessionTimeout } = get();
         if (lastActivity && Date.now() - lastActivity > sessionTimeout) {
-          console.warn('⏰ Session timeout detected');
+          console.warn('Session timeout detected');
           return true;
         }
         return false;
@@ -285,7 +316,7 @@ const useSessionStore = create(
       },
 
       handleSessionTimeout: () => {
-        console.warn('🚨 Session timed out');
+        console.warn('Session timed out');
         set({ 
           sessionError: { 
             message: 'Session has timed out due to inactivity', 
@@ -293,14 +324,13 @@ const useSessionStore = create(
             timestamp: new Date().toISOString()
           }
         });
-        // Could trigger a warning modal or auto-save
       },
 
       // Auto-sync functionality
       startAutoSync: () => {
         if (!get().autoSyncEnabled || autoSyncInterval) return;
         
-        console.log('🔄 Starting auto-sync (every 5 minutes)');
+        console.log('Starting auto-sync (every 5 minutes)');
         autoSyncInterval = setInterval(() => {
           get().syncSessionData();
         }, 5 * 60 * 1000); // 5 minutes
@@ -313,7 +343,7 @@ const useSessionStore = create(
         if (autoSyncInterval) {
           clearInterval(autoSyncInterval);
           autoSyncInterval = null;
-          console.log('⏹️ Auto-sync stopped');
+          console.log('Auto-sync stopped');
         }
       },
 
@@ -322,7 +352,7 @@ const useSessionStore = create(
         if (!sessionId || connectionStatus === 'offline') return;
         
         try {
-          console.log('🔄 Syncing session data...');
+          console.log('Syncing session data...');
           const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/sync`, {
             method: 'POST',
             headers: {
@@ -337,13 +367,13 @@ const useSessionStore = create(
           });
 
           if (response.ok) {
-            console.log('✅ Session data synced successfully');
+            console.log('Session data synced successfully');
             set({ connectionStatus: 'online', sessionError: null });
           } else {
             throw new Error(`Sync failed: ${response.status}`);
           }
         } catch (error) {
-          console.error('❌ Failed to sync session data:', error);
+          console.error('Failed to sync session data:', error);
           get().handleSessionError(error, 'sync');
           set({ connectionStatus: 'error' });
         }
@@ -361,9 +391,8 @@ const useSessionStore = create(
           connectionStatus: 'error' 
         });
         
-        // Could implement retry logic here
+        // Retry logic for sync errors
         if (context === 'sync') {
-          // Retry sync in 30 seconds
           setTimeout(() => {
             if (get().connectionStatus === 'error') {
               get().syncSessionData();
@@ -392,8 +421,7 @@ const useSessionStore = create(
             online_status: navigator.onLine,
             viewport_size: `${window.innerWidth}x${window.innerHeight}`,
             scroll_position: window.pageYOffset,
-            current_url: window.location.href,  // This will be captured as page_url
-            // Add any other client-side data you want to track
+            current_url: window.location.href,
           },
           current_view: sessionData.currentView
         };
@@ -463,7 +491,7 @@ const useSessionStore = create(
       endSession: async (reason = 'manual') => {
         const { sessionId, sessionData } = get();
         
-        console.log(`🔚 Ending session (${reason})`);
+        console.log(`Ending session (${reason})`);
         
         // Stop auto-sync
         get().stopAutoSync();
@@ -498,7 +526,7 @@ const useSessionStore = create(
         const { sessionId, sessionData } = get();
         if (!sessionId) return;
         
-        console.log('💾 Quick saving session data...');
+        console.log('Quick saving session data...');
         
         // Use sendBeacon for reliable delivery during page unload
         try {
@@ -594,12 +622,8 @@ const SessionInitializer = ({ children }) => {
   // Page unload handling
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      console.log('📤 Page unloading, quick saving...');
+      console.log('Page unloading, quick saving...');
       quickSave();
-      
-      // Optional: Show warning for unsaved work
-      // e.preventDefault();
-      // e.returnValue = '';
     };
     
     const handleUnload = () => {
@@ -650,10 +674,10 @@ const SessionInitializer = ({ children }) => {
       updateLastActivity();
       
       if (document.hidden) {
-        console.log('📱 Page hidden, quick saving...');
+        console.log('Page hidden, quick saving...');
         quickSave();
       } else {
-        console.log('👁️ Page visible again');
+        console.log('Page visible again');
         updateLastActivity();
       }
     };
@@ -665,13 +689,13 @@ const SessionInitializer = ({ children }) => {
   // Online/offline handling
   useEffect(() => {
     const handleOnline = () => {
-      console.log('🌐 Back online');
+      console.log('Back online');
       updateLastActivity();
       useSessionStore.setState({ connectionStatus: 'online' });
     };
 
     const handleOffline = () => {
-      console.log('📡 Gone offline');
+      console.log('Gone offline');
       quickSave(); // Save before going offline
       useSessionStore.setState({ connectionStatus: 'offline' });
     };
@@ -745,9 +769,9 @@ const SessionStatusBar = () => {
     }`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          {connectionStatus === 'error' && <span>❌</span>}
-          {connectionStatus === 'offline' && <span>📡</span>}
-          {connectionStatus === 'online' && sessionSource === 'url' && <span>🔗</span>}
+          {connectionStatus === 'error'}
+          {connectionStatus === 'offline'}
+          {connectionStatus === 'online' && sessionSource === 'url'}
           
           <span>
             {sessionError && `Error: ${sessionError.message}`}
@@ -829,7 +853,7 @@ const WelcomeScreen = ({ onContinue }) => {
                       : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                   }`}
                 >
-                  {urlCopied ? '✅ Copied!' : '📋 Copy'}
+                  {urlCopied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
               <p className="text-xs text-gray-400 mt-1">

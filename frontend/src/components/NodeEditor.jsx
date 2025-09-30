@@ -1,7 +1,9 @@
 // frontend/src/components/NodeEditor.jsx
 import React, { useState, useEffect, useCallback, memo } from 'react';
+import { useTranslation } from '../hooks/useTranslation';
 
 const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {
+  const { t } = useTranslation();
   const [editedNode, setEditedNode] = useState(node || {});
 
   useEffect(() => {
@@ -38,11 +40,15 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {
       onClick={handleBackdropClick}
     >
       <div className="bg-white rounded-lg p-6 w-80">
-        <h3 className="text-lg font-semibold mb-4">Edit Node</h3>
+        <h3 className="text-lg font-semibold mb-4">
+          {t('workflow.builder.nodeEditor.title')}
+        </h3>
         
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Label</label>
+            <label className="block text-sm font-medium mb-1">
+              {t('workflow.builder.nodeEditor.label')}
+            </label>
             <input
               type="text"
               value={editedNode.data?.label || ''}
@@ -52,7 +58,9 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {
           </div>
           
           <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
+            <label className="block text-sm font-medium mb-1">
+              {t('workflow.builder.nodeEditor.description')}
+            </label>
             <textarea
               value={editedNode.data?.description || ''}
               onChange={(e) => handleInputChange('description', e.target.value)}
@@ -67,13 +75,13 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {
             onClick={onClose}
             className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
           >
-            Cancel
+            {t('workflow.builder.nodeEditor.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
           >
-            Save
+            {t('workflow.builder.nodeEditor.save')}
           </button>
         </div>
       </div>

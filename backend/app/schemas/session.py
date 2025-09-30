@@ -3,6 +3,24 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
+'''
+CREATE TABLE sessions (
+    id SERIAL PRIMARY KEY,
+    session_id character varying,
+    participant_id integer,
+    start_time timestamp without time zone,
+    end_time timestamp without time zone,
+    last_activity timestamp without time zone,
+    user_agent text,
+    screen_resolution character varying,
+    session_data json,
+    session_metadata json,
+    is_active character varying,
+    connection_status character varying,
+    has_demographics boolean NOT NULL DEFAULT false
+);
+'''
+
 class SessionCreate(BaseModel):
     session_id: str
     start_time: str
@@ -18,6 +36,15 @@ class SessionResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class SessionUpdate(BaseModel):
+    session_data: Optional[Dict[str, Any]] = {}
+    last_activity: Optional[str] = None
+    end_time: Optional[str] = None
+    is_active: Optional[bool] = None
+    connection_status: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = {}
+    has_demographics: Optional[bool] = None
 
 class SessionSync(BaseModel):
     session_data: Dict[str, Any]

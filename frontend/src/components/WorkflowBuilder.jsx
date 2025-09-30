@@ -16,8 +16,10 @@ import CustomNode from './CustomNode';
 import Sidebar from './WorkflowSidebar';
 import NodeEditor from './NodeEditor';
 import WorkflowToolbar from './WorkflowToolbar';
+import LanguageSwitcher from './LanguageSwitcher';
 import { useWorkflowState } from '../hooks/useWorkflowState';
 import { useWorkflowValidation } from '../hooks/useWorkflowValidation';
+import { useTranslation } from '../hooks/useTranslation';
 import { NODE_TEMPLATES, TAILWIND_COLORS } from '../constants/nodeTemplates';
 import { ICONS } from '../constants/icons';
 
@@ -40,6 +42,7 @@ NotificationBanner.displayName = 'NotificationBanner';
 const WorkflowBuilder = () => {
   const workflowState = useWorkflowState();
   const { screenToFlowPosition, getViewport } = useReactFlow();
+  const { t } = useTranslation();
 
   // Initialize workflow from session
   const initialWorkflow = useMemo(() => 
@@ -198,13 +201,16 @@ const WorkflowBuilder = () => {
       y: event.clientY - (50 * zoom)   // Centering the node (assuming node height ~100px)
     });
 
+    // Create node with translated label
+    const translatedLabel = t(`workflow.nodes.${nodeTemplate.id.replace('-', '')}`);
+
     const newNode = {
       id: `${nodeTemplate.id}-${nodeCounter}`,
       type: 'customNode',
       position,
       data: {
-        label: nodeTemplate.label,
-        type: nodeTemplate.type,
+        label: translatedLabel || nodeTemplate.label,
+        type: t(`workflow.nodeTypes.${nodeTemplate.type.toLowerCase().replace(' ', '')}`),
         category: nodeTemplate.category,
         iconName: nodeTemplate.icon,
         color: nodeTemplate.color,
@@ -219,7 +225,7 @@ const WorkflowBuilder = () => {
     setNodes(prevNodes => [...prevNodes, newNode]);
     setNodeCounter(prev => prev + 1);
     workflowState?.trackInteraction?.('node_added', { type: nodeTemplate.id, position });
-  }, [nodeCounter, setNodes, workflowState, screenToFlowPosition, getViewport]);
+  }, [nodeCounter, setNodes, workflowState, screenToFlowPosition, getViewport, t]);
 
   const onDragStart = useCallback((event, nodeTemplate) => {
     event.dataTransfer.setData('application/reactflow', nodeTemplate.id);
@@ -232,22 +238,31 @@ const WorkflowBuilder = () => {
       nodeCount: nodes.length, 
       connectionCount: edges.length 
     });
-    showNotification(`Workflow executed with ${nodes.length} nodes and ${edges.length} connections`, 'success');
-  }, [workflowState, nodes.length, edges.length, showNotification]);
+    const message = t('workflow.notifications.workflowExecuted', { 
+      nodes: nodes.length, 
+      connections: edges.length 
+    });
+    showNotification(message, 'success');
+  }, [workflowState, nodes.length, edges.length, showNotification, t]);
 
   const saveWorkflow = useCallback(() => {
     workflowState?.trackInteraction?.('workflow_saved', { 
       nodeCount: nodes.length, 
       connectionCount: edges.length 
     });
-    showNotification(`Workflow saved: ${nodes.length} nodes, ${edges.length} connections`, 'success');
-  }, [workflowState, nodes.length, edges.length, showNotification]);
+    const message = t('workflow.notifications.workflowSaved', { 
+      nodes: nodes.length, 
+      connections: edges.length 
+    });
+    showNotification(message, 'success');
+  }, [workflowState, nodes.length, edges.length, showNotification, t]);
 
   const clearWorkflow = useCallback(() => {
       setNodes([]);
       setEdges([]);
       workflowState?.trackInteraction?.('workflow_cleared');
-    }, [setNodes, setEdges, workflowState]);
+      showNotification(t('workflow.notifications.workflowCleared'), 'success');
+    }, [setNodes, setEdges, workflowState, showNotification, t]);
   
     const miniMapNodeColor = useCallback((node) => {
       return TAILWIND_COLORS[node?.data?.color] || '#6b7280';
@@ -261,7 +276,7 @@ const WorkflowBuilder = () => {
   
       const sourceNode = nodes.find(n => n.id === connection.source);
       const targetNode = nodes.find(n => n.id === connection.target);
-  
+
       if (!sourceNode || !targetNode) return false;
 
     // Check connections for specific handles
@@ -318,6 +333,17 @@ const WorkflowBuilder = () => {
     <div className="h-full flex min-h-0 bg-gray-50">
       <NotificationBanner notification={notification} />
       
+      {/* Language Switcher Panel */}
+      <Panel position="top-right" className="z-20">
+        <div className="flex items-center space-x-3">
+          <LanguageSwitcher 
+            variant="compact" 
+            className="shadow-lg"
+            showLabels={false}
+          />
+        </div>
+      </Panel>
+      
       <Sidebar 
         showNodePanel={showNodePanel}
         setShowNodePanel={setShowNodePanel}
@@ -373,17 +399,17 @@ const WorkflowBuilder = () => {
                 <div className="text-center p-8 bg-white rounded-lg shadow-lg border border-gray-200 max-w-md">
                   <BrainIcon size={48} className="mx-auto mb-4 text-gray-400" />
                   <h3 className="text-lg font-medium text-gray-800 mb-2">
-                    Start Building Your Workflow
+                    {t('workflow.builder.emptyState.title')}
                   </h3>
                   <p className="text-gray-600 mb-4">
-                    Drag and drop nodes from the sidebar to create your research automation workflow.
+                    {t('workflow.builder.emptyState.description')}
                   </p>
                   <button
                     onClick={() => setShowNodePanel(true)}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     <PlusIcon size={16} />
-                    Add Your First Node
+                    {t('workflow.builder.emptyState.addFirstNode')}
                   </button>
                 </div>
               </Panel>
@@ -413,7 +439,7 @@ const WorkflowBuilder = () => {
               <Panel position="top-center">
                 <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-2 shadow-lg">
                   <p className="text-blue-800 text-sm font-medium">
-                    🔗 Drag to connect nodes • Green = Valid target • Gray = Invalid
+                    {t('workflow.builder.connectionHelper.connecting')}
                   </p>
                 </div>
               </Panel>

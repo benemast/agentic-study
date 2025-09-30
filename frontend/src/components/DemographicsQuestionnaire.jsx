@@ -1,9 +1,13 @@
 // frontend/src/components/DemographicsQuestionnaire.jsx
 import React, { useState, useCallback } from 'react';
 import { useSessionStore } from './SessionManager';
+import { useTranslation } from '../hooks/useTranslation';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 const DemographicsQuestionnaire = ({ onComplete }) => {
-  const trackInteraction = useSessionStore(state => state.trackInteraction);
+  const { trackInteraction, sessionId } = useSessionStore();
+  const { t, currentLanguage, setLanguage } = useTranslation();
   
   const [currentStep, setCurrentStep] = useState(0);
   const [responses, setResponses] = useState({
@@ -11,8 +15,8 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     age: '',
     gender: '',
     education: '',
+    field_of_study: '', // New field
     occupation: '',
-    experience_level: '',
     
     // Technical Background
     programming_experience: '',
@@ -20,7 +24,7 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     workflow_tools_used: [],
     technical_role: '',
     
-    // Research Context
+    // Study Context
     participation_motivation: '',
     expectations: '',
     time_availability: '',
@@ -34,48 +38,75 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Check if field of study should be shown
+  const shouldShowFieldOfStudy = ['bachelors', 'masters', 'phd'].includes(responses.education);
+
   const steps = [
     {
-      title: 'Welcome to the Agentic AI Study',
+      title: t('demographics.welcome.title'),
       type: 'intro',
       content: (
         <div className="text-center space-y-6">
           <div className="text-6xl mb-6">🤖</div>
           <h2 className="text-3xl font-bold text-gray-900">
-            Research on Agentic AI Workflow Design
+            {t('demographics.welcome.subtitle')}
           </h2>
+          
+          {/* Language Selector */}
+          <div className="flex justify-center mb-6">
+            <div className="bg-gray-100 rounded-lg p-1 flex space-x-1">
+              <button
+                onClick={() => setLanguage('en')}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  currentLanguage === 'en' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                English
+              </button>
+              <button
+                onClick={() => setLanguage('de')}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  currentLanguage === 'de' 
+                    ? 'bg-white text-blue-600 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Deutsch
+              </button>
+            </div>
+          </div>
+          
           <div className="text-left max-w-2xl mx-auto space-y-4 text-gray-700">
             <p className="text-lg">
-              Welcome! You're participating in a research study exploring how people design 
-              and interact with agentic AI workflows using visual tools.
+              {t('demographics.welcome.description')}
             </p>
             
             <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-              <h3 className="font-semibold text-blue-900 mb-3">What you'll do:</h3>
+              <h3 className="font-semibold text-blue-900 mb-3">{t('demographics.welcome.whatYouWillDo.title')}</h3>
               <ul className="space-y-2 text-blue-800">
-                <li>• Explore our visual workflow builder interface</li>
-                <li>• Create AI agent workflows for various scenarios</li>
-                <li>• Test and iterate on your workflow designs</li>
-                <li>• Complete tasks and provide feedback</li>
+                <li>• {t('demographics.welcome.whatYouWillDo.explore')}</li>
+                <li>• {t('demographics.welcome.whatYouWillDo.create')}</li>
+                <li>• {t('demographics.welcome.whatYouWillDo.test')}</li>
+                <li>• {t('demographics.welcome.whatYouWillDo.complete')}</li>
               </ul>
             </div>
             
             <div className="bg-green-50 rounded-lg p-6 border border-green-200">
-              <h3 className="font-semibold text-green-900 mb-3">Study details:</h3>
+              <h3 className="font-semibold text-green-900 mb-3">{t('demographics.welcome.studyDetails.title')}</h3>
               <ul className="space-y-2 text-green-800">
-                <li>• <strong>Duration:</strong> 30-60 minutes (work at your own pace)</li>
-                <li>• <strong>Privacy:</strong> Anonymous - no personal identifiers collected</li>
-                <li>• <strong>Data:</strong> Only interaction patterns and workflow designs</li>
-                <li>• <strong>Resumable:</strong> Save your progress and continue later</li>
+                <li>• <strong>{t('demographics.welcome.studyDetails.duration.label')}</strong> {t('demographics.welcome.studyDetails.duration.value')}</li>
+                <li>• <strong>{t('demographics.welcome.studyDetails.privacy.label')}</strong> {t('demographics.welcome.studyDetails.privacy.value')}</li>
+                <li>• <strong>{t('demographics.welcome.studyDetails.data.label')}</strong> {t('demographics.welcome.studyDetails.data.value')}</li>
+                <li>• <strong>{t('demographics.welcome.studyDetails.resumable.label')}</strong> {t('demographics.welcome.studyDetails.resumable.value')}</li>
               </ul>
             </div>
             
             <div className="bg-amber-50 rounded-lg p-6 border border-amber-200">
-              <h3 className="font-semibold text-amber-900 mb-3">Before we begin:</h3>
+              <h3 className="font-semibold text-amber-900 mb-3">{t('demographics.welcome.beforeWeBegin.title')}</h3>
               <p className="text-amber-800">
-                We'll ask a few quick questions about your background to help us understand 
-                our participants better. This helps us analyze how different experience levels 
-                approach agentic AI design.
+                {t('demographics.welcome.beforeWeBegin.description')}
               </p>
             </div>
           </div>
@@ -83,12 +114,12 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
       )
     },
     {
-      title: 'Basic Information',
+      title: t('demographics.basicInfo.title'),
       type: 'form',
       fields: [
         {
           key: 'age',
-          label: 'Age Range',
+          label: t('demographics.basicInfo.age.label'),
           type: 'select',
           required: true,
           options: [
@@ -98,78 +129,86 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
             { value: '45-54', label: '45-54' },
             { value: '55-64', label: '55-64' },
             { value: '65+', label: '65+' },
-            { value: 'prefer-not-to-say', label: 'Prefer not to say' }
+            { value: 'prefer-not-to-say', label: t('demographics.basicInfo.age.preferNotToSay') }
           ]
         },
         {
           key: 'gender',
-          label: 'Gender Identity',
+          label: t('demographics.basicInfo.gender.label'),
           type: 'select',
           required: false,
           options: [
-            { value: 'woman', label: 'Woman' },
-            { value: 'man', label: 'Man' },
-            { value: 'non-binary', label: 'Non-binary' },
-            { value: 'other', label: 'Other' },
-            { value: 'prefer-not-to-say', label: 'Prefer not to say' }
+            { value: 'woman', label: t('demographics.basicInfo.gender.woman') },
+            { value: 'man', label: t('demographics.basicInfo.gender.man') },
+            { value: 'non-binary', label: t('demographics.basicInfo.gender.nonBinary') },
+            { value: 'other', label: t('demographics.basicInfo.gender.other') },
+            { value: 'prefer-not-to-say', label: t('demographics.basicInfo.gender.preferNotToSay') }
           ]
         },
         {
           key: 'education',
-          label: 'Highest Level of Education',
+          label: t('demographics.basicInfo.education.label'),
           type: 'select',
           required: true,
           options: [
-            { value: 'high-school', label: 'High school / Secondary education' },
-            { value: 'some-college', label: 'Some college / university' },
-            { value: 'bachelors', label: "Bachelor's degree" },
-            { value: 'masters', label: "Master's degree" },
-            { value: 'phd', label: 'PhD / Doctoral degree' },
-            { value: 'other', label: 'Other' }
+            { value: 'high-school', label: t('demographics.basicInfo.education.highSchool') },
+            { value: 'some-college', label: t('demographics.basicInfo.education.someCollege') },
+            { value: 'bachelors', label: t('demographics.basicInfo.education.bachelors') },
+            { value: 'masters', label: t('demographics.basicInfo.education.masters') },
+            { value: 'phd', label: t('demographics.basicInfo.education.phd') },
+            { value: 'other', label: t('demographics.basicInfo.education.other') }
           ]
         },
+        // Conditional field of study
+        ...(shouldShowFieldOfStudy ? [{
+          key: 'field_of_study',
+          label: t('demographics.basicInfo.fieldOfStudy.label'),
+          type: 'text',
+          placeholder: t('demographics.basicInfo.fieldOfStudy.placeholder'),
+          required: true
+        }] : []),
         {
           key: 'occupation',
-          label: 'Current Occupation / Field',
+          label: t('demographics.basicInfo.occupation.label'),
           type: 'text',
-          placeholder: 'e.g., Software Engineer, Student, Researcher, etc.',
+          placeholder: t('demographics.basicInfo.occupation.placeholder'),
           required: false
         }
       ]
     },
     {
-      title: 'Technical Background',
+      title: t('demographics.technicalBackground.title'),
       type: 'form',
       fields: [
         {
           key: 'programming_experience',
-          label: 'Programming Experience',
+          label: t('demographics.technicalBackground.programming.label'),
           type: 'select',
           required: true,
           options: [
-            { value: 'none', label: 'No programming experience' },
-            { value: 'beginner', label: 'Beginner (< 1 year)' },
-            { value: 'intermediate', label: 'Intermediate (1-3 years)' },
-            { value: 'advanced', label: 'Advanced (3-7 years)' },
-            { value: 'expert', label: 'Expert (7+ years)' }
+            { value: 'none', label: t('demographics.technicalBackground.programming.none') },
+            { value: 'beginner', label: t('demographics.technicalBackground.programming.beginner') },
+            { value: 'intermediate', label: t('demographics.technicalBackground.programming.intermediate') },
+            { value: 'advanced', label: t('demographics.technicalBackground.programming.advanced') },
+            { value: 'expert', label: t('demographics.technicalBackground.programming.expert') }
           ]
         },
         {
           key: 'ai_ml_experience',
-          label: 'AI/ML Experience',
+          label: t('demographics.technicalBackground.aiMl.label'),
           type: 'select',
           required: true,
           options: [
-            { value: 'none', label: 'No AI/ML experience' },
-            { value: 'beginner', label: 'Beginner - some exposure/learning' },
-            { value: 'intermediate', label: 'Intermediate - built some AI/ML projects' },
-            { value: 'advanced', label: 'Advanced - professional AI/ML work' },
-            { value: 'expert', label: 'Expert - AI/ML specialist/researcher' }
+            { value: 'none', label: t('demographics.technicalBackground.aiMl.none') },
+            { value: 'beginner', label: t('demographics.technicalBackground.aiMl.beginner') },
+            { value: 'intermediate', label: t('demographics.technicalBackground.aiMl.intermediate') },
+            { value: 'advanced', label: t('demographics.technicalBackground.aiMl.advanced') },
+            { value: 'expert', label: t('demographics.technicalBackground.aiMl.expert') }
           ]
         },
         {
           key: 'workflow_tools_used',
-          label: 'Workflow/Automation Tools Used (select all that apply)',
+          label: t('demographics.technicalBackground.workflowTools.label'),
           type: 'checkbox',
           required: false,
           options: [
@@ -182,88 +221,88 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
             { value: 'airflow', label: 'Apache Airflow' },
             { value: 'langchain', label: 'LangChain' },
             { value: 'flowise', label: 'Flowise' },
-            { value: 'none', label: 'None of these' },
-            { value: 'other', label: 'Other (please specify in comments)' }
+            { value: 'none', label: t('demographics.technicalBackground.workflowTools.none') },
+            { value: 'other', label: t('demographics.technicalBackground.workflowTools.other') }
           ]
         },
         {
           key: 'technical_role',
-          label: 'Best Describes Your Technical Role',
+          label: t('demographics.technicalBackground.technicalRole.label'),
           type: 'select',
           required: false,
           options: [
-            { value: 'developer', label: 'Software Developer/Engineer' },
-            { value: 'data-scientist', label: 'Data Scientist/Analyst' },
-            { value: 'researcher', label: 'Academic/Industry Researcher' },
-            { value: 'product-manager', label: 'Product Manager' },
-            { value: 'designer', label: 'UX/UI Designer' },
-            { value: 'student', label: 'Student' },
-            { value: 'business-analyst', label: 'Business Analyst' },
-            { value: 'consultant', label: 'Consultant' },
-            { value: 'other', label: 'Other' },
-            { value: 'non-technical', label: 'Non-technical role' }
+            { value: 'developer', label: t('demographics.technicalBackground.technicalRole.developer') },
+            { value: 'data-scientist', label: t('demographics.technicalBackground.technicalRole.dataScientist') },
+            { value: 'researcher', label: t('demographics.technicalBackground.technicalRole.researcher') },
+            { value: 'product-manager', label: t('demographics.technicalBackground.technicalRole.productManager') },
+            { value: 'designer', label: t('demographics.technicalBackground.technicalRole.designer') },
+            { value: 'student', label: t('demographics.technicalBackground.technicalRole.student') },
+            { value: 'business-analyst', label: t('demographics.technicalBackground.technicalRole.businessAnalyst') },
+            { value: 'consultant', label: t('demographics.technicalBackground.technicalRole.consultant') },
+            { value: 'other', label: t('demographics.technicalBackground.technicalRole.other') },
+            { value: 'non-technical', label: t('demographics.technicalBackground.technicalRole.nonTechnical') }
           ]
         }
       ]
     },
     {
-      title: 'Study Context',
+      title: t('demographics.studyContext.title'),
       type: 'form',
       fields: [
         {
           key: 'participation_motivation',
-          label: 'What motivated you to participate in this study?',
+          label: t('demographics.studyContext.motivation.label'),
           type: 'textarea',
-          placeholder: 'e.g., Interest in AI, research participation, learning about workflow tools...',
+          placeholder: t('demographics.studyContext.motivation.placeholder'),
           required: false,
           rows: 3
         },
         {
           key: 'expectations',
-          label: 'What do you hope to learn or experience?',
+          label: t('demographics.studyContext.expectations.label'),
           type: 'textarea',
-          placeholder: 'Your expectations about the study and workflow builder...',
+          placeholder: t('demographics.studyContext.expectations.placeholder'),
           required: false,
           rows: 3
         },
         {
           key: 'time_availability',
-          label: 'How much time do you have available today?',
+          label: t('demographics.studyContext.timeAvailability.label'),
           type: 'select',
           required: true,
           options: [
-            { value: '15-30min', label: '15-30 minutes' },
-            { value: '30-45min', label: '30-45 minutes' },
-            { value: '45-60min', label: '45-60 minutes' },
-            { value: '60min+', label: 'More than 60 minutes' },
-            { value: 'flexible', label: 'Flexible - I can pause and resume' }
+            { value: '15-30min', label: t('demographics.studyContext.timeAvailability.short') },
+            { value: '30-45min', label: t('demographics.studyContext.timeAvailability.medium') },
+            { value: '45-60min', label: t('demographics.studyContext.timeAvailability.long') },
+            { value: '60min+', label: t('demographics.studyContext.timeAvailability.veryLong') },
+            { value: 'flexible', label: t('demographics.studyContext.timeAvailability.flexible') }
           ]
         }
       ]
     },
     {
-      title: 'Optional Information',
+      title: t('demographics.optionalInfo.title'),
       type: 'form',
       fields: [
         {
           key: 'country',
-          label: 'Country/Region (optional)',
+          label: t('demographics.optionalInfo.country.label'),
           type: 'text',
-          placeholder: 'e.g., United States, Germany, etc.',
+          placeholder: t('demographics.optionalInfo.country.placeholder'),
           required: false
         },
         {
           key: 'first_language',
-          label: 'First Language (optional)',
+          label: t('demographics.optionalInfo.firstLanguage.label'),
           type: 'text',
-          placeholder: 'e.g., English, Spanish, Mandarin, etc.',
+          placeholder: t('demographics.optionalInfo.firstLanguage.placeholder'),
           required: false
         },
         {
           key: 'comments',
-          label: 'Additional Comments (optional)',
+          label: t('demographics.optionalInfo.comments.label'),
           type: 'textarea',
-          placeholder: 'Any other information you\'d like to share or questions about the study...',
+          placeholder: t('demographics.optionalInfo.comments.placeholder'),
           required: false,
           rows: 4
         }
@@ -282,6 +321,14 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
       setErrors(prev => ({
         ...prev,
         [key]: null
+      }));
+    }
+    
+    // Clear field of study if education level changes to non-degree
+    if (key === 'education' && !['bachelors', 'masters', 'phd'].includes(value)) {
+      setResponses(prev => ({
+        ...prev,
+        field_of_study: ''
       }));
     }
   }, [errors]);
@@ -312,14 +359,14 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
       if (field.required) {
         const value = responses[field.key];
         if (!value || (Array.isArray(value) && value.length === 0)) {
-          stepErrors[field.key] = 'This field is required';
+          stepErrors[field.key] = t('common.validation.required');
         }
       }
     });
     
     setErrors(stepErrors);
     return Object.keys(stepErrors).length === 0;
-  }, [responses]);
+  }, [responses, t]);
 
   const handleNext = useCallback(() => {
     const currentStepData = steps[currentStep];
@@ -327,14 +374,16 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     if (currentStepData.type === 'form' && !validateStep(currentStepData)) {
       trackInteraction('demographics_validation_error', { 
         step: currentStep,
-        errors: Object.keys(errors)
+        errors: Object.keys(errors),
+        language: currentLanguage
       });
       return;
     }
     
     trackInteraction('demographics_step_completed', { 
       step: currentStep,
-      step_title: currentStepData.title
+      step_title: currentStepData.title,
+      language: currentLanguage
     });
     
     if (currentStep < steps.length - 1) {
@@ -342,25 +391,51 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     } else {
       handleSubmit();
     }
-  }, [currentStep, validateStep, errors, trackInteraction]);
+  }, [currentStep, validateStep, errors, trackInteraction, currentLanguage]);
 
   const handlePrevious = useCallback(() => {
     if (currentStep > 0) {
       setCurrentStep(prev => prev - 1);
-      trackInteraction('demographics_step_back', { step: currentStep });
+      trackInteraction('demographics_step_back', { step: currentStep, language: currentLanguage });
     }
-  }, [currentStep, trackInteraction]);
+  }, [currentStep, trackInteraction, currentLanguage]);
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     
     try {
-      // Store demographics data in session
+      // Prepare data for API
+      const demographicsData = {
+        session_id: sessionId,
+        ...responses,
+        language_used: currentLanguage, // Track which language was used
+        raw_response: responses
+      };
+      
+      // Submit to backend API
+      const response = await fetch(`${API_BASE_URL}/demographics/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(demographicsData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Demographics submitted successfully:', result);
+      
+      // Store demographics data in session store
       useSessionStore.setState(state => ({
         sessionData: {
           ...state.sessionData,
           demographics: responses,
           demographicsCompleted: true,
+          demographicsCompletedFor: sessionId,
           demographicsCompletedAt: new Date().toISOString()
         }
       }));
@@ -369,23 +444,57 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
       trackInteraction('demographics_completed', {
         total_steps: steps.length,
         completion_time_minutes: Math.round((Date.now() - useSessionStore.getState().sessionStartTime) / 60000),
+        language: currentLanguage,
         responses_summary: {
           age: responses.age,
           education: responses.education,
+          field_of_study: responses.field_of_study,
           programming_experience: responses.programming_experience,
           ai_ml_experience: responses.ai_ml_experience,
           time_availability: responses.time_availability
         }
       });
+
+      //set session tabel entry has_demographics to true
+      const updateResponse = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ has_demographics: true })
+      });
+
+      if (!updateResponse.ok) {
+        const errorData = await updateResponse.json().catch(() => ({}));
+        console.error('Failed to update session:', errorData);
+        throw new Error(errorData.detail || `HTTP error! status: ${updateResponse.status}`);
+      }
       
+      console.log('Session updated with has_demographics');
+
       onComplete(responses);
     } catch (error) {
       console.error('Failed to submit demographics:', error);
-      trackInteraction('demographics_submission_error', { error: error.message });
+      trackInteraction('demographics_submission_error', { error: error.message, language: currentLanguage });
+      
+      // Still allow continuation if API fails (for offline capability)
+      useSessionStore.setState(state => ({
+        sessionData: {
+          ...state.sessionData,
+          demographics: responses,
+          demographicsCompleted: true,
+          demographicsCompletedFor: sessionId,
+          demographicsCompletedAt: new Date().toISOString(),
+          demographicsSubmissionError: error.message
+        }
+      }));
+      
+      console.warn('Demographics saved locally, will retry sync later');
+      onComplete(responses);
     } finally {
       setIsSubmitting(false);
     }
-  }, [responses, onComplete, trackInteraction, steps.length]);
+  }, [responses, onComplete, trackInteraction, steps.length, sessionId, currentLanguage]);
 
   const renderField = useCallback((field) => {
     const value = responses[field.key] || '';
@@ -444,7 +553,7 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
               onChange={(e) => handleInputChange(field.key, e.target.value)}
               className={baseClasses}
             >
-              <option value="">Please select...</option>
+              <option value="">{t('common.form.pleaseSelect')}</option>
               {field.options.map(option => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -485,7 +594,7 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
       default:
         return null;
     }
-  }, [responses, errors, handleInputChange, handleCheckboxChange]);
+  }, [responses, errors, handleInputChange, handleCheckboxChange, t]);
 
   const currentStepData = steps[currentStep];
   const progress = ((currentStep + 1) / steps.length) * 100;
@@ -497,10 +606,10 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-medium text-gray-700">
-              Step {currentStep + 1} of {steps.length}
+              {t('demographics.progress.step', { current: currentStep + 1, total: steps.length })}
             </span>
             <span className="text-sm text-gray-500">
-              {Math.round(progress)}% complete
+              {Math.round(progress)}% {t('demographics.progress.complete')}
             </span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
@@ -537,14 +646,14 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
           >
-            Previous
+            {t('common.navigation.previous')}
           </button>
           
           <div className="text-center">
             <p className="text-sm text-gray-500">
-              {currentStep === 0 && 'Ready to get started?'}
-              {currentStep > 0 && currentStep < steps.length - 1 && 'Continue when ready'}
-              {currentStep === steps.length - 1 && 'Almost done!'}
+              {currentStep === 0 && t('demographics.navigation.readyToStart')}
+              {currentStep > 0 && currentStep < steps.length - 1 && t('demographics.navigation.continueWhenReady')}
+              {currentStep === steps.length - 1 && t('demographics.navigation.almostDone')}
             </p>
           </div>
           
@@ -563,14 +672,14 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <span>Submitting...</span>
+                <span>{t('demographics.navigation.submitting')}</span>
               </span>
             ) : currentStep === steps.length - 1 ? (
-              'Complete & Continue'
+              t('demographics.navigation.completeAndContinue')
             ) : currentStep === 0 ? (
-              'Start Questionnaire'
+              t('demographics.navigation.startQuestionnaire')
             ) : (
-              'Next'
+              t('common.navigation.next')
             )}
           </button>
         </div>
@@ -578,8 +687,7 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
         {/* Privacy note */}
         <div className="mt-6 pt-6 border-t border-gray-200 text-center">
           <p className="text-xs text-gray-500">
-            All responses are anonymous and used solely for research purposes. 
-            You can skip any optional questions you prefer not to answer.
+            {t('demographics.privacyNote')}
           </p>
         </div>
       </div>

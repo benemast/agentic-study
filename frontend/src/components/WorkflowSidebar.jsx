@@ -2,8 +2,11 @@
 import React, { memo, useMemo } from 'react';
 import { NODE_TEMPLATES } from '../constants/nodeTemplates';
 import { renderIcon, ICONS } from '../constants/icons';
+import { useTranslation } from '../hooks/useTranslation';
 
 const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowState }) => {
+  const { t } = useTranslation();
+  
   const categorizedNodes = useMemo(() => {
     const categories = {};
     NODE_TEMPLATES.forEach(node => {
@@ -24,7 +27,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
           <button
             onClick={() => setShowNodePanel(true)}
             className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
-            title="Show node panel"
+            title={t('workflow.builder.addNodes')}
           >
             <PlusIcon size={20} />
           </button>
@@ -41,7 +44,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
           className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
         >
           <PlusIcon size={20} />
-          <span className="font-medium">Add Nodes</span>
+          <span className="font-medium">{t('workflow.builder.addNodes')}</span>
         </button>
       </div>
       
@@ -50,11 +53,15 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
           {Object.entries(categorizedNodes).map(([category, nodes]) => (
             <div key={category}>
               <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                {category}
+                {t(`workflow.builder.nodeCategories.${category}`)}
               </h3>
               <div className="space-y-2">
                 {nodes.map((node) => {
                   const nodeIcon = renderIcon(node.icon, { size: 16, className: "text-white" });
+                  
+                  // Get translated node name
+                  const translatedNodeName = t(`workflow.builder.nodes.${node.id.replace('-', '')}`);
+                  const translatedNodeType = t(`workflow.builder.nodeTypes.${node.type.toLowerCase().replace(/\s+/g, '')}`);
                   
                   return (
                     <div
@@ -70,8 +77,12 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
                         {nodeIcon}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-800">{node.label}</p>
-                        <p className="text-xs text-gray-500">{node.type}</p>
+                        <p className="text-sm font-medium text-gray-800">
+                          {translatedNodeName || node.label}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {translatedNodeType || node.type}
+                        </p>
                       </div>
                     </div>
                   );

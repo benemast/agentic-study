@@ -3,6 +3,11 @@ import React, { memo, useMemo } from 'react';
 import { NODE_TEMPLATES } from '../constants/nodeTemplates';
 import { renderIcon, ICONS } from '../constants/icons';
 import { useTranslation } from '../hooks/useTranslation';
+import { 
+  getNodeTranslationKey, 
+  getNodeTypeTranslationKey,
+  getCategoryTranslationKey 
+} from '../utils/translationHelpers';
 
 const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowState }) => {
   const { t } = useTranslation();
@@ -53,15 +58,15 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
           {Object.entries(categorizedNodes).map(([category, nodes]) => (
             <div key={category}>
               <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                {t(`workflow.builder.nodeCategories.${category}`)}
+                {t(getCategoryTranslationKey(category))}
               </h3>
               <div className="space-y-2">
                 {nodes.map((node) => {
                   const nodeIcon = renderIcon(node.icon, { size: 16, className: "text-white" });
                   
-                  // Get translated node name
-                  const translatedNodeName = t(`workflow.builder.nodes.${node.id.replace('-', '')}`);
-                  const translatedNodeType = t(`workflow.builder.nodeTypes.${node.type.toLowerCase().replace(/\s+/g, '')}`);
+                  // Get translated node name and type using helper functions
+                  const translatedNodeName = t(getNodeTranslationKey(node.id));
+                  const translatedNodeType = t(getNodeTypeTranslationKey(node.type));
                   
                   return (
                     <div
@@ -78,10 +83,10 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-800">
-                          {translatedNodeName || node.label}
+                          {translatedNodeName}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {translatedNodeType || node.type}
+                          {translatedNodeType}
                         </p>
                       </div>
                     </div>

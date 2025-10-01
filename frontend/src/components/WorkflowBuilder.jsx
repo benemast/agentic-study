@@ -12,6 +12,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
+
 import CustomNode from './CustomNode';
 import Sidebar from './WorkflowSidebar';
 import NodeEditor from './NodeEditor';
@@ -22,6 +23,11 @@ import { useWorkflowValidation } from '../hooks/useWorkflowValidation';
 import { useTranslation } from '../hooks/useTranslation';
 import { NODE_TEMPLATES, TAILWIND_COLORS } from '../constants/nodeTemplates';
 import { ICONS } from '../constants/icons';
+
+import { 
+  getNodeTranslationKey, 
+  getNodeTypeTranslationKey 
+} from '../utils/translationHelpers';
 
 // Notification Banner Component
 const NotificationBanner = memo(({ notification }) => {
@@ -187,45 +193,51 @@ const WorkflowBuilder = () => {
   }, []);
 
   const onDrop = useCallback((event) => {
-    event.preventDefault();
-    
-    const nodeTemplateId = event.dataTransfer.getData('application/reactflow');
-    const nodeTemplate = NODE_TEMPLATES.find(template => template.id === nodeTemplateId);
-    
-    if (!nodeTemplate) return;
-    
-    const zoom = getViewport().zoom || 1;
+  event.preventDefault();
+  
+  const nodeTemplateId = event.dataTransfer.getData('application/reactflow');
+  const nodeTemplate = NODE_TEMPLATES.find(template => template.id === nodeTemplateId);
+  
+  if (!nodeTemplate) return;
+  
+  const zoom = getViewport().zoom || 1;
 
-    const position = screenToFlowPosition({ 
-      x: event.clientX - (100 * zoom), // Centering the node (assuming node width ~200px)
-      y: event.clientY - (50 * zoom)   // Centering the node (assuming node height ~100px)
-    });
+  const position = screenToFlowPosition({ 
+    x: event.clientX - (100 * zoom), // Centering the node (assuming node width ~200px)
+    y: event.clientY - (50 * zoom)   // Centering the node (assuming node height ~100px)
+  });
 
-    // Create node with translated label
-    const translatedLabel = t(`workflow.nodes.${nodeTemplate.id.replace('-', '')}`);
+  // Get translated label and type using helper functions
+  const translatedLabel = t(getNodeTranslationKey(nodeTemplate.id));
+  const translatedType = t(getNodeTypeTranslationKey(nodeTemplate.type));
 
-    const newNode = {
-      id: `${nodeTemplate.id}-${nodeCounter}`,
-      type: 'customNode',
-      position,
-      data: {
-        label: translatedLabel || nodeTemplate.label,
-        type: t(`workflow.nodeTypes.${nodeTemplate.type.toLowerCase().replace(' ', '')}`),
-        category: nodeTemplate.category,
-        iconName: nodeTemplate.icon,
-        color: nodeTemplate.color,
-        hasInput: nodeTemplate.hasInput,
-        hasOutput: nodeTemplate.hasOutput,
-        maxInputConnections: nodeTemplate.maxInputConnections,
-        maxOutputConnections: nodeTemplate.maxOutputConnections,
-        description: '',
-      },
-    };
+  const newNode = {
+    id: `${nodeTemplate.id}-${nodeCounter}`,
+    type: 'customNode',
+    position,
+    data: {
+      label: translatedLabel,
+      type: translatedType,
+      category: nodeTemplate.category,
+      iconName: nodeTemplate.icon,
+      color: nodeTemplate.color,
+      hasInput: nodeTemplate.hasInput,
+      hasOutput: nodeTemplate.hasOutput,
+      maxInputConnections: nodeTemplate.maxInputConnections,
+      maxOutputConnections: nodeTemplate.maxOutputConnections,
+      description: '',
+      onDelete: deleteNode,
+      onEdit: editNode,
+    },
+  };
 
-    setNodes(prevNodes => [...prevNodes, newNode]);
-    setNodeCounter(prev => prev + 1);
-    workflowState?.trackInteraction?.('node_added', { type: nodeTemplate.id, position });
-  }, [nodeCounter, setNodes, workflowState, screenToFlowPosition, getViewport, t]);
+  setNodes(prevNodes => [...prevNodes, newNode]);
+  setNodeCounter(prev => prev + 1);
+  workflowState?.trackInteraction?.('node_added', { 
+    nodeType: nodeTemplate.id,
+    nodeId: newNode.id 
+  });
+}, [ screenToFlowPosition, getViewport, t, nodeCounter, setNodes, setNodeCounter, workflowState, deleteNode, editNode ]);
 
   const onDragStart = useCallback((event, nodeTemplate) => {
     event.dataTransfer.setData('application/reactflow', nodeTemplate.id);

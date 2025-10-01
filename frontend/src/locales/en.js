@@ -83,7 +83,8 @@ export const en = {
     },
     sidebar: {
       dashboard: "Dashboard",
-      builder: "Workflow Builder", 
+      builder: "Workflow Builder",
+      aichat: "AI Assistant",
       templates: "Templates",
       executions: "Executions",
       analytics: "Analytics",

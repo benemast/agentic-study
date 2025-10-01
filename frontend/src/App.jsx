@@ -13,6 +13,7 @@ import {
 
 import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
 import WorkflowBuilder from './components/WorkflowBuilder';
+import AIChat from './components/AIChat';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import { useTranslation } from './hooks/useTranslation';
 import * as demographicsUtils from './utils/demographicsSync';
@@ -106,10 +107,10 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
   } catch (error) {
     console.warn('Translation hook not available, using fallback');
     t = (key) => {
-      // Fallback translation mapping
       const fallbacks = {
         'workflow.sidebar.dashboard': 'Dashboard',
         'workflow.sidebar.builder': 'Workflow Builder',
+        'workflow.sidebar.aichat': 'AI Assistant',
         'workflow.sidebar.templates': 'Templates',
         'workflow.sidebar.executions': 'Executions',
         'workflow.sidebar.analytics': 'Analytics',
@@ -123,6 +124,7 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
   const navItems = [
     { id: 'dashboard', icon: '📊', labelKey: 'workflow.sidebar.dashboard' },
     { id: 'builder', icon: '🔧', labelKey: 'workflow.sidebar.builder' },
+    { id: 'aichat', icon: '🤖', labelKey: 'workflow.sidebar.aichat' },
     { id: 'templates', icon: '📋', labelKey: 'workflow.sidebar.templates' },
     { id: 'executions', icon: '⚡', labelKey: 'workflow.sidebar.executions', badge: '3' },
     { id: 'analytics', icon: '📈', labelKey: 'workflow.sidebar.analytics' },
@@ -136,11 +138,11 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
   };
 
   return (
-    <div className={`bg-white border-r border-gray-200 h-full transition-all duration-300 ${
+    <div className={`bg-white border-r border-gray-200 h-full transition-all duration-300 flex flex-col ${
       isCollapsed ? 'w-16' : 'w-64'
     }`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
         {!isCollapsed && (
           <div>
             <h1 className="text-xl font-bold text-gray-900">Agentic Study</h1>
@@ -158,9 +160,9 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
         </TrackedButton>
       </div>
 
-      {/* Language Switcher - only show when not collapsed */}
+      {/* Language Switcher */}
       {!isCollapsed && (
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <LanguageSwitcher 
             variant="compact" 
             className="w-full justify-center"
@@ -169,8 +171,8 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
         </div>
       )}
 
-      {/* Navigation */}
-      <nav className="p-4 space-y-2">
+      {/* Navigation - Flex-grow to fill space */}
+      <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
         {navItems.map(item => (
           <div key={item.id} className="relative group">
             <NavItem
@@ -190,9 +192,9 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
         ))}
       </nav>
 
-      {/* Session Info */}
+      {/* Session Info - Always at bottom */}
       {!isCollapsed && (
-        <div className="absolute bottom-4 left-4 right-4">
+        <div className="border-t border-gray-200 flex-shrink-0">
           <SessionInfo isCollapsed={false} />
         </div>
       )}
@@ -470,6 +472,8 @@ const App = () => {
             <WorkflowBuilder />
           </ReactFlowProvider>
         );
+      case 'aichat':
+        return <AIChat />;
       case 'templates':
         return <PlaceholderView viewName="Templates" />;
       case 'executions':

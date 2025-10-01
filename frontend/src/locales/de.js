@@ -84,6 +84,7 @@ export const de = {
     sidebar: {
       dashboard: "Dashboard",
       builder: "Workflow-Builder",
+      aichat: "KI-Assistent",
       templates: "Vorlagen",
       executions: "Ausführungen",
       analytics: "Analysen",

@@ -11,6 +11,17 @@ let autoSyncInterval = null;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 console.log('API Base URL:', API_BASE_URL);
 
+const formatTimeSpent = (seconds) => {
+  if (!seconds) return '0m';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
+
 // Utility functions
 const generateSessionId = () => {
   if (window.crypto && window.crypto.getRandomValues) {
@@ -891,137 +902,96 @@ const WelcomeScreen = ({ onContinue }) => {
   );
 };
 
+// Minimal Version 
 // Enhanced Session Info with health status
-const SessionInfo = ({ isCollapsed }) => {
-  const { sessionId, participantId, sessionStartTime, sessionData, getShareableUrl, getSessionHealth } = useSessionStore();
-  const [timeSpent, setTimeSpent] = useState('0m');
-  const [showUrl, setShowUrl] = useState(false);
-  const [sessionHealth, setSessionHealth] = useState({});
-
-  useEffect(() => {
-    const updateTime = () => {
-      if (!sessionStartTime) return;
-
-      const now = new Date();
-      const start = new Date(sessionStartTime);
-      const diffMs = now - start;
-      const diffMins = Math.floor(diffMs / 60000);
-      
-      if (diffMins < 60) {
-        setTimeSpent(`${diffMins}m`);
-      } else {
-        const hours = Math.floor(diffMins / 60);
-        const mins = diffMins % 60;
-        setTimeSpent(`${hours}h ${mins}m`);
-      }
-
-      // Update session health
-      setSessionHealth(getSessionHealth());
-    };
-
-    updateTime();
-    const interval = setInterval(updateTime, 60000);
-    return () => clearInterval(interval);
-  }, [sessionStartTime, getSessionHealth]);
-
-  const copyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(getShareableUrl());
-    } catch (error) {
-      console.error('Failed to copy URL:', error);
-    }
-  };
+const SessionInfo = ({ isCollapsed = false }) => {
+  const { 
+    sessionId, 
+    participantId, 
+    sessionData, 
+  } = useSessionStore();
+  
+  const sessionHealth = useSessionStore(state => state.getSessionHealth());
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const timeSpent = formatTimeSpent(sessionData.totalTimeSpent);
 
   if (isCollapsed) return null;
 
   return (
-    <div className="bg-gray-50 rounded-lg p-3">
-      <div className="flex items-center mb-2">
-        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-          {participantId ? participantId.toString().slice(-2) : 'U'}
-        </div>
-        <div className="ml-3 flex-1">
-          <p className="text-sm font-medium text-gray-900">Study Participant</p>
-          <p className="text-xs text-gray-500">{sessionId}</p>
-        </div>
-        
-        {/* Connection status indicator */}
-        <div className="flex items-center space-x-1">
-          {sessionHealth.connection === 'online' && <div className="w-2 h-2 bg-green-500 rounded-full" title="Online" />}
-          {sessionHealth.connection === 'offline' && <div className="w-2 h-2 bg-yellow-500 rounded-full" title="Offline" />}
-          {sessionHealth.connection === 'error' && <div className="w-2 h-2 bg-red-500 rounded-full" title="Connection Error" />}
+    <div className="bg-gray-50 overflow-hidden">
+      {/* Compact Header - Always Visible */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-semibold text-sm flex-shrink-0">
+            {participantId ? participantId.toString().slice(-2) : 'U'}
+          </div>
           
-          <button
-            onClick={() => setShowUrl(!showUrl)}
-            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-            title="Share session URL"
-          >
-            🔗
-          </button>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {/* Connection status dot */}
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+              sessionHealth.connection === 'online' ? 'bg-green-500' :
+              sessionHealth.connection === 'offline' ? 'bg-yellow-500' : 'bg-red-500'
+            }`} />
+            
+            {/* Time */}
+            <span className="text-xs text-gray-600 font-medium">{timeSpent}</span>
+          </div>
         </div>
-      </div>
-      
-      {/* Timeout warning */}
-      {sessionHealth.timeoutWarning && (
-        <div className="mb-2 p-2 bg-yellow-100 border border-yellow-200 rounded text-xs">
-          <div className="flex items-center space-x-1">
-            <span>⏰</span>
-            <span className="text-yellow-800">
-              Session expires in {Math.floor(sessionHealth.minutesUntilTimeout)} minutes
+
+        {/* Expand/Collapse Icon */}
+        <svg 
+          className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Expanded Details */}
+      {isExpanded && (
+        <div className="px-4 py-3 border-t border-gray-200 bg-white space-y-2">
+          {/* Session ID */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Session</span>
+            <span className="font-mono text-gray-700 truncate ml-2" title={sessionId}>
+              {sessionId?.slice(0, 8)}...
             </span>
           </div>
-        </div>
-      )}
-      
-      {/* Error display */}
-      {sessionHealth.hasError && (
-        <div className="mb-2 p-2 bg-red-100 border border-red-200 rounded text-xs">
-          <div className="flex items-center space-x-1">
-            <span>❌</span>
-            <span className="text-red-800">Connection issues detected</span>
+
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-50 rounded px-2 py-1.5">
+              <div className="text-gray-500">Workflows</div>
+              <div className="font-semibold text-gray-900">{sessionData.workflowsCreated}</div>
+            </div>
+            <div className="bg-gray-50 rounded px-2 py-1.5">
+              <div className="text-gray-500">Events</div>
+              <div className="font-semibold text-gray-900">{sessionData.interactions.length}</div>
+            </div>
           </div>
+
+          {/* Warnings */}
+          {sessionHealth.timeoutWarning && (
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-yellow-50 rounded text-xs text-yellow-700">
+              <span>⏰</span>
+              <span>{Math.floor(sessionHealth.minutesUntilTimeout)} min left</span>
+            </div>
+          )}
+
+          {sessionHealth.hasError && (
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-red-50 rounded text-xs text-red-700">
+              <span>⚠️</span>
+              <span>Connection issues</span>
+            </div>
+          )}
         </div>
       )}
-      
-      {/* URL sharing */}
-      {showUrl && (
-        <div className="mb-2 p-2 bg-gray-100 rounded text-xs">
-          <div className="flex items-center space-x-1">
-            <input
-              type="text"
-              value={getShareableUrl() || ''}
-              readOnly
-              className="flex-1 px-1 py-1 bg-white border border-gray-300 rounded text-xs font-mono"
-            />
-            <button
-              onClick={copyUrl}
-              className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-            >
-              Copy
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {/* Session stats */}
-      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-        <div>
-          <div className="font-medium">Time:</div>
-          <div>{timeSpent}</div>
-        </div>
-        <div>
-          <div className="font-medium">Workflows:</div>
-          <div>{sessionData.workflowsCreated}</div>
-        </div>
-        <div>
-          <div className="font-medium">Status:</div>
-          <div className="capitalize">{sessionHealth.connection}</div>
-        </div>
-        <div>
-          <div className="font-medium">Events:</div>
-          <div>{sessionData.interactions.length}</div>
-        </div>
-      </div>
     </div>
   );
 };

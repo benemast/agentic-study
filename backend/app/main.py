@@ -10,7 +10,7 @@ import os
 import json
 import traceback
 
-from app.routers import sessions, demographics
+from app.routers import sessions, demographics, ai_chat
 from app.database import create_tables, check_database_connection
 
 # Load environment variables
@@ -147,6 +147,7 @@ async def log_requests(request: Request, call_next):
 # Include routers
 app.include_router(sessions.router)
 app.include_router(demographics.router)
+app.include_router(ai_chat.router)
 
 @app.get("/")
 async def root():

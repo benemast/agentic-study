@@ -12,22 +12,30 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
+import CustomNode from '../nodes/CustomNode';
+import NodeEditor from '../nodes/NodeEditor';
 
-import CustomNode from './CustomNode';
 import Sidebar from './WorkflowSidebar';
-import NodeEditor from './NodeEditor';
 import WorkflowToolbar from './WorkflowToolbar';
-import LanguageSwitcher from './LanguageSwitcher';
-import { useWorkflowState } from '../hooks/useWorkflowState';
-import { useWorkflowValidation } from '../hooks/useWorkflowValidation';
-import { useTranslation } from '../hooks/useTranslation';
-import { NODE_TEMPLATES, TAILWIND_COLORS } from '../constants/nodeTemplates';
-import { ICONS } from '../constants/icons';
+
+import LanguageSwitcher from '../LanguageSwitcher';
+
+import { useSession } from '../../hooks/useSession';
+import { useTracking } from '../../hooks/useTracking';
+import { useSessionData } from '../../hooks/useSessionData';
+import { sessionAPI } from '../../config/api';
+import { WORKFLOW_CONFIG, TRACKING_EVENTS } from '../../config/constants';
+
+import { useWorkflowValidation } from '../../hooks/useWorkflowValidation';
+import { useTranslation } from '../../hooks/useTranslation';
+
+import { NODE_TEMPLATES, TAILWIND_COLORS } from '../../constants/nodeTemplates';
+import { ICONS } from '../../constants/icons';
 
 import { 
   getNodeTranslationKey, 
   getNodeTypeTranslationKey 
-} from '../utils/translationHelpers';
+} from '../../utils/translationHelpers';
 
 // Notification Banner Component
 const NotificationBanner = memo(({ notification }) => {
@@ -46,17 +54,28 @@ NotificationBanner.displayName = 'NotificationBanner';
 
 // Main WorkflowBuilder Component
 const WorkflowBuilder = () => {
-  const workflowState = useWorkflowState();
+  const { sessionId } = useSession();
+  const { 
+    trackNodeAdded, 
+    trackNodeDeleted, 
+    trackNodeEdited,
+    trackEdgeAdded,
+    trackEdgeDeleted,
+    trackWorkflowSaved,
+    trackError 
+  } = useTracking();
+  const { currentWorkflow, updateWorkflow } = useSessionData();
+  
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const { t } = useTranslation();
 
   // Initialize workflow from session
   const initialWorkflow = useMemo(() => 
-    workflowState.getWorkflowFromSession(), 
-    [workflowState]
+    currentWorkflow || { nodes: [], edges: [] }, 
+    [currentWorkflow]
   );
 
-   // Calculate initial node counter based on existing nodes to prevent ID collisions
+  // Calculate initial node counter based on existing nodes to prevent ID collisions
   const getInitialNodeCounter = useCallback(() => {
     if (initialWorkflow.nodes.length === 0) return 0;
     
@@ -102,160 +121,89 @@ const WorkflowBuilder = () => {
   const deleteNode = useCallback((nodeId) => {
     setNodes(prevNodes => prevNodes.filter(node => node.id !== nodeId));
     setEdges(prevEdges => prevEdges.filter(edge => edge.source !== nodeId && edge.target !== nodeId));
-    workflowState?.trackInteraction?.('node_deleted', { nodeId });
-  }, [setNodes, setEdges, workflowState]);
+    
+    // Track deletion
+    trackNodeDeleted(nodeId);
+  }, [setNodes, setEdges, trackNodeDeleted]);
 
   const editNode = useCallback((nodeId) => {
     const node = nodes.find(n => n.id === nodeId);
     if (node) {
       setEditingNode(node);
-      workflowState?.trackInteraction?.('node_edit_started', { nodeId });
+      trackNodeEdited(nodeId, { action: 'opened_editor' });
     }
-  }, [nodes, workflowState]);
+  }, [nodes, trackNodeEdited]);
 
-  const onKeyDown = useCallback((event) => {
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      const selectedNodes = nodes.filter(node => node.selected);
-      const selectedEdges = edges.filter(edge => edge.selected);
-      
-      if (selectedNodes.length > 0) {
-        selectedNodes.forEach(node => deleteNode(node.id));
-        workflowState?.trackInteraction?.('nodes_deleted_keyboard', { count: selectedNodes.length });
-      }
-      
-      if (selectedEdges.length > 0) {
-        setEdges(prevEdges => prevEdges.filter(edge => !edge.selected));
-        workflowState?.trackInteraction?.('edges_deleted_keyboard', { count: selectedEdges.length });
-      }
-    }
-  }, [nodes, edges, deleteNode, setEdges, workflowState]);
+  const handleNodeAdd = useCallback((event, nodeType) => {
+    const nodeTemplate = NODE_TEMPLATES[nodeType];
+    if (!nodeTemplate) return;
 
+    const zoom = getViewport().zoom || 1;
+
+    const position = screenToFlowPosition({ 
+      x: event.clientX - (WORKFLOW_CONFIG.DEFAULT_NODE_WIDTH * zoom), // Centering the node (assuming node width ~200px)
+      y: event.clientY - (WORKFLOW_CONFIG.DEFAULT_NODE_HEIGHT * zoom)   // Centering the node (assuming node height ~100px)
+    });
+
+    const newNode = {
+      id: `${nodeType}-${nodeCounter}`,
+      type: 'custom',
+      position,
+      data: {
+        label: nodeTemplate.label,
+        type: nodeType,
+        color: nodeTemplate.color,
+        icon: nodeTemplate.icon,
+        inputs: nodeTemplate.inputs,
+        outputs: nodeTemplate.outputs,
+        onDelete: deleteNode,
+        onEdit: editNode,
+      },
+    };
+
+    setNodes(prev => [...prev, newNode]);
+    setNodeCounter(prev => prev + 1);
+    
+    // Track node addition
+    trackNodeAdded(nodeType, {
+      nodeId: newNode.id,
+      position: newNode.position
+    });
+  }, [
+    nodeCounter, 
+    screenToFlowPosition, 
+    getViewport, 
+    setNodes, 
+    deleteNode, 
+    editNode, 
+    trackNodeAdded
+  ]);
+
+  // Connection handler with tracking
   const onConnect = useCallback((params) => {
-    const sourceNode = nodes.find(n => n.id === params.source);
-    const targetNode = nodes.find(n => n.id === params.target);
+    setEdges((eds) => addEdge(params, eds));
     
-    if (!sourceNode || !targetNode) return;
-    
-    // Check handle-specific connections
-    const sourceHandle = params.sourceHandle || 'output-0';
-    const targetHandle = params.targetHandle || 'input-0';
-    
-    const sourceHandleConnections = edges.filter(e => 
-      e.source === params.source && (e.sourceHandle || 'output-0') === sourceHandle
-    );
-    const targetHandleConnections = edges.filter(e => 
-      e.target === params.target && (e.targetHandle || 'input-0') === targetHandle
-    );
-    
-    const sourceHandleLimit = 1; // Can be made configurable later
-    const targetHandleLimit = 1; // Can be made configurable later
-    
-    if (sourceHandleConnections.length >= sourceHandleLimit) {
-      showNotification(`Source handle already has the maximum of ${sourceHandleLimit} connection${sourceHandleLimit > 1 ? 's' : ''}`);
-      return;
-    }
-    
-    if (targetHandleConnections.length >= targetHandleLimit) {
-      showNotification(`Target handle already has the maximum of ${targetHandleLimit} connection${targetHandleLimit > 1 ? 's' : ''}`);
-      return;
-    }
-    
-    setEdges(prevEdges => addEdge(params, prevEdges));
-    workflowState?.trackInteraction?.('nodes_connected', { 
-      source: params.source, 
-      target: params.target,
-      sourceHandle,
-      targetHandle 
+    // Track edge addition
+    trackEdgeAdded(params.source, params.target, {
+      sourceHandle: params.sourceHandle,
+      targetHandle: params.targetHandle
     });
-  }, [setEdges, workflowState, nodes, edges, showNotification]);
+  }, [setEdges, trackEdgeAdded]);
 
-  const onConnectStart = useCallback((event, { nodeId, handleId, handleType }) => {
-    setConnectionState({
-      isConnecting: true,
-      sourceNodeId: nodeId,
-      sourceHandleId: handleId || 'output-0',
-      sourceHandleType: handleType || 'source'
+  // Edge delete handler with tracking
+  const onEdgesDelete = useCallback((edgesToDelete) => {
+    edgesToDelete.forEach(edge => {
+      trackEdgeDeleted(edge.id, {
+        source: edge.source,
+        target: edge.target
+      });
     });
-  }, []);
-
-  const onConnectEnd = useCallback(() => {
-    setConnectionState({
-      isConnecting: false,
-      sourceNodeId: null,
-      sourceHandleId: null,
-      sourceHandleType: null
-    });
-  }, []);
-
-  const onDragOver = useCallback((event) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const onDrop = useCallback((event) => {
-  event.preventDefault();
-  
-  const nodeTemplateId = event.dataTransfer.getData('application/reactflow');
-  const nodeTemplate = NODE_TEMPLATES.find(template => template.id === nodeTemplateId);
-  
-  if (!nodeTemplate) return;
-  
-  const zoom = getViewport().zoom || 1;
-
-  const position = screenToFlowPosition({ 
-    x: event.clientX - (100 * zoom), // Centering the node (assuming node width ~200px)
-    y: event.clientY - (50 * zoom)   // Centering the node (assuming node height ~100px)
-  });
-
-  // Get translated label and type using helper functions
-  const translatedLabel = t(getNodeTranslationKey(nodeTemplate.id));
-  const translatedType = t(getNodeTypeTranslationKey(nodeTemplate.type));
-
-  const newNode = {
-    id: `${nodeTemplate.id}-${nodeCounter}`,
-    type: 'customNode',
-    position,
-    data: {
-      label: translatedLabel,
-      type: translatedType,
-      category: nodeTemplate.category,
-      iconName: nodeTemplate.icon,
-      color: nodeTemplate.color,
-      hasInput: nodeTemplate.hasInput,
-      hasOutput: nodeTemplate.hasOutput,
-      maxInputConnections: nodeTemplate.maxInputConnections,
-      maxOutputConnections: nodeTemplate.maxOutputConnections,
-      description: '',
-      onDelete: deleteNode,
-      onEdit: editNode,
-    },
-  };
-
-  setNodes(prevNodes => [...prevNodes, newNode]);
-  setNodeCounter(prev => prev + 1);
-  workflowState?.trackInteraction?.('node_added', { 
-    nodeType: nodeTemplate.id,
-    nodeId: newNode.id 
-  });
-}, [ screenToFlowPosition, getViewport, t, nodeCounter, setNodes, setNodeCounter, workflowState, deleteNode, editNode ]);
+  }, [trackEdgeDeleted]);
 
   const onDragStart = useCallback((event, nodeTemplate) => {
     event.dataTransfer.setData('application/reactflow', nodeTemplate.id);
     event.dataTransfer.effectAllowed = 'move';
   }, []);
-
-  const executeWorkflow = useCallback(() => {
-    workflowState?.incrementWorkflowsCreated?.();
-    workflowState?.trackInteraction?.('workflow_executed', { 
-      nodeCount: nodes.length, 
-      connectionCount: edges.length 
-    });
-    const message = t('workflow.notifications.workflowExecuted', { 
-      nodes: nodes.length, 
-      connections: edges.length 
-    });
-    showNotification(message, 'success');
-  }, [workflowState, nodes.length, edges.length, showNotification, t]);
 
   const saveWorkflow = useCallback(() => {
     workflowState?.trackInteraction?.('workflow_saved', { 
@@ -268,6 +216,19 @@ const WorkflowBuilder = () => {
     });
     showNotification(message, 'success');
   }, [workflowState, nodes.length, edges.length, showNotification, t]);
+
+  const executeWorkflow = useCallback(() => {
+    workflowState?.incrementWorkflowsCreated?.();
+    workflowState?.trackInteraction?.('workflow_executed', { 
+      nodeCount: nodes.length, 
+      connectionCount: edges.length 
+    });
+    const message = t('workflow.notifications.workflowExecuted', { 
+      nodes: nodes.length, 
+      connections: edges.length 
+    });
+    showNotification(message, 'success');
+  }, [workflowState, nodes.length, edges.length, showNotification, t]);<
 
   const clearWorkflow = useCallback(() => {
       setNodes([]);
@@ -391,9 +352,9 @@ const WorkflowBuilder = () => {
             className="bg-gray-50"
             fitView
             fitViewOptions={{
-              padding: 0.3,
-              minZoom: 0.3,
-              maxZoom: 1.5
+              padding: WORKFLOW_CONFIG.DEFAULT_PADDING,
+              minZoom: WORKFLOW_CONFIG.ZOOM_MIN,
+              maxZoom: WORKFLOW_CONFIG.ZOOM_MAX
             }}
             defaultViewport={{ x: 0, y: 0, zoom: 0.6 }}
             deleteKeyCode={null}
@@ -476,6 +437,7 @@ const WorkflowBuilder = () => {
       />
     </div>
   );
+  
 };
 
 export default WorkflowBuilder;

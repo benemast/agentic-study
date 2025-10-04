@@ -1,47 +1,194 @@
 // frontend/src/components/DemographicsQuestionnaire.jsx
 import React, { useState, useCallback } from 'react';
-import { useSessionStore } from './SessionManager';
 import { useTranslation } from '../hooks/useTranslation';
+
+import { useSession } from '../hooks/useSession';
+import { useTracking } from '../hooks/useTracking';
+import { demographicsAPI } from '../config/api';
+import { 
+  DEMOGRAPHICS_CONFIG, 
+  ERROR_MESSAGES, 
+  SUCCESS_MESSAGES,
+  TRACKING_EVENTS 
+} from '../config/constants';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 const DemographicsQuestionnaire = ({ onComplete }) => {
-  const { trackInteraction, sessionId } = useSessionStore();
-  const { t, currentLanguage, setLanguage } = useTranslation();
   
-  const [currentStep, setCurrentStep] = useState(0);
-  const [responses, setResponses] = useState({
-    // Demographics
-    age: '',
-    gender: '',
-    education: '',
-    field_of_study: '', // New field
-    occupation: '',
-    
-    // Technical Background
-    programming_experience: '',
-    ai_ml_experience: '',
-    workflow_tools_used: [],
-    technical_role: '',
-    
-    // Study Context
-    participation_motivation: '',
-    expectations: '',
-    time_availability: '',
-    
-    // Optional
-    country: '',
-    first_language: '',
-    comments: ''
-  });
+const { sessionId } = useSession();
+  const { track, trackError } = useTracking();
   
+  const [responses, setResponses] = useState({});
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  
+  const { t, currentLanguage, setLanguage } = useTranslation(); 
 
   // Check if field of study should be shown
   const shouldShowFieldOfStudy = ['bachelors', 'masters', 'phd'].includes(responses.education);
 
-  const steps = [
+  // Track demographics start
+  useEffect(() => {
+    track(TRACKING_EVENTS.DEMOGRAPHICS_STARTED);
+  }, [track]);
+
+  // Validate required fields
+  const validateForm = () => {
+    const newErrors = {};
+    
+    DEMOGRAPHICS_CONFIG.REQUIRED_FIELDS.forEach(field => {
+      if (!responses[field] || responses[field].trim() === '') {
+        newErrors[field] = 'This field is required';
+      }
+    });
+    
+    // Age validation
+    if (responses.age) {
+      const age = parseInt(responses.age);
+      if (isNaN(age) || age < DEMOGRAPHICS_CONFIG.MIN_AGE || age > DEMOGRAPHICS_CONFIG.MAX_AGE) {
+        newErrors.age = `Age must be between ${DEMOGRAPHICS_CONFIG.MIN_AGE} and ${DEMOGRAPHICS_CONFIG.MAX_AGE}`;
+      }
+    }
+    
+    // Text length validation
+    Object.keys(responses).forEach(key => {
+      if (typeof responses[key] === 'string' && responses[key].length > DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH) {
+        newErrors[key] = `Maximum ${DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH} characters allowed`;
+      }
+    });
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      setSubmitError('Please fix the errors before submitting');
+      return;
+    }
+    
+    if (!sessionId) {
+      setSubmitError(ERROR_MESSAGES.SESSION_EXPIRED);
+      return;
+    }
+    
+    setIsSubmitting(true);
+    setSubmitError(null);
+    
+    try {
+      // Track submission attempt
+      track('demographics_submission_attempted', {
+        fieldsCompleted: Object.keys(responses).length
+      });
+      
+      // Prepare data
+      const demographicsData = {
+        session_id: sessionId,
+        ...responses,
+        language_used: currentLanguage, // Track which language was used
+        raw_response: responses,
+        completed_at: new Date().toISOString()
+      };
+      
+      // Submit using API client
+      const result = await demographicsAPI.create(demographicsData);
+      
+      console.log('Demographics submitted:', result);
+      
+      // Track successful completion
+      track(TRACKING_EVENTS.DEMOGRAPHICS_COMPLETED, {
+        fieldsCompleted: Object.keys(responses).length,
+        completionTime: Date.now()
+      });
+      
+      // Show success message
+      alert(SUCCESS_MESSAGES.SUBMITTED);
+      
+      // Call completion callback
+      if (onComplete) {
+        onComplete(result);
+      }
+      
+    } catch (error) {
+      console.error('Demographics submission error:', error);
+      
+      let errorMessage = ERROR_MESSAGES.API_ERROR;
+      
+      if (error.status === 409) {
+        errorMessage = 'Demographics already submitted for this session';
+      } else if (error.status === 400) {
+        errorMessage = 'Invalid demographics data. Please check your responses.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setSubmitError(errorMessage);
+      trackError('demographics_submit_failed', error.message, {
+        status: error.status,
+        fieldsCompleted: Object.keys(responses).length
+      });
+      
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setResponses(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Clear error for this field
+    if (errors[field]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
+  };
+
+  const handleNext = () => {
+    // Validate current step before proceeding
+    const currentFields = steps[currentStep].fields || [];
+    const hasErrors = currentFields.some(field => {
+      if (DEMOGRAPHICS_CONFIG.REQUIRED_FIELDS.includes(field.name)) {
+        return !responses[field.name];
+      }
+      return false;
+    });
+    
+    if (hasErrors) {
+      setSubmitError('Please complete all required fields before continuing');
+      return;
+    }
+    
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(prev => prev + 1);
+      setSubmitError(null);
+      
+      // Track step completion
+      track('demographics_step_completed', {
+        step: currentStep,
+        stepName: steps[currentStep].title
+      });
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep > 0) {
+      setCurrentStep(prev => prev - 1);
+      setSubmitError(null);
+    }
+  };
+
+const steps = [
     {
       title: t('demographics.welcome.title'),
       type: 'intro',
@@ -310,28 +457,6 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     }
   ];
 
-  const handleInputChange = useCallback((key, value) => {
-    setResponses(prev => ({
-      ...prev,
-      [key]: value
-    }));
-    
-    // Clear error for this field
-    if (errors[key]) {
-      setErrors(prev => ({
-        ...prev,
-        [key]: null
-      }));
-    }
-    
-    // Clear field of study if education level changes to non-degree
-    if (key === 'education' && !['bachelors', 'masters', 'phd'].includes(value)) {
-      setResponses(prev => ({
-        ...prev,
-        field_of_study: ''
-      }));
-    }
-  }, [errors]);
 
   const handleCheckboxChange = useCallback((key, value, checked) => {
     setResponses(prev => {
@@ -368,134 +493,8 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     return Object.keys(stepErrors).length === 0;
   }, [responses, t]);
 
-  const handleNext = useCallback(() => {
-    const currentStepData = steps[currentStep];
-    
-    if (currentStepData.type === 'form' && !validateStep(currentStepData)) {
-      trackInteraction('demographics_validation_error', { 
-        step: currentStep,
-        errors: Object.keys(errors),
-        language: currentLanguage
-      });
-      return;
-    }
-    
-    trackInteraction('demographics_step_completed', { 
-      step: currentStep,
-      step_title: currentStepData.title,
-      language: currentLanguage
-    });
-    
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(prev => prev + 1);
-    } else {
-      handleSubmit();
-    }
-  }, [currentStep, validateStep, errors, trackInteraction, currentLanguage]);
 
-  const handlePrevious = useCallback(() => {
-    if (currentStep > 0) {
-      setCurrentStep(prev => prev - 1);
-      trackInteraction('demographics_step_back', { step: currentStep, language: currentLanguage });
-    }
-  }, [currentStep, trackInteraction, currentLanguage]);
-
-  const handleSubmit = useCallback(async () => {
-    setIsSubmitting(true);
-    
-    try {
-      // Prepare data for API
-      const demographicsData = {
-        session_id: sessionId,
-        ...responses,
-        language_used: currentLanguage, // Track which language was used
-        raw_response: responses
-      };
-      
-      // Submit to backend API
-      const response = await fetch(`${API_BASE_URL}/demographics/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(demographicsData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Demographics submitted successfully:', result);
-      
-      // Store demographics data in session store
-      useSessionStore.setState(state => ({
-        sessionData: {
-          ...state.sessionData,
-          demographics: responses,
-          demographicsCompleted: true,
-          demographicsCompletedFor: sessionId,
-          demographicsCompletedAt: new Date().toISOString()
-        }
-      }));
-      
-      // Track completion
-      trackInteraction('demographics_completed', {
-        total_steps: steps.length,
-        completion_time_minutes: Math.round((Date.now() - useSessionStore.getState().sessionStartTime) / 60000),
-        language: currentLanguage,
-        responses_summary: {
-          age: responses.age,
-          education: responses.education,
-          field_of_study: responses.field_of_study,
-          programming_experience: responses.programming_experience,
-          ai_ml_experience: responses.ai_ml_experience,
-          time_availability: responses.time_availability
-        }
-      });
-
-      //set session tabel entry has_demographics to true
-      const updateResponse = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ has_demographics: true })
-      });
-
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json().catch(() => ({}));
-        console.error('Failed to update session:', errorData);
-        throw new Error(errorData.detail || `HTTP error! status: ${updateResponse.status}`);
-      }
-      
-      console.log('Session updated with has_demographics');
-
-      onComplete(responses);
-    } catch (error) {
-      console.error('Failed to submit demographics:', error);
-      trackInteraction('demographics_submission_error', { error: error.message, language: currentLanguage });
-      
-      // Still allow continuation if API fails (for offline capability)
-      useSessionStore.setState(state => ({
-        sessionData: {
-          ...state.sessionData,
-          demographics: responses,
-          demographicsCompleted: true,
-          demographicsCompletedFor: sessionId,
-          demographicsCompletedAt: new Date().toISOString(),
-          demographicsSubmissionError: error.message
-        }
-      }));
-      
-      console.warn('Demographics saved locally, will retry sync later');
-      onComplete(responses);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [responses, onComplete, trackInteraction, steps.length, sessionId, currentLanguage]);
-
+  
   const renderField = useCallback((field) => {
     const value = responses[field.key] || '';
     const error = errors[field.key];
@@ -598,6 +597,7 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
 
   const currentStepData = steps[currentStep];
   const progress = ((currentStep + 1) / steps.length) * 100;
+  const isLastStep = currentStep === steps.length - 1;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -606,10 +606,10 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-medium text-gray-700">
-              {t('demographics.progress.step', { current: currentStep + 1, total: steps.length })}
+              Step {currentStep + 1} of {steps.length}
             </span>
             <span className="text-sm text-gray-500">
-              {Math.round(progress)}% {t('demographics.progress.complete')}
+              {Math.round(progress)}% Complete
             </span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
@@ -620,76 +620,133 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
           </div>
         </div>
 
-        {/* Step content */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-            {currentStepData.title}
-          </h1>
-          
-          {currentStepData.type === 'intro' ? (
-            currentStepData.content
-          ) : (
-            <div className="space-y-6 max-w-2xl mx-auto">
-              {currentStepData.fields.map(renderField)}
+        {/* Error Banner */}
+        {submitError && (
+          <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <span className="text-red-500">⚠️</span>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{submitError}</p>
+              </div>
+              <button
+                onClick={() => setSubmitError(null)}
+                className="ml-auto text-red-500 hover:text-red-700"
+              >
+                ×
+              </button>
             </div>
-          )}
-        </div>
-
-        {/* Navigation buttons */}
-        <div className="flex justify-between items-center">
-          <button
-            onClick={handlePrevious}
-            disabled={currentStep === 0}
-            className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-              currentStep === 0
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            {t('common.navigation.previous')}
-          </button>
-          
-          <div className="text-center">
-            <p className="text-sm text-gray-500">
-              {currentStep === 0 && t('demographics.navigation.readyToStart')}
-              {currentStep > 0 && currentStep < steps.length - 1 && t('demographics.navigation.continueWhenReady')}
-              {currentStep === steps.length - 1 && t('demographics.navigation.almostDone')}
-            </p>
           </div>
-          
-          <button
-            onClick={handleNext}
-            disabled={isSubmitting}
-            className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-              isSubmitting
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {isSubmitting ? (
-              <span className="flex items-center space-x-2">
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <span>{t('demographics.navigation.submitting')}</span>
-              </span>
-            ) : currentStep === steps.length - 1 ? (
-              t('demographics.navigation.completeAndContinue')
-            ) : currentStep === 0 ? (
-              t('demographics.navigation.startQuestionnaire')
-            ) : (
-              t('common.navigation.next')
-            )}
-          </button>
-        </div>
-        
-        {/* Privacy note */}
-        <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-          <p className="text-xs text-gray-500">
-            {t('demographics.privacyNote')}
-          </p>
-        </div>
+        )}
+
+        {/* Step content */}
+        <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">
+              {currentStepData.title}
+            </h1>
+            
+            <div className="space-y-6 max-w-2xl mx-auto">
+              {/* Your existing field rendering logic */}
+              {currentStepData.fields?.map(field => (
+                <div key={field.name}>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {field.label}
+                    {DEMOGRAPHICS_CONFIG.REQUIRED_FIELDS.includes(field.name) && (
+                      <span className="text-red-500 ml-1">*</span>
+                    )}
+                  </label>
+                  
+                  {field.type === 'select' ? (
+                    <select
+                      value={responses[field.name] || ''}
+                      onChange={(e) => handleInputChange(field.name, e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required={DEMOGRAPHICS_CONFIG.REQUIRED_FIELDS.includes(field.name)}
+                    >
+                      <option value="">Select...</option>
+                      {field.options?.map(opt => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : field.type === 'textarea' ? (
+                    <textarea
+                      value={responses[field.name] || ''}
+                      onChange={(e) => handleInputChange(field.name, e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      rows={4}
+                      maxLength={DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH}
+                      placeholder={field.placeholder}
+                    />
+                  ) : (
+                    <input
+                      type={field.type || 'text'}
+                      value={responses[field.name] || ''}
+                      onChange={(e) => handleInputChange(field.name, e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder={field.placeholder}
+                      maxLength={field.type === 'text' ? DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH : undefined}
+                    />
+                  )}
+                  
+                  {errors[field.name] && (
+                    <p className="text-sm text-red-600 mt-1">{errors[field.name]}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Navigation buttons */}
+          <div className="flex justify-between items-center">
+            <button
+              type="button"
+              onClick={handlePrevious}
+              disabled={currentStep === 0}
+              className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                currentStep === 0
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Previous
+            </button>
+            
+            <div className="text-center">
+              <p className="text-sm text-gray-500">
+                {currentStep === 0 && 'Ready to start?'}
+                {currentStep > 0 && currentStep < steps.length - 1 && 'Continue when ready'}
+                {currentStep === steps.length - 1 && 'Almost done!'}
+              </p>
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                isSubmitting
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : isLastStep
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin">⏳</span>
+                  Submitting...
+                </span>
+              ) : isLastStep ? (
+                'Submit'
+              ) : (
+                'Next'
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

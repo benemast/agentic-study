@@ -1,13 +1,13 @@
 // frontend/src/components/WorkflowSidebar.jsx
 import React, { memo, useMemo } from 'react';
-import { NODE_TEMPLATES } from '../constants/nodeTemplates';
-import { renderIcon, ICONS } from '../constants/icons';
-import { useTranslation } from '../hooks/useTranslation';
+import { NODE_TEMPLATES } from '../../constants/nodeTemplates';
+import { renderIcon, ICONS } from '../../constants/icons';
+import { useTranslation } from '../../hooks/useTranslation';
 import { 
   getNodeTranslationKey, 
   getNodeTypeTranslationKey,
   getCategoryTranslationKey 
-} from '../utils/translationHelpers';
+} from '../../utils/translationHelpers';
 
 const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowState }) => {
   const { t } = useTranslation();

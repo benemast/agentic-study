@@ -1,11 +1,8 @@
 # backend/app/models/demographics.py
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Boolean, Integer
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime
-import os
 
-# Import the same Base used by your session models
 from app.models.session import Base
 
 class Demographics(Base):
@@ -14,8 +11,14 @@ class Demographics(Base):
     # Primary key
     id = Column(Integer, primary_key=True, index=True)
     
-    # Foreign key to your existing sessions table
-    session_id = Column(String, ForeignKey("sessions.session_id"), nullable=False, unique=True, index=True)
+    # Foreign key to sessions table
+    session_id = Column(
+        String, 
+        ForeignKey("sessions.session_id", ondelete="CASCADE"), 
+        nullable=False, 
+        unique=True, 
+        index=True
+    )
     
     # Basic Information
     age = Column(String(50))
@@ -28,14 +31,9 @@ class Demographics(Base):
     programming_experience = Column(String(50))
     ai_ml_experience = Column(String(50))
     
-    # Handle workflow_tools_used based on database type
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
-    if "postgresql" in DATABASE_URL or "postgres" in DATABASE_URL:
-        # PostgreSQL - use proper ARRAY type
-        workflow_tools_used = Column(ARRAY(String), default=[])
-    else:
-        # SQLite or others - use JSON
-        workflow_tools_used = Column(JSON, default=[])
+    # Simplified: Always use JSON for workflow_tools_used
+    # Works across PostgreSQL, SQLite, MySQL
+    workflow_tools_used = Column(JSON, default=list)
     
     technical_role = Column(String(100))
     
@@ -55,8 +53,31 @@ class Demographics(Base):
     
     # Store the raw questionnaire response for backup/analysis
     raw_response = Column(JSON)
+
+    # Relationship to session
+    session = relationship("Session", back_populates="demographics")
     
     # Indexes for performance
     __table_args__ = (
         {'mysql_engine': 'InnoDB'},
     )
+    
+    @property
+    def tools_list(self):
+        """Ensure workflow_tools_used is always returned as a list"""
+        if self.workflow_tools_used is None:
+            return []
+        if isinstance(self.workflow_tools_used, list):
+            return self.workflow_tools_used
+        # Handle string (shouldn't happen, but defensive programming)
+        if isinstance(self.workflow_tools_used, str):
+            import json
+            try:
+                parsed = json.loads(self.workflow_tools_used)
+                return parsed if isinstance(parsed, list) else [parsed]
+            except:
+                return [self.workflow_tools_used] if self.workflow_tools_used else []
+        return []
+    
+    def __repr__(self):
+        return f"<Demographics(session_id={self.session_id}, age={self.age}, experience={self.programming_experience})>"

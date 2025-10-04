@@ -1,6 +1,6 @@
 // frontend/src/components/NodeEditor.jsx
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { useTranslation } from '../hooks/useTranslation';
+import { useTranslation } from '../../hooks/useTranslation';
 
 const NodeEditor = memo(({ node, isOpen, onClose, onSave, workflowState }) => {
   const { t } = useTranslation();

@@ -2,14 +2,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional, AsyncGenerator
-import json
-import os
+from typing import AsyncGenerator
 from datetime import datetime
-import asyncio
 from collections import defaultdict
+import json
+import asyncio
+import httpx
 
 from app.database import get_db
+from app.config import settings
 from app.models.session import Session as SessionModel
 from app.models.ai_chat import ChatMessage, ChatConversation
 from app.schemas.ai_chat import (
@@ -17,352 +18,331 @@ from app.schemas.ai_chat import (
     SaveMessageRequest, ChatMessageCreate, ChatMessageResponse,
     ConversationStats, ClearHistoryResponse
 )
-import httpx
 
 router = APIRouter(prefix="/api/ai-chat", tags=["ai-chat"])
 
 # OpenAI API Configuration
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_API_KEY = settings.openai_api_key
+OPENAI_API_URL = settings.openai_api_url
 
-# Redis Configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-REDIS_ENABLED = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+# Performance settings from config
+MAX_CONTEXT_MESSAGES = settings.max_context_messages
+DEFAULT_MAX_TOKENS = settings.default_max_tokens
+CACHE_TTL = settings.cache_ttl
 
-# Performance settings
-MAX_CONTEXT_MESSAGES =  int(os.getenv("MAX_CONTEXT_MESSAGES")) # Only send last 10 messages for context
-DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS")) # Reduced from 1000 for 2x faster responses
-CACHE_TTL = int(os.getenv("CACHE_TTL"))  # Cache responses for 1 hour
-
-# PER-SESSION LOCKS - Prevents race conditions for concurrent requests from same user
+# PER-SESSION LOCKS - Prevents race conditions
 session_locks = defaultdict(asyncio.Lock)
 
 # Redis client (optional)
 redis_client = None
-if REDIS_ENABLED:
+if settings.redis_enabled:
     try:
         import redis
-        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-        redis_client.ping()  # Test connection
+        redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+        redis_client.ping()
     except Exception as e:
         print(f"Redis connection failed: {e}. Continuing without cache.")
         redis_client = None
 
-async def stream_openai_response(
-    messages: List[Message],
-    model: str,
-    temperature: float,
-    max_tokens: int
-) -> AsyncGenerator[str, None]:
-    """Stream responses from OpenAI API with Redis caching"""
-    
-    if not OPENAI_API_KEY:
-        yield f"data: {json.dumps({'error': 'OpenAI API key not configured'})}\n\n"
-        return
-    
-    # Create cache key from messages
-    cache_key = None
-    if redis_client:
-        import hashlib
-        messages_str = json.dumps([{"role": m.role, "content": m.content} for m in messages])
-        cache_key = f"chat:response:{hashlib.md5(messages_str.encode()).hexdigest()}"
-        
-        # Check cache
-        cached_response = redis_client.get(cache_key)
-        if cached_response:
-            # Stream cached response
-            for char in cached_response:
-                yield f"data: {json.dumps({'content': char})}\n\n"
-                await asyncio.sleep(0.01)  # Simulate streaming
-            yield "data: [DONE]\n\n"
-            return
-    
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": model,
-        "messages": [{"role": m.role, "content": m.content} for m in messages],
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": True
-    }
-    
-    full_response = ""  # Collect for caching
-    
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("POST", OPENAI_API_URL, json=payload, headers=headers) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    yield f"data: {json.dumps({'error': f'OpenAI API error: {error_text.decode()}'})}\n\n"
-                    return
-                
-                async for line in response.aiter_lines():
-                    if line.strip():
-                        if line.startswith("data: "):
-                            data = line[6:]  # Remove "data: " prefix
-                            if data.strip() == "[DONE]":
-                                yield "data: [DONE]\n\n"
-                                break
-                            
-                            try:
-                                chunk = json.loads(data)
-                                if "choices" in chunk and len(chunk["choices"]) > 0:
-                                    delta = chunk["choices"][0].get("delta", {})
-                                    if "content" in delta:
-                                        content = delta['content']
-                                        full_response += content
-                                        yield f"data: {json.dumps({'content': content})}\n\n"
-                            except json.JSONDecodeError:
-                                continue
-        
-        # Cache the complete response
-        if redis_client and cache_key and full_response:
-            redis_client.setex(cache_key, CACHE_TTL, full_response)
-                                
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+def get_session_id_from_request(request: Request) -> str:
+    """Extract session ID from request for rate limiting"""
+    # Try to get from query params or body
+    session_id = request.query_params.get('session_id')
+    if not session_id and hasattr(request.state, 'session_id'):
+        session_id = request.state.session_id
+    return session_id or request.client.host
+
 
 @router.post("/chat")
-async def chat(
-    request: ChatRequest,
+async def chat_stream(
+    request: Request,
+    chat_request: ChatRequest,
     db: Session = Depends(get_db)
 ):
-    """Handle chat requests with streaming support and per-session locking"""
+    """
+    Stream chat responses from OpenAI with rate limiting
+    Rate limit: 20 requests per minute per session
+    """
+    # Apply rate limiting if enabled
+    if settings.rate_limit_enabled and hasattr(request.app.state, 'limiter'):
+        limiter = request.app.state.limiter
+        # Use session_id for rate limiting instead of IP
+        await limiter.check_request(
+            request,
+            settings.chat_rate_limit,
+            key=chat_request.session_id
+        )
     
-    try:
-        # CRITICAL: Acquire lock for this session to prevent race conditions
-        # This ensures messages are processed in order even with concurrent requests
-        async with session_locks[request.session_id]:
-            # Validate session
-            session = db.query(SessionModel).filter(
-                SessionModel.session_id == request.session_id
-            ).first()
-            
-            if not session:
-                raise HTTPException(status_code=404, detail="Session not found")
-            
-            # Add timestamp to messages if not present
-            for msg in request.messages:
-                if not msg.timestamp:
-                    msg.timestamp = datetime.utcnow().isoformat()
-            
-            # OPTIMIZATION: Limit context window to last N messages
-            # Only send recent messages to reduce tokens and improve speed
-            context_messages = request.messages[-MAX_CONTEXT_MESSAGES:] if len(request.messages) > MAX_CONTEXT_MESSAGES else request.messages
-            
-            # Use optimized max_tokens default
-            try:
-                max_tokens = int(request.max_tokens) if request.max_tokens else DEFAULT_MAX_TOKENS
-                if max_tokens == 1000:  # If default was used, switch to optimized value
-                    max_tokens = DEFAULT_MAX_TOKENS
-            except (ValueError, TypeError) as e:
-                print(f"Error converting max_tokens: {e}, using default")
-                max_tokens = DEFAULT_MAX_TOKENS
-            
-            # Store user message in session data (only the last message, not full history during streaming)
-            if session.session_data is None:
-                session.session_data = {}
-            
-            if "chat_history" not in session.session_data:
-                session.session_data["chat_history"] = []
-            
-            # Add user message to history
-            user_msg = request.messages[-1]
-            session.session_data["chat_history"].append({
-                "role": user_msg.role,
-                "content": user_msg.content,
-                "timestamp": user_msg.timestamp
-            })
-            
-            # OPTIMIZATION: Skip DB commit during streaming - save at end only
-            # db.commit()  # Commented out - will save after response completes
-            
-            if request.stream:
-                return StreamingResponse(
-                    stream_openai_response(
-                        context_messages,  # Use limited context #request.messages,
-                        request.model,
-                        request.temperature,
-                        max_tokens # request.max_tokens
-                    ),
-                    media_type="text/event-stream",
-                    headers={
-                        "Cache-Control": "no-cache",
-                        "Connection": "keep-alive",
-                        "X-Accel-Buffering": "no"
-                    }
-                )
-            else:
-                # Non-streaming response (for compatibility)
-                full_response = ""
-                async for chunk in stream_openai_response(
-                    context_messages,  # Use limited context # request.messages,
-                    request.model,
-                    request.temperature,
-                    max_tokens # request.max_tokens
-                ):
-                    if chunk.startswith("data: "):
-                        data = json.loads(chunk[6:])
-                        if "content" in data:
-                            full_response += data["content"]
-                
-                # Store assistant response
-                assistant_msg = Message(
-                    role="assistant",
-                    content=full_response,
-                    timestamp=datetime.utcnow().isoformat()
-                )
-                
-                session.session_data["chat_history"].append({
-                    "role": assistant_msg.role,
-                    "content": assistant_msg.content,
-                    "timestamp": assistant_msg.timestamp
-                })
-                db.commit()
-                
-                return ChatResponse(message=assistant_msg)
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error in chat endpoint: {str(e)}")
-        print(f"Request data: session_id={request.session_id}, messages={len(request.messages)}, model={request.model}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
-
-@router.get("/history/{session_id}")
-async def get_chat_history(
-    session_id: str,
-    limit: int = 50,
-    db: Session = Depends(get_db)
-):
-    """Retrieve chat history for a session with fallback to chat_messages table"""
-    
+    # Validate session exists
     session = db.query(SessionModel).filter(
-        SessionModel.session_id == session_id
+        SessionModel.session_id == chat_request.session_id
     ).first()
     
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # Try to get chat history from session_data first
-    chat_history = session.session_data.get("chat_history", []) if session.session_data else []
-    
-    # FALLBACK: If session_data is empty, pull from chat_messages table
-    if not chat_history:
-        chat_messages = db.query(ChatMessage).filter(
-            ChatMessage.session_id == session_id
-        ).order_by(ChatMessage.timestamp.asc()).limit(limit).all()
+    # Acquire per-session lock to prevent race conditions
+    async with session_locks[chat_request.session_id]:
+        # Load chat history within the lock
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.session_id == chat_request.session_id
+        ).first()
         
-        # Convert database messages to the expected format
-        chat_history = [
-            {
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp.isoformat()
-            }
-            for msg in chat_messages
-        ]
-    
-    # Return most recent messages up to limit
-    return {
-        "session_id": session_id,
-        "messages": chat_history[-limit:] if limit else chat_history,
-        "total_messages": len(chat_history)
-    }
+        if not conversation:
+            conversation = ChatConversation(
+                session_id=chat_request.session_id,
+                model=chat_request.model or settings.llm_model
+            )
+            db.add(conversation)
+            db.commit()
+        
+        # Limit context to last N messages for performance
+        limited_messages = chat_request.messages[-MAX_CONTEXT_MESSAGES:]
+        
+        # Prepare OpenAI request
+        openai_request = {
+            "model": chat_request.model or settings.llm_model,
+            "messages": [msg.dict() for msg in limited_messages],
+            "temperature": chat_request.temperature,
+            "max_tokens": chat_request.max_tokens or DEFAULT_MAX_TOKENS,
+            "stream": chat_request.stream
+        }
+        
+        if not chat_request.stream:
+            # Non-streaming response
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    OPENAI_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=openai_request,
+                    timeout=60.0
+                )
+                
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"OpenAI API error: {response.text}"
+                    )
+                
+                result = response.json()
+                assistant_message = result['choices'][0]['message']['content']
+                
+                # Save assistant message
+                db_message = ChatMessage(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=assistant_message,
+                    model=chat_request.model or settings.llm_model,
+                    tokens_used=result['usage']['total_tokens']
+                )
+                db.add(db_message)
+                
+                # Update conversation
+                conversation.message_count += 1
+                conversation.total_tokens += result['usage']['total_tokens']
+                conversation.last_message_at = datetime.utcnow()
+                
+                db.commit()
+                
+                return ChatResponse(
+                    message=Message(
+                        role="assistant",
+                        content=assistant_message,
+                        timestamp=datetime.utcnow().isoformat()
+                    ),
+                    conversation_id=conversation.id,
+                    tokens_used=result['usage']['total_tokens']
+                )
+        
+        # Streaming response
+        async def generate_stream():
+            full_content = ""
+            total_tokens = 0
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        OPENAI_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {OPENAI_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json=openai_request,
+                        timeout=120.0
+                    ) as response:
+                        if response.status_code != 200:
+                            error_text = await response.aread()
+                            yield f"data: {json.dumps({'error': f'OpenAI API error: {error_text.decode()}'})}\n\n"
+                            return
+                        
+                        async for line in response.aiter_lines():
+                            if line.startswith('data: '):
+                                data = line[6:]
+                                
+                                if data.strip() == '[DONE]':
+                                    # Save complete message to database
+                                    db_message = ChatMessage(
+                                        conversation_id=conversation.id,
+                                        role="assistant",
+                                        content=full_content,
+                                        model=chat_request.model or settings.llm_model,
+                                        tokens_used=total_tokens
+                                    )
+                                    db.add(db_message)
+                                    
+                                    # Update conversation stats
+                                    conversation.message_count += 1
+                                    conversation.total_tokens += total_tokens
+                                    conversation.last_message_at = datetime.utcnow()
+                                    
+                                    db.commit()
+                                    
+                                    yield f"data: [DONE]\n\n"
+                                    break
+                                
+                                try:
+                                    chunk = json.loads(data)
+                                    if 'choices' in chunk and len(chunk['choices']) > 0:
+                                        delta = chunk['choices'][0].get('delta', {})
+                                        content = delta.get('content', '')
+                                        
+                                        if content:
+                                            full_content += content
+                                            yield f"data: {json.dumps({'content': content})}\n\n"
+                                        
+                                        # Estimate tokens (rough approximation)
+                                        if content:
+                                            total_tokens += len(content.split()) // 0.75
+                                
+                                except json.JSONDecodeError:
+                                    continue
+            
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/event-stream"
+        )
 
-@router.delete("/history/{session_id}")
+
+@router.post("/save-message", response_model=ChatMessageResponse)
+async def save_message(
+    request: Request,
+    message_data: SaveMessageRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Save a chat message (usually user messages)
+    Rate limit: 30 requests per minute per session
+    """
+    if settings.rate_limit_enabled and hasattr(request.app.state, 'limiter'):
+        limiter = request.app.state.limiter
+        await limiter.check_request(
+            request,
+            "30/minute",
+            key=message_data.session_id
+        )
+    
+    async with session_locks[message_data.session_id]:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.session_id == message_data.session_id
+        ).first()
+        
+        if not conversation:
+            conversation = ChatConversation(
+                session_id=message_data.session_id
+            )
+            db.add(conversation)
+            db.flush()
+        
+        db_message = ChatMessage(
+            conversation_id=conversation.id,
+            role=message_data.message.role,
+            content=message_data.message.content
+        )
+        db.add(db_message)
+        
+        conversation.message_count += 1
+        conversation.last_message_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(db_message)
+        
+        return ChatMessageResponse(
+            id=db_message.id,
+            role=db_message.role,
+            content=db_message.content,
+            timestamp=db_message.timestamp.isoformat(),
+            tokens_used=db_message.tokens_used
+        )
+
+
+@router.get("/history/{session_id}", response_model=ChatHistoryResponse)
+async def get_chat_history(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get chat history for a session"""
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.session_id == session_id
+    ).first()
+    
+    if not conversation:
+        return ChatHistoryResponse(messages=[], total_messages=0)
+    
+    messages = db.query(ChatMessage).filter(
+        ChatMessage.conversation_id == conversation.id
+    ).order_by(ChatMessage.timestamp).all()
+    
+    return ChatHistoryResponse(
+        messages=[
+            Message(
+                role=msg.role,
+                content=msg.content,
+                timestamp=msg.timestamp.isoformat()
+            )
+            for msg in messages
+        ],
+        total_messages=len(messages),
+        conversation_id=conversation.id
+    )
+
+
+@router.delete("/clear/{session_id}", response_model=ClearHistoryResponse)
 async def clear_chat_history(
     session_id: str,
     db: Session = Depends(get_db)
 ):
     """Clear chat history for a session"""
-    
-    session = db.query(SessionModel).filter(
-        SessionModel.session_id == session_id
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.session_id == session_id
     ).first()
     
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     
-    if session.session_data:
-        session.session_data["chat_history"] = []
-        db.commit()
+    message_count = db.query(ChatMessage).filter(
+        ChatMessage.conversation_id == conversation.id
+    ).count()
     
-    return {"message": "Chat history cleared successfully"}
+    db.query(ChatMessage).filter(
+        ChatMessage.conversation_id == conversation.id
+    ).delete()
+    
+    db.delete(conversation)
+    db.commit()
+    
+    return ClearHistoryResponse(
+        success=True,
+        messages_deleted=message_count
+    )
 
-@router.post("/save-message")
-async def save_assistant_message(
-    session_id: str,
-    message: SaveMessageRequest,
-    db: Session = Depends(get_db)
-):
-    """Save assistant message to history (for streaming responses) with locking"""
-    
-    # CRITICAL: Acquire lock for this session to prevent concurrent writes
-    async with session_locks[session_id]:
-        session = db.query(SessionModel).filter(
-            SessionModel.session_id == session_id
-        ).first()
-        
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Save to session_data JSON for backward compatibility
-        if session.session_data is None:
-            session.session_data = {}
-        
-        if "chat_history" not in session.session_data:
-            session.session_data["chat_history"] = []
-        
-        timestamp = message.timestamp or datetime.utcnow().isoformat()
-        
-        session.session_data["chat_history"].append({
-            "role": message.role,
-            "content": message.content,
-            "timestamp": timestamp
-        })
-        
-        # Also save to dedicated chat_messages table
-        chat_message = ChatMessage(
-            session_id=session_id,
-            role=message.role,
-            content=message.content,
-            timestamp=datetime.fromisoformat(timestamp.replace('Z', '+00:00')),
-            message_index=len(session.session_data["chat_history"]) - 1,
-            message_metadata=message.metadata  # Updated field name
-        )
-        db.add(chat_message)
-        
-        # Update conversation tracking
-        conversation = db.query(ChatConversation).filter(
-            ChatConversation.session_id == session_id
-        ).first()
-        
-        if not conversation:
-            conversation = ChatConversation(
-                session_id=session_id,
-                message_count=1,
-                total_user_messages=1 if message.role == "user" else 0,
-                total_assistant_messages=1 if message.role == "assistant" else 0
-            )
-            db.add(conversation)
-        else:
-            conversation.message_count += 1
-            conversation.last_message_at = datetime.utcnow()
-            if message.role == "user":
-                conversation.total_user_messages += 1
-            elif message.role == "assistant":
-                conversation.total_assistant_messages += 1
-        
-        db.commit()
-        
-        return {"message": "Message saved successfully"}
 
 @router.get("/stats/{session_id}", response_model=ConversationStats)
 async def get_conversation_stats(
@@ -370,39 +350,16 @@ async def get_conversation_stats(
     db: Session = Depends(get_db)
 ):
     """Get conversation statistics"""
-    
     conversation = db.query(ChatConversation).filter(
         ChatConversation.session_id == session_id
     ).first()
     
     if not conversation:
-        raise HTTPException(status_code=404, detail="No conversation found for this session")
-    
-    # Calculate average response time
-    messages = db.query(ChatMessage).filter(
-        ChatMessage.session_id == session_id,
-        ChatMessage.role == "assistant",
-        ChatMessage.response_time_ms.isnot(None)
-    ).all()
-    
-    avg_response_time = None
-    if messages:
-        avg_response_time = sum(m.response_time_ms for m in messages) / len(messages)
-    
-    # Calculate conversation duration
-    duration = 0
-    if conversation.started_at and conversation.last_message_at:
-        duration = int((conversation.last_message_at - conversation.started_at).total_seconds())
+        raise HTTPException(status_code=404, detail="Conversation not found")
     
     return ConversationStats(
-        session_id=session_id,
-        message_count=conversation.message_count,
-        total_tokens_used=conversation.total_tokens_used,
-        total_user_messages=conversation.total_user_messages,
-        total_assistant_messages=conversation.total_assistant_messages,
-        estimated_cost_usd=conversation.estimated_cost_usd,
-        avg_response_time_ms=avg_response_time,
-        conversation_duration_seconds=duration,
-        started_at=conversation.started_at,
-        last_message_at=conversation.last_message_at
+        total_messages=conversation.message_count,
+        total_tokens=conversation.total_tokens,
+        started_at=conversation.created_at.isoformat(),
+        last_message_at=conversation.last_message_at.isoformat() if conversation.last_message_at else None
     )

@@ -1,7 +1,7 @@
 // frontend/src/components/WorkflowToolbar.jsx
 import React, { memo } from 'react';
-import { ICONS } from '../constants/icons';
-import { useTranslation } from '../hooks/useTranslation';
+import { ICONS } from '../../constants/icons';
+import { useTranslation } from '../../hooks/useTranslation';
 
 const WorkflowToolbar = memo(({ 
   nodes, 

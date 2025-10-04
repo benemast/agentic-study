@@ -1,32 +1,35 @@
 # backend/app/main.py
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import logging
-import os
-import json
 import traceback
 
+from app.config import settings
 from app.routers import sessions, demographics, ai_chat
-from app.database import create_tables, check_database_connection
-
-# Load environment variables
-load_dotenv()
+from app.database import create_tables, check_database_connection, get_database_info
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO if settings.debug else logging.WARNING,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address) if settings.rate_limit_enabled else None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application startup and shutdown events"""
     # Startup
     logger.info("Starting Agentic Study API")
+    logger.info(f"Environment: {'DEBUG' if settings.debug else 'PRODUCTION'}")
+    logger.info(f"Database: {settings.database_url.split('@')[1] if '@' in settings.database_url else 'local'}")
     
     # Check database connection
     if not check_database_connection():
@@ -36,7 +39,6 @@ async def lifespan(app: FastAPI):
     # Create tables
     try:
         create_tables()
-        logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
@@ -47,157 +49,77 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Agentic Study API")
 
+# Initialize FastAPI app
 app = FastAPI(
     title="Agentic Study API",
-    description="Enhanced API for collecting user study data on agentic AI workflows",
-    version="1.0.6",
-    debug=os.getenv("DEBUG", "False").lower() == "true",
+    description="API for user study comparing AI workflows with agentic chat",
+    version="2.0.0",
+    debug=settings.debug,
     lifespan=lifespan
 )
 
-# CORS Configuration
-cors_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000"
-]
+# Add rate limiter to app state
+if limiter:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Add any additional origins from environment
-cors_origins_env = os.getenv("CORS_ORIGINS")
-if cors_origins_env:
-    try:
-        additional_origins = json.loads(cors_origins_env)
-        cors_origins.extend(additional_origins)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse CORS_ORIGINS environment variable")
-
-logger.info(f"CORS Origins configured: {cors_origins}")
-
-# CORS Middleware
+# CORS Configuration (FIXED)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
-    allow_headers=[
-        "Accept",
-        "Accept-Language", 
-        "Content-Language",
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "Origin",
-        "Referer",
-        "User-Agent"
-    ],
-    expose_headers=["*"],
-    max_age=3600,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
-
-# Trusted Host Middleware
-app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=[
-        "localhost", 
-        "127.0.0.1", 
-        "*.localhost", 
-        "localhost:5173", 
-        "127.0.0.1:5173",
-        "localhost:8000",
-        "127.0.0.1:8000"
-    ]
-)
-
-# Request logging middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    # Log incoming request
-    logger.info(f"{request.method} {request.url}")
-    logger.info(f"Headers: {dict(request.headers)}")
-    
-    # Handle CORS preflight requests
-    if request.method == "OPTIONS":
-        response = JSONResponse({"message": "OK"})
-        response.headers.update({
-            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Referer, User-Agent",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "3600"
-        })
-        return response
-    
-    try:
-        response = await call_next(request)
-        logger.info(f"Response: {response.status_code}")
-        return response
-    except Exception as e:
-        logger.error(f"Request failed: {e}")
-        logger.error(traceback.format_exc())
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Internal server error", "detail": str(e)},
-            headers={
-                "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                "Access-Control-Allow-Credentials": "true"
-            }
-        )
 
 # Include routers
 app.include_router(sessions.router)
 app.include_router(demographics.router)
 app.include_router(ai_chat.router)
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Agentic Study API v2.0",
-        "status": "online",
-        "cors_origins": cors_origins,
-        "features": [
-            "Enhanced session management",
-            "Auto-sync capabilities", 
-            "Session validation",
-            "Comprehensive analytics",
-            "Demographics collection",
-            "Error handling & recovery",
-            "Cross-device session sharing"
-        ]
-    }
-
-@app.get("/api/health")
+# Health check endpoint
+@app.get("/health")
 async def health_check():
-    db_healthy = check_database_connection()
+    """Comprehensive health check"""
+    db_info = get_database_info()
     
     return {
-        "status": "healthy" if db_healthy else "unhealthy",
-        "database": "connected" if db_healthy else "disconnected",
+        "status": "healthy" if db_info.get("connected") else "unhealthy",
+        "version": "2.0.0",
+        "database": db_info,
         "cors_configured": True,
-        "origins": cors_origins
+        "cors_origins": settings.get_cors_origins(),
+        "rate_limiting": settings.rate_limit_enabled,
+        "debug_mode": settings.debug
     }
 
 @app.get("/api/version")
 async def get_version():
+    """API version and feature flags"""
     return {
-        "api_version": "1.0.6",
+        "api_version": "2.0.0",
         "features": {
-            "session_management": "enhanced",
+            "session_management": "enabled",
             "demographics_collection": "enabled",
-            "real_time_sync": "enabled",
-            "cross_device": "enabled",
-            "analytics": "comprehensive",
-            "error_handling": "robust",
-            "cors_support": "comprehensive"
+            "ai_chat": "enabled",
+            "rate_limiting": settings.rate_limit_enabled,
+            "caching": settings.redis_enabled,
+            "langgraph": "pending",  # Will be enabled in future
         }
     }
 
 # Global exception handlers
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: HTTPException):
+    """Handle 404 errors with CORS headers"""
     return JSONResponse(
         status_code=404,
-        content={"error": "Resource not found", "status_code": 404},
+        content={
+            "error": "Resource not found",
+            "path": str(request.url.path),
+            "status_code": 404
+        },
         headers={
             "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
             "Access-Control-Allow-Credentials": "true"
@@ -206,21 +128,55 @@ async def not_found_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(500)
 async def server_error_handler(request: Request, exc: Exception):
+    """Handle 500 errors with logging"""
     logger.error(f"Internal server error: {exc}")
     logger.error(traceback.format_exc())
+    
     return JSONResponse(
         status_code=500,
-        content={"error": "Internal server error", "detail": str(exc)},
+        content={
+            "error": "Internal server error",
+            "detail": str(exc) if settings.debug else "An unexpected error occurred"
+        },
         headers={
             "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
             "Access-Control-Allow-Credentials": "true"
         }
     )
 
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch-all exception handler"""
+    logger.error(f"Unhandled exception: {exc}")
+    logger.error(traceback.format_exc())
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "An error occurred",
+            "detail": str(exc) if settings.debug else "Please try again later"
+        }
+    )
+
+# CORS test endpoints
 @app.get("/api/test-cors")
 async def test_cors():
-    return {"message": "CORS is working"}
+    """Test CORS configuration"""
+    return {
+        "message": "CORS is working",
+        "origins": settings.get_cors_origins()
+    }
 
 @app.options("/api/test-cors")
 async def test_cors_options():
+    """OPTIONS preflight for CORS testing"""
     return {"message": "OPTIONS request successful"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.api_host,
+        port=settings.api_port,
+        reload=settings.debug
+    )

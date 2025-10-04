@@ -3,6 +3,7 @@
 # ============================================
 # Migration files
 backend/app/migrate/
+frontend/src/components/WorkflowBuilder_oneFile.jsx
 
 # ============================================
 # ENVIRONMENT & SECRETS

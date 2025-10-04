@@ -1,7 +1,11 @@
 // frontend/src/components/AIChat.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Trash2, Loader2, Bot, User } from 'lucide-react';
-import { useSessionStore } from './SessionManager';
+
+import { useSession } from '../hooks/useSession';
+import { useTracking } from '../hooks/useTracking';
+import { chatAPI } from '../config/api';
+import { AI_CONFIG, ERROR_MESSAGES } from '../config/constants';
 
 const AIChat = () => {
   const [messages, setMessages] = useState([]);
@@ -9,12 +13,9 @@ const AIChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
-  const sessionStore = useSessionStore();
   
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-  const LLM_MODEL = import.meta.env.LLM_MODEL;
-  const MAX_TOKENS = import.meta.env.DEFAULT_MAX_TOKENS;
-  const TEMPERATURE = import.meta.env.TEMPERATURE;
+  const { sessionId } = useSession();
+  const { trackMessageSent, trackMessageReceived, trackError } = useTracking();
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -25,35 +26,24 @@ const AIChat = () => {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // Load chat history on mount AND when sessionId changes
+  // Load chat history on mount
   useEffect(() => {
-    if (sessionStore.sessionId) {
-      console.log('Loading chat history for session:', sessionStore.sessionId);
+    if (sessionId) {
       loadChatHistory();
     }
-  }, [sessionStore.sessionId]);
+  }, [sessionId]);
 
   const loadChatHistory = async () => {
-    if (!sessionStore.sessionId) {
-      console.log('No sessionId, skipping history load');
-      return;
-    }
+    if (!sessionId) return;
 
     try {
-      console.log('Fetching chat history...');
-      const response = await fetch(
-        `${API_URL}/api/ai-chat/history/${sessionStore.sessionId}`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Chat history loaded:', data);
-        setMessages(data.messages || []);
-      } else {
-        console.error('Failed to load history:', response.status);
-      }
+      console.log('Loading chat history...');
+      const data = await chatAPI.getHistory(sessionId);
+      setMessages(data.messages || []);
+      console.log('Chat history loaded:', data.messages?.length, 'messages');
     } catch (err) {
       console.error('Failed to load chat history:', err);
+      // Don't show error to user for history load failure
     }
   };
 
@@ -62,8 +52,8 @@ const AIChat = () => {
     
     if (!input.trim() || isLoading) return;
     
-    if (!sessionStore.sessionId) {
-      setError('No active session. Please start a session first.');
+    if (!sessionId) {
+      setError(ERROR_MESSAGES.SESSION_EXPIRED);
       return;
     }
 
@@ -73,40 +63,40 @@ const AIChat = () => {
       timestamp: new Date().toISOString()
     };
 
-    // Add user message to UI
+    // Add user message to UI immediately
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
     setError(null);
 
-    // OPTIMIZATION: Use the CURRENT messages state (which includes loaded history)
-    // Only send last 10 messages for context (includes history + new message)
-    const contextMessages = updatedMessages.slice(-10);
+    // Track user message
+    trackMessageSent(userMessage.content.length);
+
+    // Limit context to last N messages
+    const contextMessages = updatedMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
 
     try {
-      // Save user message to backend immediately
-      await fetch(`${API_URL}/api/ai-chat/save-message?session_id=${sessionStore.sessionId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userMessage),
-      });
+      // Save user message to backend
+      await chatAPI.saveMessage(sessionId, userMessage);
 
-      const response = await fetch(`${API_URL}/api/ai-chat/chat`, {
+      // Prepare request
+      const chatRequest = {
+        session_id: sessionId,
+        messages: contextMessages,
+        model: AI_CONFIG.MODEL,
+        temperature: AI_CONFIG.TEMPERATURE,
+        max_tokens: AI_CONFIG.MAX_TOKENS,
+        stream: true
+      };
+
+      // Manual fetch for streaming (API client doesn't support streaming yet)
+      const response = await fetch(`${chatAPI.baseURL || ''}/api/ai-chat/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          session_id: sessionStore.sessionId,
-          messages: contextMessages, // Send limited context [...messages, userMessage],
-          model: LLM_MODEL,
-          temperature: TEMPERATURE,
-          max_tokens: MAX_TOKENS, // OPTIMIZATION: Reduced from 1000 for 2x faster responses
-          stream: true
-        }),
+        body: JSON.stringify(chatRequest)
       });
 
       if (!response.ok) {
@@ -118,15 +108,15 @@ const AIChat = () => {
       let fullContent = '';
       const startTime = Date.now();
 
-      // Add assistant message to state for streaming
-      const assistantMessageIndex = messages.length + 1;
+      // Add empty assistant message for streaming
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '', // Empty content will show typing indicator
+        content: '',
         timestamp: new Date().toISOString(),
         isStreaming: true
       }]);
 
+      // Stream response
       while (true) {
         const { done, value } = await reader.read();
         
@@ -153,19 +143,15 @@ const AIChat = () => {
               if (parsed.content) {
                 fullContent += parsed.content;
                 
-                // Update the SAME assistant message with streaming content
+                // Update streaming message
                 setMessages(prev => {
                   const newMessages = [...prev];
-                  // Find the last assistant message and update it
-                  for (let i = newMessages.length - 1; i >= 0; i--) {
-                    if (newMessages[i].role === 'assistant' && newMessages[i].isStreaming) {
-                      newMessages[i] = {
-                        ...newMessages[i],
-                        content: fullContent,
-                        isStreaming: true
-                      };
-                      break;
-                    }
+                  const lastIdx = newMessages.length - 1;
+                  if (newMessages[lastIdx]?.role === 'assistant' && newMessages[lastIdx].isStreaming) {
+                    newMessages[lastIdx] = {
+                      ...newMessages[lastIdx],
+                      content: fullContent
+                    };
                   }
                   return newMessages;
                 });
@@ -183,39 +169,34 @@ const AIChat = () => {
       // Mark streaming as complete
       setMessages(prev => {
         const newMessages = [...prev];
-        for (let i = newMessages.length - 1; i >= 0; i--) {
-          if (newMessages[i].role === 'assistant' && newMessages[i].isStreaming) {
-            delete newMessages[i].isStreaming;
-            break;
-          }
+        const lastIdx = newMessages.length - 1;
+        if (newMessages[lastIdx]?.isStreaming) {
+          delete newMessages[lastIdx].isStreaming;
         }
         return newMessages;
       });
 
-      // OPTIMIZATION: Save complete message to backend only once (not during streaming)
+      // Track assistant message
+      trackMessageReceived(fullContent.length, {
+        response_time_ms: responseTime,
+        model: AI_CONFIG.MODEL
+      });
+
+      // Save complete message to backend
       if (fullContent) {
-        await fetch(`${API_URL}/api/ai-chat/save-message?session_id=${sessionStore.sessionId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            role: 'assistant',
-            content: fullContent,
-            timestamp: new Date().toISOString(),
-            metadata: {
-              response_time_ms: responseTime,
-              model: LLM_MODEL
-            }
-          }),
+        await chatAPI.saveMessage(sessionId, {
+          role: 'assistant',
+          content: fullContent,
+          timestamp: new Date().toISOString()
         });
       }
 
     } catch (err) {
       console.error('Chat error:', err);
-      setError(err.message || 'Failed to send message');
+      setError(err.message || ERROR_MESSAGES.API_ERROR);
+      trackError('message_send_failed', err.message);
       
-      // Remove the failed assistant message
+      // Remove failed assistant message
       setMessages(prev => prev.filter(msg => !(msg.role === 'assistant' && msg.isStreaming)));
     } finally {
       setIsLoading(false);
@@ -223,20 +204,20 @@ const AIChat = () => {
   };
 
   const clearHistory = async () => {
-    if (!sessionStore.sessionId) return;
+    if (!sessionId) return;
+
+    if (!confirm('Are you sure you want to clear the chat history?')) {
+      return;
+    }
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/ai-chat/history/${sessionStore.sessionId}`,
-        { method: 'DELETE' }
-      );
-
-      if (response.ok) {
-        setMessages([]);
-      }
+      await chatAPI.clear(sessionId);
+      setMessages([]);
+      trackError('chat_cleared'); // Track as event
     } catch (err) {
       console.error('Failed to clear history:', err);
       setError('Failed to clear chat history');
+      trackError('chat_clear_failed', err.message);
     }
   };
 
@@ -247,16 +228,38 @@ const AIChat = () => {
         <div className="flex items-center gap-2">
           <Bot className="text-blue-600" size={24} />
           <h1 className="text-xl font-bold text-gray-800">AI Assistant</h1>
+          <span className="text-xs text-gray-500">({AI_CONFIG.MODEL})</span>
         </div>
         <button
           onClick={clearHistory}
           className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
           title="Clear chat history"
+          disabled={messages.length === 0}
         >
           <Trash2 size={18} />
           <span className="text-sm">Clear</span>
         </button>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mx-4 mt-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <span className="text-red-500">⚠️</span>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-500 hover:text-red-700"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -287,56 +290,62 @@ const AIChat = () => {
                     : 'bg-white text-gray-800'
                 }`}
               >
-                {/* Show typing indicator if assistant message is empty and streaming */}
+                {/* Typing indicator */}
                 {msg.role === 'assistant' && msg.isStreaming && !msg.content ? (
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={16} />
+                    <span className="text-sm text-gray-500">Thinking...</span>
                   </div>
                 ) : (
-                  <>
-                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    {msg.timestamp && !msg.isStreaming && (
-                      <p className={`text-xs mt-2 ${
-                        msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'
-                      }`}>
-                        {new Date(msg.timestamp).toLocaleTimeString()}
-                      </p>
-                    )}
-                  </>
+                  <div className="whitespace-pre-wrap break-words">
+                    {msg.content}
+                  </div>
+                )}
+                
+                {msg.timestamp && (
+                  <div className={`text-xs mt-2 ${
+                    msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'
+                  }`}>
+                    {new Date(msg.timestamp).toLocaleTimeString()}
+                  </div>
                 )}
               </div>
-
+              
               {msg.role === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
                   <User size={18} className="text-white" />
                 </div>
               )}
             </div>
           ))
         )}
-
+        
+        {/* Loading indicator */}
+        {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
+          <div className="flex gap-3 justify-start">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+              <Bot size={18} className="text-white" />
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-md">
+              <Loader2 className="animate-spin text-blue-600" size={20} />
+            </div>
+          </div>
+        )}
+        
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="px-4 py-2 bg-red-50 border-t border-red-200">
-          <p className="text-sm text-red-600">{error}</p>
-        </div>
-      )}
-
       {/* Input Form */}
-      <div className="bg-white border-t border-gray-200 p-4">
-        <form onSubmit={sendMessage} className="flex gap-2">
+      <form onSubmit={sendMessage} className="bg-white border-t p-4">
+        <div className="flex gap-2 max-w-4xl mx-auto">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isLoading}
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            maxLength={AI_CONFIG.MAX_MESSAGE_LENGTH}
           />
           <button
             type="submit"
@@ -348,9 +357,13 @@ const AIChat = () => {
             ) : (
               <Send size={20} />
             )}
+            <span>Send</span>
           </button>
-        </form>
-      </div>
+        </div>
+        <div className="text-xs text-gray-500 text-center mt-2">
+          {input.length} / {AI_CONFIG.MAX_MESSAGE_LENGTH} characters
+        </div>
+      </form>
     </div>
   );
 };

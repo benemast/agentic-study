@@ -4,6 +4,7 @@
 # Migration files
 backend/app/migrate/
 frontend/src/components/WorkflowBuilder_oneFile.jsx
+frontend/src/components/SessionManager.jsx
 
 # ============================================
 # ENVIRONMENT & SECRETS

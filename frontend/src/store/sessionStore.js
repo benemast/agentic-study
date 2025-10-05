@@ -280,14 +280,14 @@ export const useSessionStore = create(
       // ========================================
       
       syncSessionData: async () => {
-        const { sessionId, sessionData } = get();
+        const { sessionId, sessionData, sessionMetadata } = get();
         if (!sessionId) return;
         
         try {
           await sessionAPI.sync(sessionId, {
             session_data: sessionData,
-            last_activity: new Date().toISOString(),
-            metadata: get().sessionMetadata
+            sync_timestamp: new Date().toISOString(),
+            metadata: sessionMetadata
           });
         } catch (error) {
           console.error('Failed to sync session data:', error);
@@ -387,16 +387,39 @@ export const useSessionStore = create(
         };
       },
     }),
+    // PERSIST CONFIGURATION
     {
-      name: 'agentic-study-session',
+      name: 'agentic-session-storage',
+      
+      // Ensure proper hydration
       partialize: (state) => ({
         sessionId: state.sessionId,
         participantId: state.participantId,
         sessionStartTime: state.sessionStartTime,
-        sessionData: state.sessionData,
+        sessionSource: state.sessionSource,
+        sessionData: state.sessionData || {
+          workflowsCreated: 0,
+          workflowsExecuted: 0,
+          totalTimeSpent: 0,
+          currentView: 'dashboard',
+          currentWorkflow: { nodes: [], edges: [] },
+          interactions: []
+        },
         sessionMetadata: state.sessionMetadata,
-        lastActivity: state.lastActivity
-      })
+      }),
+      
+      // Merge strategy for rehydration
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...persistedState,
+        // Ensure sessionData is always valid
+        sessionData: {
+          ...currentState.sessionData,
+          ...(persistedState.sessionData || {}),
+          // Ensure currentWorkflow always exists
+          currentWorkflow: persistedState.sessionData?.currentWorkflow || { nodes: [], edges: [] },
+        },
+      }),
     }
-  )
+  )  
 );

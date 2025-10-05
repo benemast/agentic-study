@@ -1,4 +1,4 @@
-// frontend/src/components/NodeEditor.jsx
+// frontend/src/components/nodes/NodeEditor.jsx
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 

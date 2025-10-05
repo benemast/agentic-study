@@ -1,4 +1,4 @@
-// frontend/src/components/CustomNode.jsx
+// frontend/src/components/nodes/CustomNode.jsx
 import React, { memo, useCallback, useMemo } from 'react';
 import { Position } from 'reactflow';
 import NodeHandle from './NodeHandle';

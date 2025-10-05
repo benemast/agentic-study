@@ -1,5 +1,5 @@
-// frontend/src/components/WorkflowBuilder.jsx
-import React, { useState, useCallback, useMemo, useEffect, memo } from 'react';
+// frontend/src/components/workflow/WorkflowBuilder.jsx
+import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -12,32 +12,39 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
+// Components
 import CustomNode from '../nodes/CustomNode';
 import NodeEditor from '../nodes/NodeEditor';
-
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
-
 import LanguageSwitcher from '../LanguageSwitcher';
 
+// Hooks
 import { useSession } from '../../hooks/useSession';
 import { useTracking } from '../../hooks/useTracking';
 import { useSessionData } from '../../hooks/useSessionData';
-import { sessionAPI } from '../../config/api';
-import { WORKFLOW_CONFIG, TRACKING_EVENTS } from '../../config/constants';
-
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation';
 import { useTranslation } from '../../hooks/useTranslation';
 
+// Config & API
+import { sessionAPI } from '../../config/api';
+import { 
+  WORKFLOW_CONFIG, 
+  UI_CONFIG,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES 
+} from '../../config/constants';
+
+// Constants
 import { NODE_TEMPLATES, TAILWIND_COLORS } from '../../constants/nodeTemplates';
 import { ICONS } from '../../constants/icons';
 
-import { 
-  getNodeTranslationKey, 
-  getNodeTypeTranslationKey 
-} from '../../utils/translationHelpers';
+// Utils
+import { getNodeTranslationKey} from '../../utils/translationHelpers';
 
+// ========================================
 // Notification Banner Component
+// ========================================
 const NotificationBanner = memo(({ notification }) => {
   if (!notification) return null;
 
@@ -52,9 +59,14 @@ const NotificationBanner = memo(({ notification }) => {
 
 NotificationBanner.displayName = 'NotificationBanner';
 
+// ========================================
 // Main WorkflowBuilder Component
+// ========================================
 const WorkflowBuilder = () => {
-  const { sessionId } = useSession();
+  // ========================================
+  // HOOKS
+  // ========================================
+  const { sessionId, isActive, updateActivity } = useSession();
   const { 
     trackNodeAdded, 
     trackNodeDeleted, 
@@ -62,36 +74,41 @@ const WorkflowBuilder = () => {
     trackEdgeAdded,
     trackEdgeDeleted,
     trackWorkflowSaved,
+    trackWorkflowExecuted,
+    trackWorkflowCleared,
     trackError 
   } = useTracking();
   const { currentWorkflow, updateWorkflow } = useSessionData();
-  
   const { screenToFlowPosition, getViewport } = useReactFlow();
-  const { t } = useTranslation();
+  const { t, currentLanguage } = useTranslation();
 
+  // ========================================
+  // INITIAL STATE
+  // ========================================
   // Initialize workflow from session
   const initialWorkflow = useMemo(() => 
     currentWorkflow || { nodes: [], edges: [] }, 
     [currentWorkflow]
   );
 
-  // Calculate initial node counter based on existing nodes to prevent ID collisions
+  // Calculate initial node counter to prevent ID collisions
   const getInitialNodeCounter = useCallback(() => {
     if (initialWorkflow.nodes.length === 0) return 0;
     
     let maxCounter = 0;
     initialWorkflow.nodes.forEach(node => {
-      // Extract counter from node ID (e.g., "gather-data-5" -> 5)
       const match = node.id.match(/-(\d+)$/);
       if (match) {
         const counter = parseInt(match[1], 10);
         maxCounter = Math.max(maxCounter, counter);
       }
     });
-    return maxCounter + 1; // Start from next available number
+    return maxCounter + 1;
   }, [initialWorkflow.nodes]);
-  
-  // State declarations
+
+  // ========================================
+  // STATE - UI & Local State
+  // ========================================
   const [nodes, setNodes, onNodesChange] = useNodesState(initialWorkflow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialWorkflow.edges);
   const [showNodePanel, setShowNodePanel] = useState(false);
@@ -105,26 +122,62 @@ const WorkflowBuilder = () => {
     sourceHandleType: null
   });
 
-  // Get icon components
+  // ========================================
+  // CONSTANTS - Icons & Node Types
+  // ========================================
   const PlusIcon = ICONS.Plus.component;
   const BrainIcon = ICONS.Brain.component;
 
-  // Workflow validation
+  // Custom node types for ReactFlow
+  const nodeTypes = useMemo(() => ({ 
+    custom: CustomNode 
+  }), []);
+
+  // ========================================
+  // WORKFLOW VALIDATION
+  // ========================================
   const workflowValidation = useWorkflowValidation(nodes, edges);
 
-  // All callback functions defined early
+  // ========================================
+  // NOTIFICATIONS
+  // ========================================
   const showNotification = useCallback((message, type = 'error') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), UI_CONFIG.NOTIFICATION_DURATION);
   }, []);
 
+  // ========================================
+  // AUTO-SAVE - Sync with Session
+  // ========================================
+  useEffect(() => {
+    if (!sessionId || !isActive) return;
+
+    const autoSaveInterval = setInterval(() => {
+      if (nodes.length > 0 || edges.length > 0) {
+        updateWorkflow(nodes, edges);
+      }
+    }, UI_CONFIG.DEBOUNCE_DELAY);
+
+    return () => clearInterval(autoSaveInterval);
+  }, [sessionId, isActive, nodes, edges, updateWorkflow]);
+
+  // Update activity on interaction
+  useEffect(() => {
+    updateActivity();
+  }, [nodes.length, edges.length, updateActivity]);
+
+  // ========================================
+  // NODE OPERATIONS
+  // ========================================
   const deleteNode = useCallback((nodeId) => {
     setNodes(prevNodes => prevNodes.filter(node => node.id !== nodeId));
-    setEdges(prevEdges => prevEdges.filter(edge => edge.source !== nodeId && edge.target !== nodeId));
+    setEdges(prevEdges => prevEdges.filter(edge => 
+      edge.source !== nodeId && edge.target !== nodeId
+    ));
     
-    // Track deletion
     trackNodeDeleted(nodeId);
-  }, [setNodes, setEdges, trackNodeDeleted]);
+    //showNotification(t('workflow.notifications.nodeDeleted'), 'success');
+  }, [setNodes, setEdges, trackNodeDeleted, showNotification, t]);
 
   const editNode = useCallback((nodeId) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -134,174 +187,381 @@ const WorkflowBuilder = () => {
     }
   }, [nodes, trackNodeEdited]);
 
-  const handleNodeAdd = useCallback((event, nodeType) => {
-    const nodeTemplate = NODE_TEMPLATES[nodeType];
-    if (!nodeTemplate) return;
-
-    const zoom = getViewport().zoom || 1;
-
-    const position = screenToFlowPosition({ 
-      x: event.clientX - (WORKFLOW_CONFIG.DEFAULT_NODE_WIDTH * zoom), // Centering the node (assuming node width ~200px)
-      y: event.clientY - (WORKFLOW_CONFIG.DEFAULT_NODE_HEIGHT * zoom)   // Centering the node (assuming node height ~100px)
-    });
-
-    const newNode = {
-      id: `${nodeType}-${nodeCounter}`,
-      type: 'custom',
-      position,
-      data: {
-        label: nodeTemplate.label,
-        type: nodeType,
-        color: nodeTemplate.color,
-        icon: nodeTemplate.icon,
-        inputs: nodeTemplate.inputs,
-        outputs: nodeTemplate.outputs,
-        onDelete: deleteNode,
-        onEdit: editNode,
-      },
-    };
-
-    setNodes(prev => [...prev, newNode]);
-    setNodeCounter(prev => prev + 1);
+  const handleNodeSave = useCallback((updatedNode) => {
+    setNodes(prevNodes =>
+      prevNodes.map(node =>
+        node.id === updatedNode.id ? updatedNode : node
+      )
+    );
+    setEditingNode(null);
     
-    // Track node addition
-    trackNodeAdded(nodeType, {
-      nodeId: newNode.id,
-      position: newNode.position
+    trackNodeEdited(updatedNode.id, { 
+      action: 'saved',
+      changes: updatedNode.data 
     });
-  }, [
-    nodeCounter, 
-    screenToFlowPosition, 
-    getViewport, 
-    setNodes, 
-    deleteNode, 
-    editNode, 
-    trackNodeAdded
-  ]);
-
-  // Connection handler with tracking
-  const onConnect = useCallback((params) => {
-    setEdges((eds) => addEdge(params, eds));
     
-    // Track edge addition
-    trackEdgeAdded(params.source, params.target, {
-      sourceHandle: params.sourceHandle,
-      targetHandle: params.targetHandle
-    });
-  }, [setEdges, trackEdgeAdded]);
+    showNotification(t('workflow.notifications.nodeSaved'), 'success');
+  }, [setNodes, trackNodeEdited, showNotification, t]);
 
-  // Edge delete handler with tracking
-  const onEdgesDelete = useCallback((edgesToDelete) => {
-    edgesToDelete.forEach(edge => {
-      trackEdgeDeleted(edge.id, {
-        source: edge.source,
-        target: edge.target
-      });
-    });
-  }, [trackEdgeDeleted]);
-
+  // ========================================
+  // DRAG AND DROP HANDLERS
+  // ========================================
   const onDragStart = useCallback((event, nodeTemplate) => {
-    event.dataTransfer.setData('application/reactflow', nodeTemplate.id);
+    event.dataTransfer.setData('application/reactflow', JSON.stringify(nodeTemplate));
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  const saveWorkflow = useCallback(() => {
-    workflowState?.trackInteraction?.('workflow_saved', { 
-      nodeCount: nodes.length, 
-      connectionCount: edges.length 
-    });
-    const message = t('workflow.notifications.workflowSaved', { 
-      nodes: nodes.length, 
-      connections: edges.length 
-    });
-    showNotification(message, 'success');
-  }, [workflowState, nodes.length, edges.length, showNotification, t]);
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
 
-  const executeWorkflow = useCallback(() => {
-    workflowState?.incrementWorkflowsCreated?.();
-    workflowState?.trackInteraction?.('workflow_executed', { 
-      nodeCount: nodes.length, 
-      connectionCount: edges.length 
-    });
-    const message = t('workflow.notifications.workflowExecuted', { 
-      nodes: nodes.length, 
-      connections: edges.length 
-    });
-    showNotification(message, 'success');
-  }, [workflowState, nodes.length, edges.length, showNotification, t]);<
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
 
-  const clearWorkflow = useCallback(() => {
-      setNodes([]);
-      setEdges([]);
-      workflowState?.trackInteraction?.('workflow_cleared');
-      showNotification(t('workflow.notifications.workflowCleared'), 'success');
-    }, [setNodes, setEdges, workflowState, showNotification, t]);
-  
-    const miniMapNodeColor = useCallback((node) => {
-      return TAILWIND_COLORS[node?.data?.color] || '#6b7280';
-    }, []);
-  
-    // Connection validation - now per handle instead of per node
-    const isValidConnection = useCallback((connection) => {
-      if (!connection?.source || !connection?.target || connection.source === connection.target) {
-        return false;
-      }
-  
-      const sourceNode = nodes.find(n => n.id === connection.source);
-      const targetNode = nodes.find(n => n.id === connection.target);
+    /*
 
-      if (!sourceNode || !targetNode) return false;
+    const sourceNode = nodes.find(n => n.id === connection.source);
+    const targetNode = nodes.find(n => n.id === connection.target);
 
-    // Check connections for specific handles
+    if (!sourceNode || !targetNode) return false;
+
+    // Check handle-specific connections
     const sourceHandle = connection.sourceHandle || 'output-0';
     const targetHandle = connection.targetHandle || 'input-0';
 
-    // Count existing connections for the specific handles
     const sourceHandleConnections = edges.filter(e => 
-      e.source === sourceNode.id && (e.sourceHandle || 'output-0') === sourceHandle
+      e.source === connection.source && (e.sourceHandle || 'output-0') === sourceHandle
     );
     const targetHandleConnections = edges.filter(e => 
-      e.target === targetNode.id && (e.targetHandle || 'input-0') === targetHandle
+      e.target === connection.target && (e.targetHandle || 'input-0') === targetHandle
     );
 
-    // Each handle can only have one connection (you can modify this logic as needed)
-    const sourceHandleLimit = 1; // Could be made configurable per handle
-    const targetHandleLimit = 1; // Could be made configurable per handle
+    // Get limits from node data (already stored during node creation)
+    const sourceHandleLimit = sourceNode.data?.maxOutputConnections || 1;
+    const targetHandleLimit = targetNode.data?.maxInputConnections || 1;
 
-    return sourceHandleConnections.length < sourceHandleLimit && 
-           targetHandleConnections.length < targetHandleLimit;
+    */
+
+    try {
+
+      console.log(event)
+
+      const nodeTemplate = JSON.parse(
+        event.dataTransfer.getData('application/reactflow')
+      );
+
+      if (!nodeTemplate || !nodeTemplate.id) {
+        console.error('Invalid node template');
+        return;
+      }
+
+      // Check max nodes limit
+      if (nodes.length >= WORKFLOW_CONFIG.MAX_NODES) {
+        showNotification(
+          t('workflow.notifications.maxNodesReached', { max: WORKFLOW_CONFIG.MAX_NODES }),
+          'error'
+        );
+        return;
+      }
+
+      const zoom = getViewport().zoom || 1;
+      const position = screenToFlowPosition({ 
+        x: event.clientX - (WORKFLOW_CONFIG.DEFAULT_NODE_WIDTH / 2 * zoom), // Centering the node (assuming node width ~200px)
+        y: event.clientY - (WORKFLOW_CONFIG.DEFAULT_NODE_HEIGHT / 2 * zoom)   // Centering the node (assuming node height ~100px)
+      });
+
+      const nodeId = `${nodeTemplate.id}-${nodeCounter}`;
+      setNodeCounter(prev => prev + 1);
+
+      // Get translations for this specific node
+      const nodeTranslations = t(getNodeTranslationKey(nodeTemplate.id));
+      console.log(nodeTranslations)
+      console.log(nodeTranslations.label)
+      console.log(nodeTemplate.label)
+      console.log(nodeTranslations.type)
+      console.log(nodeTemplate.type)
+
+      const newNode = {
+        id: nodeId,
+        type: 'custom',
+        position: position,
+        data: {
+          label: nodeTranslations.label || nodeTemplate.label,
+          type: nodeTranslations.type || nodeTemplate.type,
+          description: nodeTranslations.description || '',
+          category: nodeTemplate.category,
+          iconName: nodeTemplate.icon,
+          color: nodeTemplate.color,
+          hasInput: nodeTemplate.hasInput ?? 1,
+          hasOutput: nodeTemplate.hasOutput ?? 1,
+          maxInputConnections: nodeTemplate.maxInputConnections ?? 1,
+          maxOutputConnections: nodeTemplate.maxOutputConnections ?? 1,
+          config: { ...nodeTemplate.defaultConfig },
+          onDelete: deleteNode,
+          onEdit: editNode,
+          inputs: nodeTemplate.inputs || [],
+          outputs: nodeTemplate.outputs || [],
+        },
+      };
+
+      setNodes(prevNodes => [...prevNodes, newNode]);
+          
+      trackNodeAdded(nodeTemplate.type, { 
+        nodeId, 
+        category: nodeTemplate.category,
+        totalNodes: nodes.length + 1,
+        method: 'drag_drop'
+      });
+      
+      //showNotification(t('workflow.notifications.nodeAdded'), 'success');
+    } catch (error) {
+      console.error('Error dropping node:', error);
+      showNotification('Failed to add node', 'error');
+    }
+  }, [
+    nodes.length,
+    nodeCounter,
+    getViewport,
+    screenToFlowPosition,
+    setNodes,
+    trackNodeAdded,
+    deleteNode,
+    editNode,
+    showNotification,
+    t
+  ]);
+
+
+  // ========================================
+  // EDGE/CONNECTION OPERATIONS
+  // ========================================
+  const getConnectionValidation = useCallback((connection) => {
+    const result = {
+      isValid: false,
+      reason: null,
+      sourceNode: null,
+      targetNode: null,
+      sourceHandle: connection.sourceHandle || 'output-0',
+      targetHandle: connection.targetHandle || 'input-0',
+      sourceHandleConnections: [],
+      targetHandleConnections: [],
+      sourceHandleLimit: 1,
+      targetHandleLimit: 1
+    };
+
+    if (!connection?.source || !connection?.target || connection.source === connection.target) {
+      result.reason = 'invalid_connection';
+      return result;
+    }
+
+    if (edges.length >= WORKFLOW_CONFIG.MAX_EDGES) {
+      result.reason = 'max_edges_reached';
+      return result;
+    }
+
+    result.sourceNode = nodes.find(n => n.id === connection.source);
+    result.targetNode = nodes.find(n => n.id === connection.target);
+
+    if (!result.sourceNode || !result.targetNode) {
+      result.reason = 'nodes_not_found';
+      return result;
+    }
+  
+    result.sourceHandleConnections = edges.filter(e => 
+      e.source === connection.source && (e.sourceHandle || 'output-0') === result.sourceHandle
+    );
+    result.targetHandleConnections = edges.filter(e => 
+      e.target === connection.target && (e.targetHandle || 'input-0') === result.targetHandle
+    );
+
+    result.sourceHandleLimit = result.sourceNode.data?.maxOutputConnections || 1;
+    result.targetHandleLimit = result.targetNode.data?.maxInputConnections || 1;
+
+    if (result.sourceHandleConnections.length >= result.sourceHandleLimit) {
+      result.reason = 'source_handle_max_reached';
+      return result;
+    }
+
+    if (result.targetHandleConnections.length >= result.targetHandleLimit) {
+      result.reason = 'target_handle_max_reached';
+      return result;
+    }
+
+    result.isValid = true;
+    return result;
   }, [edges, nodes]);
+  
+  const isValidConnection = useCallback((connection) => {
+    return getConnectionValidation(connection).isValid;
+  }, [getConnectionValidation]);
+  
+  const onConnect = useCallback((params) => {
+    const validation = getConnectionValidation(params);
+    
+    if (!validation.isValid) {
+      switch (validation.reason) {
+        case 'max_edges_reached':
+          showNotification(
+            t('workflow.notifications.maxEdgesReached', { max: WORKFLOW_CONFIG.MAX_EDGES }),
+            'error'
+          );
+          break;
+          
+        case 'source_handle_max_reached':
+          showNotification(
+            t('workflow.notifications.sourceHandleMaxReached', { 
+              max: validation.sourceHandleLimit 
+            }) || `Source handle already has the maximum of ${validation.sourceHandleLimit} connection${validation.sourceHandleLimit > 1 ? 's' : ''}`,
+            'error'
+          );
+          break;
+          
+        case 'target_handle_max_reached':
+          showNotification(
+            t('workflow.notifications.targetHandleMaxReached', { 
+              max: validation.targetHandleLimit 
+            }) || `Target handle already has the maximum of ${validation.targetHandleLimit} connection${validation.targetHandleLimit > 1 ? 's' : ''}`,
+            'error'
+          );
+          break;
+          
+        default:
+          showNotification(
+            t('workflow.notifications.connectionFailed') || 'Cannot create connection',
+            'error'
+          );
+      }
+      return;
+    }
+    
+    setEdges(eds => addEdge(params, eds));
+      
+    trackEdgeAdded(params.source, params.target);
+    showNotification(t('workflow.notifications.connectionAdded'), 'success');
+  }, [getConnectionValidation, edges, nodes, setEdges, trackEdgeAdded, showNotification, t]);
 
-  // Enhanced nodes with connection state and callbacks
+  const onEdgesDelete = useCallback((edgesToDelete) => {
+    edgesToDelete.forEach(edge => {
+      trackEdgeDeleted(edge.id);
+    });
+    showNotification(t('workflow.notifications.connectionDeleted'), 'success');
+  }, [trackEdgeDeleted, showNotification, t]);
+
+  // Connection state handlers
+  const onConnectStart = useCallback((_, { nodeId, handleId, handleType }) => {
+    setConnectionState({
+      isConnecting: true,
+      sourceNodeId: nodeId,
+      sourceHandleId: handleId,
+      sourceHandleType: handleType
+    });
+  }, []);
+
+  const onConnectEnd = useCallback(() => {
+    setConnectionState({
+      isConnecting: false,
+      sourceNodeId: null,
+      sourceHandleId: null,
+      sourceHandleType: null
+    });
+  }, []);
+
+  // ========================================
+  // WORKFLOW ACTIONS
+  // ========================================
+  const executeWorkflow = useCallback(() => {
+    if (!workflowValidation.isValid) {
+      showNotification(
+        t('workflow.notifications.validationFailed'), 
+        'error'
+      );
+      return;
+    }
+
+    trackWorkflowExecuted({ 
+      nodeCount: nodes.length, 
+      edgeCount: edges.length 
+    });
+    
+    showNotification(
+      t('workflow.notifications.workflowExecuted', { 
+        nodes: nodes.length, 
+        connections: edges.length 
+      }), 
+      'success'
+    );
+  }, [workflowValidation.isValid, nodes.length, edges.length, trackWorkflowExecuted, showNotification, t]);
+
+  const saveWorkflow = useCallback(async () => {
+    if (!sessionId) {
+      showNotification(ERROR_MESSAGES.SESSION_EXPIRED, 'error');
+      return;
+    }
+
+    try {
+      updateWorkflow(nodes, edges);
+      await sessionAPI.quickSave(sessionId, {
+        workflow: { nodes, edges },
+        timestamp: new Date().toISOString()
+      });
+      
+      trackWorkflowSaved({ 
+        nodeCount: nodes.length, 
+        edgeCount: edges.length 
+      });
+      
+      showNotification(SUCCESS_MESSAGES.SAVED, 'success');
+    } catch (error) {
+      console.error('Failed to save workflow:', error);
+      trackError('workflow_save_failed', error.message);
+      showNotification(ERROR_MESSAGES.SAVE_FAILED, 'error');
+    }
+  }, [sessionId, nodes, edges, updateWorkflow, trackWorkflowSaved, trackError, showNotification]);
+
+  const clearWorkflow = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    trackWorkflowCleared({ 
+      nodeCount: 0, 
+      edgeCount: 0 
+    });
+    updateWorkflow([], []);
+    showNotification(t('workflow.notifications.workflowCleared'), 'success');
+  }, [setNodes, setEdges, updateWorkflow, trackWorkflowCleared, showNotification, t]);
+
+  // ========================================
+  // ENHANCED NODES WITH CALLBACKS
+  // ========================================
   const enhancedNodes = useMemo(() => 
     nodes.map(node => ({
       ...node,
       data: {
         ...node.data,
+        label: t(getNodeTranslationKey(node.id.replace(/-\d+$/, ''))),
         connectionState,
         currentEdges: edges,
         isValidConnection,
         onDelete: deleteNode,
-        onEdit: editNode
+        onEdit: editNode,
+        isConnecting: connectionState.isConnecting,
+        isValidTarget: connectionState.isConnecting && 
+                      connectionState.sourceNodeId !== node.id,
       }
-    })),     
-    [nodes, connectionState, edges, isValidConnection, deleteNode, editNode]
+    })),
+    [nodes, t, deleteNode, editNode, connectionState, edges, isValidConnection,]
   );
 
-  // Node types
-  const nodeTypes = useMemo(() => ({ customNode: CustomNode }), []);
+  // ========================================
+  // MINIMAP NODE COLOR
+  // ========================================
+  const miniMapNodeColor = useCallback((node) => {
+    return TAILWIND_COLORS[node?.data?.color] || '#6b7280';
+  }, []);
 
-  // Save to session with debouncing
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (workflowState?.saveWorkflowToSession && (nodes.length > 0 || edges.length > 0)) {
-        workflowState.saveWorkflowToSession(nodes, edges);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [nodes, edges, workflowState]);
-
+  // ========================================
+  // RENDER
+  // ========================================
   return (
     <div className="h-full flex min-h-0 bg-gray-50">
       <NotificationBanner notification={notification} />
@@ -321,11 +581,12 @@ const WorkflowBuilder = () => {
         showNodePanel={showNodePanel}
         setShowNodePanel={setShowNodePanel}
         onDragStart={onDragStart}
-        workflowState={workflowState}
+        currentWorkflow={currentWorkflow}
       />
 
-      {/* Main Workflow Area */}
+      {/* Main Canvas Area */}
       <div className="flex-1 relative">
+        {/* Toolbar */}
         <WorkflowToolbar
           nodes={nodes}
           edges={edges}
@@ -335,14 +596,15 @@ const WorkflowBuilder = () => {
           onClear={clearWorkflow}
         />
 
-        {/* React Flow Canvas */}
-        <div className="pt-16 h-full" onKeyDown={onKeyDown} tabIndex={0}>
+        {/* ReactFlow Canvas */}
+        <div className="h-full pt-16">
           <ReactFlow
             nodes={enhancedNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onEdgesDelete={onEdgesDelete}
             onConnectStart={onConnectStart}
             onConnectEnd={onConnectEnd}
             onDrop={onDrop}
@@ -351,22 +613,26 @@ const WorkflowBuilder = () => {
             isValidConnection={isValidConnection}
             className="bg-gray-50"
             fitView
-            fitViewOptions={{
-              padding: WORKFLOW_CONFIG.DEFAULT_PADDING,
-              minZoom: WORKFLOW_CONFIG.ZOOM_MIN,
-              maxZoom: WORKFLOW_CONFIG.ZOOM_MAX
-            }}
+            fitViewOptions={{ padding: WORKFLOW_CONFIG.DEFAULT_PADDING }}
+            minZoom={WORKFLOW_CONFIG.ZOOM_MIN}
+            maxZoom={WORKFLOW_CONFIG.ZOOM_MAX}
             defaultViewport={{ x: 0, y: 0, zoom: 0.6 }}
-            deleteKeyCode={null}
+            deleteKeyCode={['Backspace', 'Delete']}
+            multiSelectionKeyCode="Shift"
           >
-            <Background color="#e5e7eb" size={1} />
+            <Background 
+              gap={WORKFLOW_CONFIG.GRID_SIZE} 
+              color="#e5e7eb"
+              size={1}
+            />
             <Controls className="bg-white border border-gray-200" />
             <MiniMap 
               className="bg-white border border-gray-200"
               nodeColor={miniMapNodeColor}
+              maskColor="rgba(0, 0, 0, 0.1)"
             />
-            
-            {/* Empty State */}
+
+            {/* Empty State Panel */}
             {nodes.length === 0 && (
               <Panel position="center">
                 <div className="text-center p-8 bg-white rounded-lg shadow-lg border border-gray-200 max-w-md">
@@ -388,9 +654,9 @@ const WorkflowBuilder = () => {
               </Panel>
             )}
 
-            {/* Workflow Status Help Panel */}
+            {/* Validation Warning Panel */}
             {!workflowValidation.isValid && nodes.length > 0 && (
-              <Panel position="top-left">
+              <Panel position="top-left" className="m-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-sm shadow-lg">
                   <div className="flex items-start gap-3">
                     <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2 flex-shrink-0" />
@@ -407,9 +673,9 @@ const WorkflowBuilder = () => {
               </Panel>
             )}
 
-            {/* Connection Helper Overlay */}
+            {/* Connection Helper Panel */}
             {connectionState.isConnecting && (
-              <Panel position="top-center">
+              <Panel position="top-center" className="m-4">
                 <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-2 shadow-lg">
                   <p className="text-blue-800 text-sm font-medium">
                     {t('workflow.builder.connectionHelper.connecting')}
@@ -422,22 +688,16 @@ const WorkflowBuilder = () => {
       </div>
 
       {/* Node Editor Modal */}
-      <NodeEditor
-        node={editingNode}
-        isOpen={!!editingNode}
-        onClose={() => setEditingNode(null)}
-        onSave={(editedNode) => {
-          setNodes(prevNodes => 
-            prevNodes.map(n => 
-              n.id === editedNode.id ? editedNode : n
-            )
-          );
-        }}
-        workflowState={workflowState}
-      />
+      {editingNode && (
+        <NodeEditor
+          node={editingNode}
+          isOpen={!!editingNode}
+          onClose={() => setEditingNode(null)}
+          onSave={handleNodeSave}
+        />
+      )}
     </div>
   );
-  
 };
 
 export default WorkflowBuilder;

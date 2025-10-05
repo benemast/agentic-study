@@ -4,9 +4,9 @@ import { ICONS } from '../../constants/icons';
 import { useTranslation } from '../../hooks/useTranslation';
 
 const WorkflowToolbar = memo(({ 
-  nodes, 
-  edges, 
-  workflowValidation,
+  nodes = [],
+  edges = [],
+  workflowValidation = { isValid: false, message: '', details: '' },
   onExecute,
   onSave,
   onClear

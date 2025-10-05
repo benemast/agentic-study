@@ -15,7 +15,9 @@ export const de = {
   workflow: {
     builder: {
       title: "Forschungs-Workflow",
+      addNode: "Knoten hinzufügen",
       addNodes: "Knoten hinzufügen",
+      dragToAdd: "Auf Canvas ziehen zum Hinzufügen", 
       nodeCategories: {
         input: "EINGABE",
         processing: "VERARBEITUNG",
@@ -42,6 +44,21 @@ export const de = {
         analysis: "Analyse", 
         aiOperation: "KI-Operation",
         output: "Ausgabe"
+      },
+      notifications: {
+        nodeAdded: "Knoten erfolgreich hinzugefügt",
+        nodeDeleted: "Knoten gelöscht",
+        nodeSaved: "Knoten gespeichert",
+        connectionAdded: "Verbindung erstellt",
+        connectionDeleted: "Verbindung entfernt",
+        connectionFailed: "Verbindung konnte nicht erstellt werden",
+        workflowExecuted: "Workflow mit {{nodes}} Knoten und {{connections}} Verbindungen ausgeführt",
+        workflowCleared: "Workflow geleert",
+        validationFailed: "Workflow-Validierung fehlgeschlagen",
+        maxNodesReached: "Maximale Anzahl von Knoten ({{max}}) erreicht",
+        maxEdgesReached: "Maximale Anzahl von Verbindungen ({{max}}) erreicht",
+        sourceHandleMaxReached: "Quell-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}",
+        targetHandleMaxReached: "Ziel-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}"
       },
       toolbar: {
         save: "Speichern",

@@ -1,4 +1,4 @@
-// frontend/src/components/NodeHandle.jsx
+// frontend/src/components/nodes/NodeHandle.jsx
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 

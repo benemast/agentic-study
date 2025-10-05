@@ -56,6 +56,10 @@ export const useTracking = () => {
     incrementWorkflowsExecuted();
     track(TRACKING_EVENTS.WORKFLOW_EXECUTED, executionData);
   }, [incrementWorkflowsExecuted, track]);
+
+  const trackWorkflowCleared = useCallback((executionData = {}) => {
+    track(TRACKING_EVENTS.WORKFLOW_CLEARED, executionData);
+  }, [track]);
   
   const trackMessageSent = useCallback((messageLength, messageData = {}) => {
     track(TRACKING_EVENTS.MESSAGE_SENT, { messageLength, ...messageData });
@@ -87,6 +91,7 @@ export const useTracking = () => {
     trackEdgeDeleted,
     trackWorkflowSaved,
     trackWorkflowExecuted,
+    trackWorkflowCleared,
     
     // Chat
     trackMessageSent,

@@ -1,4 +1,4 @@
-// frontend/src/components/WorkflowSidebar.jsx
+// frontend/src/components/workflow/WorkflowSidebar.jsx
 import React, { memo, useMemo } from 'react';
 import { NODE_TEMPLATES } from '../../constants/nodeTemplates';
 import { renderIcon, ICONS } from '../../constants/icons';
@@ -9,7 +9,7 @@ import {
   getCategoryTranslationKey 
 } from '../../utils/translationHelpers';
 
-const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowState }) => {
+const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd }) => {
   const { t } = useTranslation();
   
   const categorizedNodes = useMemo(() => {
@@ -31,7 +31,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
         <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <button
             onClick={() => setShowNodePanel(true)}
-            className="flex items-center gap-2 text-gray-700 hover:text-gray-900"
+            className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
             title={t('workflow.builder.addNodes')}
           >
             <PlusIcon size={20} />
@@ -73,10 +73,12 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, workflowSt
                       key={node.id}
                       draggable
                       onDragStart={(e) => {
-                        onDragStart(e, node);
-                        workflowState?.trackInteraction?.('node_drag_started', { type: node.id });
+                        if (onDragStart) {
+                          onDragStart(e, node);
+                        }
                       }}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-grab hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-grab hover:bg-gray-100 active:cursor-grabbing transition-colors"
+                      title={t('workflow.builder.dragToAdd')}
                     >
                       <div className={`p-2 rounded ${node.color}`}>
                         {nodeIcon}

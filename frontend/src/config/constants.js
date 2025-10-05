@@ -37,8 +37,8 @@ export const SESSION_CONFIG = {
 
 // Workflow Builder Configuration
 export const WORKFLOW_CONFIG = {
-  DEFAULT_NODE_WIDTH: 250,
-  DEFAULT_NODE_HEIGHT: 80,
+  DEFAULT_NODE_WIDTH: 200,
+  DEFAULT_NODE_HEIGHT: 100,
   GRID_SIZE: 15,
   ZOOM_MIN: 0.5,
   ZOOM_MAX: 2,
@@ -52,9 +52,9 @@ export const WORKFLOW_CONFIG = {
   AUTO_LAYOUT_SPACING_Y: 150,
   
   // Validation
-  MAX_NODES: 50,
-  MAX_EDGES: 100,
-  MAX_NODE_LABEL_LENGTH: 100,
+  MAX_NODES: 500,
+  MAX_EDGES: 1000,
+  MAX_NODE_LABEL_LENGTH: 200,
 };
 
 // UI Constants
@@ -82,6 +82,7 @@ export const TRACKING_EVENTS = {
   EDGE_DELETED: 'edge_deleted',
   WORKFLOW_SAVED: 'workflow_saved',
   WORKFLOW_EXECUTED: 'workflow_executed',
+  WORKFLOW_CLEARED: "workflow_cleared",
   
   // Chat events
   MESSAGE_SENT: 'message_sent',

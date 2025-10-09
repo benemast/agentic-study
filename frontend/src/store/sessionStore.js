@@ -3,6 +3,7 @@
  * Centralized Zustand store for session management
  * Consolidates all state management in one place
  */
+import * as Sentry from "@sentry/react";
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { SESSION_CONFIG, TRACKING_EVENTS } from '../config/constants';
@@ -14,6 +15,32 @@ import {
   setSessionIdInUrl,
   removeSessionIdFromUrl 
 } from '../utils/sessionHelpers';
+//import { initAnalytics } from '../utils/analytics';
+
+import { translations } from '../locales';
+
+const getInitialLanguage = () => {
+  // Check URL parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlLang = urlParams.get('lang');
+  if (urlLang && translations[urlLang]) {
+    return urlLang;
+  }
+
+  // Check localStorage
+  const storedLang = localStorage.getItem('study-language');
+  if (storedLang && translations[storedLang]) {
+    return storedLang;
+  }
+
+  // Check browser language
+  const browserLang = navigator.language.split('-')[0];
+  if (translations[browserLang]) {
+    return browserLang;
+  }
+
+  return 'en';
+};
 
 export const useSessionStore = create(
   persist(
@@ -46,6 +73,10 @@ export const useSessionStore = create(
       
       // Metadata
       sessionMetadata: getSessionMetadata(),
+
+      // Language
+      currentLanguage: getInitialLanguage(),
+      availableLanguages: Object.keys(translations),
       
       // Auto-sync
       autoSyncEnabled: true,
@@ -108,7 +139,15 @@ export const useSessionStore = create(
           console.log('✅ Created new session:', response);
           set({ participantId: response.participant_id });
         }
-        
+      
+        //initialize Clarity Analytics
+        /*
+        initAnalytics({
+          sessionId: sessionIdToUse,
+          participantId: next_participant_id
+        });
+        */
+
         // Update state
         set({
           sessionId: sessionIdToUse,
@@ -116,7 +155,12 @@ export const useSessionStore = create(
           isSessionActive: true,
           sessionSource,
           lastActivity: Date.now(),
-          sessionMetadata: getSessionMetadata()
+          sessionMetadata: await getSessionMetadata()
+        });
+
+        Sentry.setUser({
+          id: sessionIdToUse,
+          participant_id: get().participantId || 'unknown',
         });
         
         // Set URL
@@ -155,7 +199,9 @@ export const useSessionStore = create(
         } catch (error) {
           console.error('Failed to end session on server:', error);
         }
-        
+
+        Sentry.setUser(null);
+
         // Cleanup
         removeSessionIdFromUrl();
         set({ isSessionActive: false });
@@ -228,7 +274,25 @@ export const useSessionStore = create(
           }
         } catch (error) {
           console.error('Failed to track interaction:', error);
-          get().handleSessionError(error, 'interaction_tracking');
+    
+          // Log interaction tracking failures
+          Sentry.captureException(error, {
+            tags: {
+              error_type: 'interaction_tracking_failed',
+              event_type: eventType
+            },
+            contexts: {
+              session: {
+                session_id: sessionId,
+                event_type: eventType,
+              }
+            }
+          });
+          
+          set({ 
+            connectionStatus: 'error',
+            sessionError: error.message 
+          });
         }
       },
       
@@ -273,6 +337,29 @@ export const useSessionStore = create(
           }
         }));
         get().trackInteraction(TRACKING_EVENTS.WORKFLOW_EXECUTED);
+      },
+
+      // ========================================
+      // LANGUAGE MANAGEMENT
+      // ========================================
+
+      setLanguage: (lang) => {
+        if (translations[lang]) {
+          set({ currentLanguage: lang });
+          localStorage.setItem('study-language', lang);
+          
+          // Update URL parameter
+          const url = new URL(window.location);
+          url.searchParams.set('lang', lang);
+          window.history.replaceState({}, '', url.toString());
+          
+          // Track language change
+          const { trackInteraction } = get();
+          trackInteraction?.('language_changed', { 
+            language: lang,
+            timestamp: new Date().toISOString() 
+          });
+        }
       },
       
       // ========================================
@@ -340,6 +427,19 @@ export const useSessionStore = create(
       handleSessionError: (error, context) => {
         console.error(`Session error (${context}):`, error);
         
+        // Send to Sentry with context
+        Sentry.captureException(error, {
+          tags: {
+            error_context: context,
+            session_id: get().sessionId,
+          },
+          level: 'error',
+          extra: {
+            timestamp: new Date().toISOString(),
+            connectionStatus: get().connectionStatus,
+          }
+        });
+        
         set({
           sessionError: {
             message: error.message || 'Unknown error',
@@ -406,6 +506,7 @@ export const useSessionStore = create(
           interactions: []
         },
         sessionMetadata: state.sessionMetadata,
+        currentLanguage: state.currentLanguage,
       }),
       
       // Merge strategy for rehydration

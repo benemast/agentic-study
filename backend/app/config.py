@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     chat_rate_limit: str = "20/minute"
     api_rate_limit: str = "100/minute"
+
+    # Sentry
+    sentry_dsn: Optional[str] = None
+    sentry_environment: str = "development"
+    sentry_traces_sample_rate: float = 0.1  # 10% of transactions - can be between 0 and 1
     
     class Config:
         env_file = ".env"

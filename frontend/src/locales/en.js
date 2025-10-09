@@ -19,12 +19,12 @@ export const en = {
       addNodes: "Add Nodes",
       dragToAdd: "Drag to canvas to add",
       nodeCategories: {
-        input: "INPUT",
-        processing: "PROCESSING", 
-        logic: "LOGIC",
-        analysis: "ANALYSIS",
-        ai: "AI",
-        output: "OUTPUT"
+        input: "input",
+        processing: "processing", 
+        logic: "logic",
+        analysis: "analysis",
+        ai: "ai",
+        output: "output"
       },
       nodes: {
         gatherData: "Gather Data",
@@ -44,21 +44,6 @@ export const en = {
         analysis: "Analysis",
         aiOperation: "AI Operation",
         output: "Output"
-      },
-      notifications: {
-        nodeAdded: "Node added successfully",
-        nodeDeleted: "Node deleted",
-        nodeSaved: "Node saved",
-        connectionAdded: "Connection created",
-        connectionDeleted: "Connection removed",
-        connectionFailed: "Cannot create connection",
-        workflowExecuted: "Workflow executed with {{nodes}} nodes and {{connections}} connections",
-        workflowCleared: "Workflow cleared",
-        validationFailed: "Workflow validation failed",
-        maxNodesReached: "Maximum number of nodes ({{max}}) reached",
-        maxEdgesReached: "Maximum number of connections ({{max}}) reached",
-        sourceHandleMaxReached: "Source handle already has maximum of {{max}} connection{{max === 1 ? '' : 's'}}",
-        targetHandleMaxReached: "Target handle already has maximum of {{max}} connection{{max === 1 ? '' : 's'}}"
       },
       toolbar: {
         save: "Save",
@@ -109,6 +94,17 @@ export const en = {
       settings: "Settings"
     },
     notifications: {
+      nodeAdded: "Node added successfully",
+      nodeDeleted: "Node deleted",
+      nodeSaved: "Node saved",
+      connectionAdded: "Connection created",
+      connectionDeleted: "Connection removed",
+      connectionFailed: "Cannot create connection",
+      validationFailed: "Workflow validation failed",
+      maxNodesReached: "Maximum number of nodes ({{max}}) reached",
+      maxEdgesReached: "Maximum number of connections ({{max}}) reached",
+      sourceHandleMaxReached: "Source handle already has maximum of {{max}} connection{{max === 1 ? '' : 's'}}",
+      targetHandleMaxReached: "Target handle already has maximum of {{max}} connection{{max === 1 ? '' : 's'}}",
       workflowSaved: "Workflow saved: {{nodes}} nodes, {{connections}} connections",
       workflowExecuted: "Workflow executed with {{nodes}} nodes and {{connections}} connections",
       workflowCleared: "Workflow cleared"

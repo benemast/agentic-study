@@ -35,21 +35,52 @@ class ApiClient {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new ApiError(
+        const error = new ApiError(
           response.statusText,
           response.status,
           await response.json().catch(() => null)
         );
+        
+        // Log API errors to Sentry with context
+        Sentry.captureException(error, {
+          tags: {
+            api_endpoint: endpoint,
+            http_status: response.status,
+            error_type: 'api_error'
+          },
+          contexts: {
+            api: {
+              endpoint,
+              method: options.method || 'GET',
+              status: response.status,
+            }
+          }
+        });
+        
+        throw error;
       }
 
       return await response.json();
     } catch (error) {
       if (error.name === 'AbortError') {
+        // Log timeout errors
+        Sentry.captureException(new Error('API Request Timeout'), {
+          tags: { error_type: 'timeout' },
+          contexts: { api: { endpoint, timeout: this.timeout } }
+        });
         throw new ApiError('Request timeout', 408);
       }
+      
+      // Log network errors
       if (error instanceof ApiError) {
         throw error;
       }
+      
+      Sentry.captureException(error, {
+        tags: { error_type: 'network_error' },
+        contexts: { api: { endpoint } }
+      });
+      
       throw new ApiError(ERROR_MESSAGES.NETWORK_ERROR, 0, error);
     }
   }

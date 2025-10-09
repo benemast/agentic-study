@@ -193,9 +193,25 @@ const AIChat = () => {
 
     } catch (err) {
       console.error('Chat error:', err);
+      
+      // ADD: Log chat errors with message length/context
+      Sentry.captureException(err, {
+        tags: {
+          error_type: 'chat_message_failed',
+          component: 'AIChat'
+        },
+        contexts: {
+          chat: {
+            message_length: userMessage.content.length,
+            session_id: sessionId,
+            model: AI_CONFIG.MODEL,
+          }
+        }
+      });
+      
       setError(err.message || ERROR_MESSAGES.API_ERROR);
       trackError('message_send_failed', err.message);
-      
+            
       // Remove failed assistant message
       setMessages(prev => prev.filter(msg => !(msg.role === 'assistant' && msg.isStreaming)));
     } finally {

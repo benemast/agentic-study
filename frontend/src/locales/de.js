@@ -45,21 +45,6 @@ export const de = {
         aiOperation: "KI-Operation",
         output: "Ausgabe"
       },
-      notifications: {
-        nodeAdded: "Knoten erfolgreich hinzugefügt",
-        nodeDeleted: "Knoten gelöscht",
-        nodeSaved: "Knoten gespeichert",
-        connectionAdded: "Verbindung erstellt",
-        connectionDeleted: "Verbindung entfernt",
-        connectionFailed: "Verbindung konnte nicht erstellt werden",
-        workflowExecuted: "Workflow mit {{nodes}} Knoten und {{connections}} Verbindungen ausgeführt",
-        workflowCleared: "Workflow geleert",
-        validationFailed: "Workflow-Validierung fehlgeschlagen",
-        maxNodesReached: "Maximale Anzahl von Knoten ({{max}}) erreicht",
-        maxEdgesReached: "Maximale Anzahl von Verbindungen ({{max}}) erreicht",
-        sourceHandleMaxReached: "Quell-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}",
-        targetHandleMaxReached: "Ziel-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}"
-      },
       toolbar: {
         save: "Speichern",
         clear: "Leeren",
@@ -109,9 +94,20 @@ export const de = {
       settings: "Einstellungen"
     },
     notifications: {
+      nodeAdded: "Knoten erfolgreich hinzugefügt",
+      nodeDeleted: "Knoten gelöscht",
+      nodeSaved: "Knoten gespeichert",
+      connectionAdded: "Verbindung erstellt",
+      connectionDeleted: "Verbindung entfernt",
+      connectionFailed: "Verbindung konnte nicht erstellt werden",
+      validationFailed: "Workflow-Validierung fehlgeschlagen",
+      maxNodesReached: "Maximale Anzahl von Knoten ({{max}}) erreicht",
+      maxEdgesReached: "Maximale Anzahl von Verbindungen ({{max}}) erreicht",
+      sourceHandleMaxReached: "Quell-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}",
+      targetHandleMaxReached: "Ziel-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? '' : 'en'}}",
+      workflowExecuted: "Workflow mit {{nodes}} Knoten und {{connections}} Verbindungen ausgeführt",
+      workflowCleared: "Workflow gelöscht",
       workflowSaved: "Workflow gespeichert: {{nodes}} Knoten, {{connections}} Verbindungen",
-      workflowExecuted: "Workflow ausgeführt mit {{nodes}} Knoten und {{connections}} Verbindungen", 
-      workflowCleared: "Workflow geleert"
     }
   },
   demographics: {

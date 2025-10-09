@@ -1,4 +1,6 @@
 // frontend/src/App.jsx - COMPLETE Refactored Version
+import * as Sentry from "@sentry/react";
+
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 
@@ -135,7 +137,7 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
           />
         ))}
       </nav>
-      
+
       {/* Language Switcher */}
       {!isCollapsed && (
         <div className="p-4 border-t border-gray-200">
@@ -370,4 +372,26 @@ function App() {
   );
 }
 
-export default App;
+const SentryApp = Sentry.withErrorBoundary(App, {
+  fallback: ({ error, componentStack, resetError }) => (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
+        <h2 className="text-xl font-bold text-red-600 mb-4">
+          Something went wrong
+        </h2>
+        <p className="text-gray-600 mb-4">
+          The application encountered an error. We've been notified and will fix it soon.
+        </p>
+        <button
+          onClick={resetError}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+  ),
+  showDialog: false,
+});
+
+export default SentryApp;

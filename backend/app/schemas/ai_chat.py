@@ -111,6 +111,9 @@ class ChatMessageCreate(BaseModel):
     model_used: Optional[str] = None
     response_time_ms: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        protected_namespaces = () 
 
 class ChatMessageResponse(BaseModel):
     """Chat message database record"""
@@ -123,8 +126,10 @@ class ChatMessageResponse(BaseModel):
     token_count: Optional[int]
     model_used: Optional[str]
     response_time_ms: Optional[int]
+    message_metadata: Optional[Dict[str, Any]] = None
     
     class Config:
+        protected_namespaces = () 
         from_attributes = True
 
 class ConversationStats(BaseModel):

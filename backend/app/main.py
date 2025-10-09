@@ -8,9 +8,12 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
 import traceback
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import sessions, demographics, ai_chat
+from app.routers import sessions, demographics, ai_chat, sentry
 from app.database import create_tables, check_database_connection, get_database_info
 
 # Configure logging
@@ -22,6 +25,24 @@ logger = logging.getLogger(__name__)
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address) if settings.rate_limit_enabled else None
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        profiles_sample_rate=0.1,
+        integrations=[
+            FastApiIntegration(),
+            SqlalchemyIntegration(),
+        ],
+        # Add user context automatically
+        send_default_pii=False,  # Don't send PII by default (GDPR)
+        before_send=lambda event, hint: event,  # Can add custom filtering here
+    )
+    logger.info(f"✅ Sentry initialized for {settings.sentry_environment} environment")
+else:
+    logger.warning("⚠️  Sentry DSN not configured - error tracking disabled")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,7 +87,8 @@ if limiter:
 # CORS Configuration - MUST be added before routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=["*"],  # For development - be more specific in production
+    # allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
@@ -76,13 +98,44 @@ app.add_middleware(
 
 # Add OPTIONS handler for all routes
 @app.options("/{rest_of_path:path}")
-async def preflight_handler(rest_of_path: str):
-    return {"message": "OK"}
+async def preflight_handler(rest_of_path: str, request: Request):
+    """Handle CORS preflight requests"""
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "3600",
+        }
+    )
+
+# Make sure exception handlers include CORS headers
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch-all exception handler with CORS"""
+    logger.error(f"Unhandled exception: {exc}")
+    logger.error(traceback.format_exc())
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "An error occurred",
+            "detail": str(exc) if settings.debug else "Please try again later"
+        },
+        headers={
+            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # Include routers
 app.include_router(sessions.router)
 app.include_router(demographics.router)
 app.include_router(ai_chat.router)
+app.include_router(sentry.router)
 
 # Health check endpoint
 @app.get("/health")

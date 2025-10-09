@@ -1,4 +1,6 @@
 // frontend/src/components/workflow/WorkflowBuilder.jsx
+import * as Sentry from "@sentry/react";
+
 import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import ReactFlow, {
   MiniMap,
@@ -142,6 +144,7 @@ const WorkflowBuilder = () => {
   // NOTIFICATIONS
   // ========================================
   const showNotification = useCallback((message, type = 'error') => {
+    console.log("showNotification: " + message)   
     setNotification({ message, type });
     setTimeout(() => setNotification(null), UI_CONFIG.NOTIFICATION_DURATION);
   }, []);
@@ -176,7 +179,7 @@ const WorkflowBuilder = () => {
     ));
     
     trackNodeDeleted(nodeId);
-    //showNotification(t('workflow.notifications.nodeDeleted'), 'success');
+    //showNotification(t('workflow.notifications.nodeDeleted'), 'success')
   }, [setNodes, setEdges, trackNodeDeleted, showNotification, t]);
 
   const editNode = useCallback((nodeId) => {
@@ -244,9 +247,6 @@ const WorkflowBuilder = () => {
     */
 
     try {
-
-      console.log(event)
-
       const nodeTemplate = JSON.parse(
         event.dataTransfer.getData('application/reactflow')
       );
@@ -276,11 +276,6 @@ const WorkflowBuilder = () => {
 
       // Get translations for this specific node
       const nodeTranslations = t(getNodeTranslationKey(nodeTemplate.id));
-      console.log(nodeTranslations)
-      console.log(nodeTranslations.label)
-      console.log(nodeTemplate.label)
-      console.log(nodeTranslations.type)
-      console.log(nodeTemplate.type)
 
       const newNode = {
         id: nodeId,
@@ -398,8 +393,13 @@ const WorkflowBuilder = () => {
   
   const onConnect = useCallback((params) => {
     const validation = getConnectionValidation(params);
+
+      console.log("Connection valid: " + validation.isValid);
     
     if (!validation.isValid) {
+      
+      console.log("Validation reason: " + validation.reason);
+
       switch (validation.reason) {
         case 'max_edges_reached':
           showNotification(
@@ -410,18 +410,16 @@ const WorkflowBuilder = () => {
           
         case 'source_handle_max_reached':
           showNotification(
-            t('workflow.notifications.sourceHandleMaxReached', { 
-              max: validation.sourceHandleLimit 
-            }) || `Source handle already has the maximum of ${validation.sourceHandleLimit} connection${validation.sourceHandleLimit > 1 ? 's' : ''}`,
+            t('workflow.notifications.sourceHandleMaxReached', { max: validation.sourceHandleLimit }) 
+            || `Source handle already has the maximum of ${validation.sourceHandleLimit} connection${validation.sourceHandleLimit > 1 ? 's' : ''}`,
             'error'
           );
           break;
           
         case 'target_handle_max_reached':
           showNotification(
-            t('workflow.notifications.targetHandleMaxReached', { 
-              max: validation.targetHandleLimit 
-            }) || `Target handle already has the maximum of ${validation.targetHandleLimit} connection${validation.targetHandleLimit > 1 ? 's' : ''}`,
+            t('workflow.notifications.targetHandleMaxReached', { max: validation.targetHandleLimit }) 
+            || `Target handle already has the maximum of ${validation.targetHandleLimit} connection${validation.targetHandleLimit > 1 ? 's' : ''}`,
             'error'
           );
           break;
@@ -514,6 +512,22 @@ const WorkflowBuilder = () => {
       showNotification(SUCCESS_MESSAGES.SAVED, 'success');
     } catch (error) {
       console.error('Failed to save workflow:', error);
+      
+      // ADD: Log workflow save failures with context
+      Sentry.captureException(error, {
+        tags: {
+          error_type: 'workflow_save_failed',
+          component: 'WorkflowBuilder'
+        },
+        contexts: {
+          workflow: {
+            node_count: nodes.length,
+            edge_count: edges.length,
+            session_id: sessionId,
+          }
+        }
+      });
+      
       trackError('workflow_save_failed', error.message);
       showNotification(ERROR_MESSAGES.SAVE_FAILED, 'error');
     }
@@ -616,7 +630,7 @@ const WorkflowBuilder = () => {
             fitViewOptions={{ padding: WORKFLOW_CONFIG.DEFAULT_PADDING }}
             minZoom={WORKFLOW_CONFIG.ZOOM_MIN}
             maxZoom={WORKFLOW_CONFIG.ZOOM_MAX}
-            defaultViewport={{ x: 0, y: 0, zoom: 0.6 }}
+            defaultViewport={{ x: 0, y: 0, zoom: 0.3 }}
             deleteKeyCode={['Backspace', 'Delete']}
             multiSelectionKeyCode="Shift"
           >

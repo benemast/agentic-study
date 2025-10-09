@@ -133,7 +133,7 @@ async def chat_stream(
                 
                 # Save assistant message
                 db_message = ChatMessage(
-                    conversation_id=conversation.id,
+                    session_id=conversation.session_id,
                     role="assistant",
                     content=assistant_message,
                     model=chat_request.model or settings.llm_model,
@@ -154,7 +154,7 @@ async def chat_stream(
                         content=assistant_message,
                         timestamp=datetime.utcnow().isoformat()
                     ),
-                    conversation_id=conversation.id,
+                    session_id=conversation.session_id,
                     tokens_used=result['usage']['total_tokens']
                 )
         
@@ -187,7 +187,7 @@ async def chat_stream(
                                 if data.strip() == '[DONE]':
                                     # Save complete message to database
                                     db_message = ChatMessage(
-                                        conversation_id=conversation.id,
+                                        session_id=conversation.session_id,
                                         role="assistant",
                                         content=full_content,
                                         model=chat_request.model or settings.llm_model,
@@ -235,51 +235,72 @@ async def chat_stream(
 async def save_message(
     request: Request,
     message_data: SaveMessageRequest,
+    session_id: str = None,
     db: Session = Depends(get_db)
 ):
     """
-    Save a chat message (usually user messages)
+    Save a chat message
     Rate limit: 30 requests per minute per session
     """
+    # Use query param if provided, otherwise use body
+    effective_session_id = session_id or message_data.session_id
+    
+    if not effective_session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    
     if settings.rate_limit_enabled and hasattr(request.app.state, 'limiter'):
         limiter = request.app.state.limiter
         await limiter.check_request(
             request,
             "30/minute",
-            key=message_data.session_id
+            key=effective_session_id
         )
     
-    async with session_locks[message_data.session_id]:
-        conversation = db.query(ChatConversation).filter(
-            ChatConversation.session_id == message_data.session_id
-        ).first()
-        
-        if not conversation:
-            conversation = ChatConversation(
-                session_id=message_data.session_id
+    try:
+        async with session_locks[effective_session_id]:
+            conversation = db.query(ChatConversation).filter(
+                ChatConversation.session_id == effective_session_id
+            ).first()
+            
+            if not conversation:
+                conversation = ChatConversation(
+                    session_id=effective_session_id,
+                started_at=datetime.now(datetime.timezone.utc)
+                )
+                db.add(conversation)
+                db.flush()
+            
+            db_message = ChatMessage(
+                session_id=effective_session_id,
+                role=message_data.role,
+                content=message_data.content,
+                timestamp=datetime.now(datetime.timezone.utc)
             )
-            db.add(conversation)
-            db.flush()
-        
-        db_message = ChatMessage(
-            conversation_id=conversation.id,
-            role=message_data.message.role,
-            content=message_data.message.content
-        )
-        db.add(db_message)
-        
-        conversation.message_count += 1
-        conversation.last_message_at = datetime.utcnow()
-        
-        db.commit()
-        db.refresh(db_message)
-        
-        return ChatMessageResponse(
-            id=db_message.id,
-            role=db_message.role,
-            content=db_message.content,
-            timestamp=db_message.timestamp.isoformat(),
-            tokens_used=db_message.tokens_used
+            db.add(db_message)
+            
+            conversation.message_count += 1
+            conversation.last_message_at = datetime.now(datetime.timezone.utc)
+            if message_data.role == 'user':
+                conversation.total_user_messages += 1
+            elif message_data.role == 'assistant':
+                conversation.total_assistant_messages += 1
+            
+            db.commit()
+            db.refresh(db_message)
+            
+            return {
+                "id": db_message.id,
+                "session_id": db_message.session_id,
+                "role": db_message.role,
+                "content": db_message.content,
+                "timestamp": db_message.timestamp.isoformat(),
+                "success": True
+            }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to save message: {str(e)}"
         )
 
 
@@ -289,29 +310,36 @@ async def get_chat_history(
     db: Session = Depends(get_db)
 ):
     """Get chat history for a session"""
-    conversation = db.query(ChatConversation).filter(
-        ChatConversation.session_id == session_id
-    ).first()
-    
-    if not conversation:
-        return ChatHistoryResponse(messages=[], total_messages=0)
-    
-    messages = db.query(ChatMessage).filter(
-        ChatMessage.conversation_id == conversation.id
-    ).order_by(ChatMessage.timestamp).all()
-    
-    return ChatHistoryResponse(
-        messages=[
-            Message(
-                role=msg.role,
-                content=msg.content,
-                timestamp=msg.timestamp.isoformat()
-            )
-            for msg in messages
-        ],
-        total_messages=len(messages),
-        conversation_id=conversation.id
-    )
+    try:
+        # Get messages - query by session_id
+        messages = db.query(ChatMessage).filter(
+            ChatMessage.session_id == session_id
+        ).order_by(ChatMessage.timestamp).all()
+        
+        # Get conversation for metadata
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.session_id == session_id
+        ).first()
+        
+        return {
+            "session_id": session_id,
+            "messages": [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                }
+                for msg in messages
+            ],
+            "total_messages": len(messages),
+            "conversation_started": conversation.started_at.isoformat() if conversation else None,
+            "last_message_at": conversation.last_message_at.isoformat() if conversation else None
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load chat history: {str(e)}"
+        )
 
 
 @router.delete("/clear/{session_id}", response_model=ClearHistoryResponse)
@@ -320,28 +348,35 @@ async def clear_chat_history(
     db: Session = Depends(get_db)
 ):
     """Clear chat history for a session"""
-    conversation = db.query(ChatConversation).filter(
-        ChatConversation.session_id == session_id
-    ).first()
-    
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    message_count = db.query(ChatMessage).filter(
-        ChatMessage.conversation_id == conversation.id
-    ).count()
-    
-    db.query(ChatMessage).filter(
-        ChatMessage.conversation_id == conversation.id
-    ).delete()
-    
-    db.delete(conversation)
-    db.commit()
-    
-    return ClearHistoryResponse(
-        success=True,
-        messages_deleted=message_count
-    )
+    try:
+        #Count messages to be deleted
+        message_count = db.query(ChatMessage).filter(
+            ChatMessage.session_id == session_id
+        ).count()
+        
+        #Delete messages
+        db.query(ChatMessage).filter(
+            ChatMessage.session_id == session_id
+        ).delete()
+        
+        # Delete conversation
+        db.query(ChatConversation).filter(
+            ChatConversation.session_id == session_id
+        ).delete()
+
+        db.commit()
+        
+        return {
+            "message": "Chat history cleared",
+            "session_id": session_id,
+            "messages_cleared": message_count
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to delete conversation: {str(e)}"
+        )
 
 
 @router.get("/stats/{session_id}", response_model=ConversationStats)
@@ -350,16 +385,25 @@ async def get_conversation_stats(
     db: Session = Depends(get_db)
 ):
     """Get conversation statistics"""
-    conversation = db.query(ChatConversation).filter(
-        ChatConversation.session_id == session_id
-    ).first()
-    
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    return ConversationStats(
-        total_messages=conversation.message_count,
-        total_tokens=conversation.total_tokens,
-        started_at=conversation.created_at.isoformat(),
-        last_message_at=conversation.last_message_at.isoformat() if conversation.last_message_at else None
-    )
+    try:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.session_id == session_id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        return {
+            "session_id": session_id,
+            "message_count": conversation.message_count,
+            "total_tokens_used": conversation.total_tokens_used,
+            "total_user_messages": conversation.total_user_messages,
+            "total_assistant_messages": conversation.total_assistant_messages,
+            "estimated_cost_usd": conversation.estimated_cost_usd,
+            "started_at": conversation.started_at.isoformat(),
+            "last_message_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

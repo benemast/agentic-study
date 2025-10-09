@@ -1,46 +1,10 @@
 // frontend/src/hooks/useTranslation.js
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
+import { useLanguage } from './useLanguage';
 import { translations } from '../locales';
 
-// Get language from URL, localStorage, or browser preference
-const getInitialLanguage = () => {
-  // Check URL parameter
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlLang = urlParams.get('lang');
-  if (urlLang && translations[urlLang]) {
-    return urlLang;
-  }
-
-  // Check localStorage
-  const storedLang = localStorage.getItem('study-language');
-  if (storedLang && translations[storedLang]) {
-    return storedLang;
-  }
-
-  // Check browser language
-  const browserLang = navigator.language.split('-')[0]; // Get 'de' from 'de-DE'
-  if (translations[browserLang]) {
-    return browserLang;
-  }
-
-  // Default to English
-  return 'en';
-};
-
 export const useTranslation = () => {
-  const [currentLanguage, setCurrentLanguage] = useState(getInitialLanguage);
-
-  const setLanguage = useCallback((lang) => {
-    if (translations[lang]) {
-      setCurrentLanguage(lang);
-      localStorage.setItem('study-language', lang);
-      
-      // Update URL parameter
-      const url = new URL(window.location);
-      url.searchParams.set('lang', lang);
-      window.history.replaceState({}, '', url.toString());
-    }
-  }, []);
+  const { currentLanguage, setLanguage, availableLanguages } = useLanguage();
 
   // Get translation function
   const t = useCallback((key, variables = {}) => {
@@ -88,6 +52,6 @@ export const useTranslation = () => {
     t,
     currentLanguage,
     setLanguage,
-    availableLanguages: Object.keys(translations)
+    availableLanguages
   };
 };

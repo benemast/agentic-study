@@ -1,21 +1,42 @@
 // frontend/src/components/AIChat.jsx
+import * as Sentry from "@sentry/react";
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Trash2, Loader2, Bot, User } from 'lucide-react';
+import { Send, Trash2, Loader2, Bot, User, Lock, Edit2, Check, X } from 'lucide-react';
 
 import { useSession } from '../hooks/useSession';
+import { useSessionData } from '../hooks/useSessionData';
 import { useTracking } from '../hooks/useTracking';
 import { chatAPI } from '../config/api';
-import { AI_CONFIG, ERROR_MESSAGES } from '../config/constants';
+import { AI_CONFIG, ERROR_MESSAGES, API_CONFIG } from '../config/constants';
 
 const AIChat = () => {
-  const [messages, setMessages] = useState([]);
+  // Get messages from sessionStore via hook
+  const { 
+    chatMessages, 
+    setChatMessages, 
+    addChatMessage, 
+    updateChatMessage, 
+    clearChatMessages,
+    loadChatHistory 
+  } = useSessionData();
+
+  // Local UI state only
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingContent, setEditingContent] = useState('');
+
   const messagesEndRef = useRef(null);
+  const hasLoadedHistory = useRef(false);
+  const isLoadingHistory = useRef(false);
+  const inputRef = useRef(null);
+  const editInputRef = useRef(null);
   
   const { sessionId } = useSession();
-  const { trackMessageSent, trackMessageReceived, trackError } = useTracking();
+  const { trackMessageSent, trackMessageReceived, trackMessagesCleared, trackError } = useTracking();
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -24,33 +45,36 @@ const AIChat = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [chatMessages, isLoading]);
 
   // Load chat history on mount
   useEffect(() => {
-    if (sessionId) {
-      loadChatHistory();
+    if (sessionId && !hasLoadedHistory.current && !isLoadingHistory.current) {
+      loadHistory();
     }
   }, [sessionId]);
 
-  const loadChatHistory = async () => {
-    if (!sessionId) return;
+  const loadHistory = async () => {
+    if (!sessionId || hasLoadedHistory.current || isLoadingHistory.current) return;
+
+    isLoadingHistory.current = true;
+    hasLoadedHistory.current = true;
 
     try {
       console.log('Loading chat history...');
-      const data = await chatAPI.getHistory(sessionId);
-      setMessages(data.messages || []);
-      console.log('Chat history loaded:', data.messages?.length, 'messages');
+      await loadChatHistory(); // Uses the store method
+      console.log('Chat history loaded:', chatMessages.length, 'messages');
     } catch (err) {
       console.error('Failed to load chat history:', err);
-      // Don't show error to user for history load failure
+    } finally {
+      isLoadingHistory.current = false;
     }
   };
 
   const sendMessage = async (e) => {
     e.preventDefault();
     
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isStreaming) return;
     
     if (!sessionId) {
       setError(ERROR_MESSAGES.SESSION_EXPIRED);
@@ -63,41 +87,40 @@ const AIChat = () => {
       timestamp: new Date().toISOString()
     };
 
-    // Add user message to UI immediately
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    const lengthBeforeAdding = chatMessages.length;
+    console.log("lengthBeforeAdding: " + lengthBeforeAdding);
+    console.log(chatMessages);
+
+    addChatMessage(userMessage);
     setInput('');
     setIsLoading(true);
+    setIsStreaming(true);
     setError(null);
 
-    // Track user message
     trackMessageSent(userMessage.content.length);
 
-    // Limit context to last N messages
-    const contextMessages = updatedMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
+    const userMessageIndex = chatMessages.length;
+    console.log("userMessageIndex: " + userMessageIndex);
+    console.log(chatMessages);
+
+    // Use messages from store
+    const contextMessages = chatMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
 
     try {
       // Save user message to backend
-      await chatAPI.saveMessage(sessionId, userMessage);
+      //await chatAPI.saveMessage(sessionId, userMessage);
 
       // Prepare request
       const chatRequest = {
         session_id: sessionId,
-        messages: contextMessages,
+        messages: [...contextMessages, userMessage],
         model: AI_CONFIG.MODEL,
         temperature: AI_CONFIG.TEMPERATURE,
         max_tokens: AI_CONFIG.MAX_TOKENS,
         stream: true
       };
 
-      // Manual fetch for streaming (API client doesn't support streaming yet)
-      const response = await fetch(`${chatAPI.baseURL || ''}/api/ai-chat/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(chatRequest)
-      });
+      const response = await chatAPI.send(chatRequest);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -107,14 +130,20 @@ const AIChat = () => {
       const decoder = new TextDecoder();
       let fullContent = '';
       const startTime = Date.now();
-
+      
       // Add empty assistant message for streaming
-      setMessages(prev => [...prev, {
+      addChatMessage({
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         isStreaming: true
-      }]);
+      });
+      const assistantIndex = lengthBeforeAdding + 1;
+
+      console.log("Length before adding:", lengthBeforeAdding);
+      console.log("User message index:", userMessageIndex);
+      console.log("Assistant message index:", assistantIndex);
+      console.log(chatMessages);
 
       // Stream response
       while (true) {
@@ -143,20 +172,17 @@ const AIChat = () => {
               if (parsed.content) {
                 fullContent += parsed.content;
                 
+                console.log("chatMessages.length: " + chatMessages.length);
+                //console.log("getChatMessages().length: " + getChatMessages().length);
+                //console.log("getChatMessages(): " + getChatMessages());
+
                 // Update streaming message
-                setMessages(prev => {
-                  const newMessages = [...prev];
-                  const lastIdx = newMessages.length - 1;
-                  if (newMessages[lastIdx]?.role === 'assistant' && newMessages[lastIdx].isStreaming) {
-                    newMessages[lastIdx] = {
-                      ...newMessages[lastIdx],
-                      content: fullContent
-                    };
-                  }
-                  return newMessages;
+                updateChatMessage(assistantIndex, {
+                  content: fullContent
                 });
               }
-            } catch (e) {
+            } catch (err) {
+                console.error('Chat error processing response:', err);
               // Skip invalid JSON
               continue;
             }
@@ -167,21 +193,19 @@ const AIChat = () => {
       const responseTime = Date.now() - startTime;
 
       // Mark streaming as complete
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastIdx = newMessages.length - 1;
-        if (newMessages[lastIdx]?.isStreaming) {
-          delete newMessages[lastIdx].isStreaming;
-        }
-        return newMessages;
+      updateChatMessage(assistantIndex, {
+        isStreaming: false
       });
 
       // Track assistant message
-      trackMessageReceived(fullContent.length, {
-        response_time_ms: responseTime,
-        model: AI_CONFIG.MODEL
-      });
-
+      trackMessageReceived(fullContent.length, responseTime);
+      setIsLoading(false);
+      setIsStreaming(false);
+      
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+      /*
       // Save complete message to backend
       if (fullContent) {
         await chatAPI.saveMessage(sessionId, {
@@ -190,7 +214,7 @@ const AIChat = () => {
           timestamp: new Date().toISOString()
         });
       }
-
+        */
     } catch (err) {
       console.error('Chat error:', err);
       
@@ -210,176 +234,378 @@ const AIChat = () => {
       });
       
       setError(err.message || ERROR_MESSAGES.API_ERROR);
-      trackError('message_send_failed', err.message);
-            
-      // Remove failed assistant message
-      setMessages(prev => prev.filter(msg => !(msg.role === 'assistant' && msg.isStreaming)));
-    } finally {
       setIsLoading(false);
+      setIsStreaming(false);
+      trackError('chat_error', err.message);
+      
+      // Remove failed streaming message
+      const messages = [...chatMessages];
+      // Assistant would be at the calculated index
+      if (messages.length > assistantIndex && messages[assistantIndex]?.isStreaming) {
+        messages.splice(assistantIndex, 1);
+        setChatMessages(messages);
+      }
     }
   };
 
   const clearHistory = async () => {
-    if (!sessionId) return;
+    if (!sessionId || isStreaming) return;
 
-    if (!confirm('Are you sure you want to clear the chat history?')) {
-      return;
-    }
+    if (!confirm('Are you sure you want to clear the chat history?')) return;
 
     try {
       await chatAPI.clear(sessionId);
-      setMessages([]);
-      trackError('chat_cleared'); // Track as event
+      clearChatMessages();
+      trackMessagesCleared('chat_cleared'); // Track as event
+      setError(null);
     } catch (err) {
       console.error('Failed to clear history:', err);
-      setError('Failed to clear chat history');
+      setError('Failed to clear history');
       trackError('chat_clear_failed', err.message);
     }
   };
 
+  const startEdit = (index) => {
+    if (isStreaming || isLoading) return;
+    setEditingIndex(index);
+    setEditingContent(chatMessages[index].content);
+    setTimeout(() => {
+      editInputRef.current?.focus();
+    }, 0);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditingContent('');
+  };
+
+  const saveEdit = async () => {
+    if (!editingContent.trim() || editingIndex === null) return;
+
+    const editedMessage = chatMessages[editingIndex];
+    
+    if (editedMessage.role !== 'user') {
+      setError('Only user messages can be edited');
+      cancelEdit();
+      return;
+    }
+
+    try {
+      // Update in store
+      updateChatMessage(editingIndex, {
+        content: editingContent.trim(),
+        edited: true,
+        editedAt: new Date().toISOString()
+      });
+
+      // Remove all messages after the edited one
+      const messagesToKeep = chatMessages.slice(0, editingIndex + 1);
+      setChatMessages(messagesToKeep);
+      
+      cancelEdit();
+
+      // Regenerate response
+      setIsLoading(true);
+      setIsStreaming(true);
+      setError(null);
+
+      const chatRequest = {
+        session_id: sessionId,
+        messages: messagesToKeep.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES),
+        model: AI_CONFIG.MODEL,
+        temperature: AI_CONFIG.TEMPERATURE,
+        max_tokens: AI_CONFIG.MAX_TOKENS,
+        stream: true
+      };
+
+      const response = await chatAPI.sendStream(chatRequest);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      const startTime = Date.now();
+
+      addChatMessage({
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        isStreaming: true
+      });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            
+            if (data.trim() === '[DONE]') {
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+              
+              if (parsed.content) {
+                fullContent += parsed.content;
+                
+                const lastIndex = chatMessages.length;
+                updateChatMessage(lastIndex, {
+                  content: fullContent
+                });
+              }
+            } catch (err) {
+                console.error('Chat error processing response:', err);
+              continue;
+            }
+          }
+        }
+      }
+
+      const responseTime = Date.now() - startTime;
+
+      const lastIndex = chatMessages.length - 1;
+      updateChatMessage(lastIndex, {
+        isStreaming: false
+      });
+
+      trackMessageReceived(fullContent.length, responseTime);
+      setIsLoading(false);
+      setIsStreaming(false);
+
+    } catch (err) {
+      console.error('Edit and regenerate error:', err);
+      setError(err.message || ERROR_MESSAGES.API_ERROR);
+      setIsLoading(false);
+      setIsStreaming(false);
+      trackError('edit_regenerate_error', err.message);
+      
+      const messages = [...chatMessages];
+      if (messages[messages.length - 1]?.isStreaming) {
+        messages.pop();
+        setChatMessages(messages);
+      }
+    }
+  };
+
+  const isInputDisabled = isLoading || isStreaming || !sessionId;
+
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow-md p-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <Bot className="text-blue-600" size={24} />
-          <h1 className="text-xl font-bold text-gray-800">AI Assistant</h1>
-          <span className="text-xs text-gray-500">({AI_CONFIG.MODEL})</span>
+      <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <Bot className="w-6 h-6 text-blue-600" />
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">AI Assistant</h2>
+            <p className="text-sm text-gray-500">
+              {isStreaming ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Generating response...</span>
+                </span>
+              ) : (
+                'Ask me anything about workflows'
+              )}
+            </p>
+          </div>
         </div>
+        
         <button
           onClick={clearHistory}
-          className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+          disabled={isStreaming || chatMessages.length === 0}
+          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Clear chat history"
-          disabled={messages.length === 0}
         >
-          <Trash2 size={18} />
-          <span className="text-sm">Clear</span>
+          <Trash2 className="w-4 h-4" />
+          Clear
         </button>
       </div>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 mx-4 mt-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <span className="text-red-500">⚠️</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-500 hover:text-red-700"
-            >
-              ×
-            </button>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        {chatMessages.length === 0 && !isLoading && (
+          <div className="text-center text-gray-500 mt-8">
+            <Bot className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+            <p className="text-lg font-medium mb-2">Start a conversation</p>
+            <p className="text-sm">Ask me about creating workflows, automation, or anything else!</p>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <Bot size={64} className="mb-4 text-blue-400" />
-            <p className="text-lg font-medium">Start a conversation</p>
-            <p className="text-sm">Ask me anything!</p>
-          </div>
-        ) : (
-          messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`flex gap-3 ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              {msg.role === 'assistant' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
-                  <Bot size={18} className="text-white" />
+        {chatMessages.map((message, idx) => (
+          <div
+            key={idx}
+            className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'} group relative`}
+          >
+            {message.role === 'assistant' && (
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-blue-600" />
                 </div>
-              )}
-              
-              <div
-                className={`max-w-[70%] rounded-lg p-4 shadow-md ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-800'
-                }`}
-              >
-                {/* Typing indicator */}
-                {msg.role === 'assistant' && msg.isStreaming && !msg.content ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="animate-spin" size={16} />
-                    <span className="text-sm text-gray-500">Thinking...</span>
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-wrap break-words">
-                    {msg.content}
-                  </div>
-                )}
-                
-                {msg.timestamp && (
-                  <div className={`text-xs mt-2 ${
-                    msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'
-                  }`}>
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </div>
-                )}
               </div>
-              
-              {msg.role === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                  <User size={18} className="text-white" />
+            )}
+            
+            <div className="flex flex-col gap-1 max-w-[70%]">
+              {editingIndex === idx ? (
+                // Edit mode
+                <div className="flex gap-2 items-start">
+                  <textarea
+                    ref={editInputRef}
+                    value={editingContent}
+                    onChange={(e) => setEditingContent(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    rows={3}
+                    maxLength={AI_CONFIG.MAX_MESSAGE_LENGTH}
+                  />
+                  <div className="flex flex-col gap-1">
+                    <button
+                      onClick={saveEdit}
+                      className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                      title="Save and regenerate"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Cancel"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // View mode
+                <div className="flex items-start gap-2">
+                  <div
+                    className={`rounded-lg px-4 py-2 ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-900 border border-gray-200'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap break-words">
+                      {message.content}
+                      {message.isStreaming && (
+                        <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-1 align-middle" />
+                      )}
+                    </p>
+                  </div>
+                  
+                  {message.role === 'user' && !isStreaming && !isLoading && (
+                    <button
+                      onClick={() => startEdit(idx)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded flex-shrink-0"
+                      title="Edit message"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               )}
+              
+              {/* Edited indicator */}
+              {message.edited && !message.isStreaming && (
+                <span className="text-xs text-gray-400 italic px-1">
+                  (edited)
+                </span>
+              )}
             </div>
-          ))
-        )}
-        
-        {/* Loading indicator */}
-        {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
-          <div className="flex gap-3 justify-start">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
-              <Bot size={18} className="text-white" />
-            </div>
-            <div className="bg-white rounded-lg p-4 shadow-md">
-              <Loader2 className="animate-spin text-blue-600" size={20} />
-            </div>
+
+            {message.role === 'user' && (
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                  <User className="w-5 h-5 text-gray-600" />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+            {error}
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Form */}
-      <form onSubmit={sendMessage} className="bg-white border-t p-4">
-        <div className="flex gap-2 max-w-4xl mx-auto">
+      <div className="bg-white border-t border-gray-200 px-6 py-4">
+        {/* Streaming indicator */}
+        {isStreaming && (
+          <div className="mb-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
+            <Lock className="w-4 h-4" />
+            <span>Chat locked while AI is responding...</span>
+          </div>
+        )}
+
+        <form onSubmit={sendMessage} className="flex gap-3">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={isLoading}
+            disabled={isInputDisabled}
+            placeholder={
+              isStreaming 
+                ? "Waiting for response to complete..." 
+                : !sessionId 
+                ? "Loading session..." 
+                : "Type your message..."
+            }
+            className={`flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+              isInputDisabled
+                ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed'
+                : 'bg-white border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+            }`}
             maxLength={AI_CONFIG.MAX_MESSAGE_LENGTH}
           />
+          
           <button
             type="submit"
-            disabled={isLoading || !input.trim()}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            disabled={isInputDisabled || !input.trim()}
+            className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${
+              isInputDisabled || !input.trim()
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+            }`}
           >
             {isLoading ? (
-              <Loader2 className="animate-spin" size={20} />
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Sending...</span>
+              </>
             ) : (
-              <Send size={20} />
+              <>
+                <Send className="w-5 h-5" />
+                <span>Send</span>
+              </>
             )}
-            <span>Send</span>
           </button>
-        </div>
-        <div className="text-xs text-gray-500 text-center mt-2">
-          {input.length} / {AI_CONFIG.MAX_MESSAGE_LENGTH} characters
-        </div>
-      </form>
+        </form>
+
+        {/* Character count */}
+        {input.length > AI_CONFIG.MAX_MESSAGE_LENGTH * 0.8 && (
+          <div className="mt-2 text-xs text-gray-500 text-right">
+            {input.length} / {AI_CONFIG.MAX_MESSAGE_LENGTH} characters
+          </div>
+        )}
+      </div>
     </div>
   );
 };

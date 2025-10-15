@@ -61,6 +61,7 @@ export const useTracking = () => {
     track(TRACKING_EVENTS.WORKFLOW_CLEARED, executionData);
   }, [track]);
   
+// CHAT
   const trackMessageSent = useCallback((messageLength, messageData = {}) => {
     track(TRACKING_EVENTS.MESSAGE_SENT, { messageLength, ...messageData });
   }, [track]);
@@ -68,7 +69,13 @@ export const useTracking = () => {
   const trackMessageReceived = useCallback((messageLength, messageData = {}) => {
     track(TRACKING_EVENTS.MESSAGE_RECEIVED, { messageLength, ...messageData });
   }, [track]);
+
+  const trackMessagesCleared = useCallback((messageLength, messageData = {}) => {
+    track(TRACKING_EVENTS.MESSAGES_CLEARED, { messageLength, ...messageData });
+  }, [track]);
   
+  
+// ERROR
   const trackError = useCallback((errorType, errorMessage, errorContext = {}) => {
     track(TRACKING_EVENTS.ERROR_OCCURRED, { 
       errorType, 
@@ -96,6 +103,7 @@ export const useTracking = () => {
     // Chat
     trackMessageSent,
     trackMessageReceived,
+    trackMessagesCleared,
     
     // Errors
     trackError,

@@ -11,7 +11,10 @@ import os
 from app.database import get_db
 from app.models.demographics import Demographics
 from app.models.session import Session as SessionModel
-from app.schemas.demographics import DemographicsCreate, DemographicsResponse, DemographicsUpdate, DemographicsValidate
+from app.schemas.demographics import (
+    DemographicsCreate, DemographicsResponse, DemographicsUpdate, 
+    DemographicsValidate, DemographicsDebugResponse, DemographicsListResponse
+)
 
 # Configure logging for debugging
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +125,11 @@ async def create_demographics(
         db.refresh(db_demographics)
         
         logger.info(f"Demographics saved successfully with ID: {db_demographics.id}")
+
+        return DemographicsResponse(
+
+        )
+
         return db_demographics
         
     except IntegrityError as e:
@@ -152,7 +160,7 @@ async def get_demographics(session_id: str, db: Session = Depends(get_db)):
     
     return demographics
 
-@router.get("/")
+@router.get("/", response_model=DemographicsListResponse)
 async def get_all_demographics(
     limit: Optional[int] = 50,
     offset: Optional[int] = 0,
@@ -164,43 +172,16 @@ async def get_all_demographics(
         total_count = db.query(Demographics).count()
         demographics = db.query(Demographics).offset(offset).limit(limit).all()
         
-        return {
-            "demographics": demographics,
-            "total": total_count,
-            "limit": limit,
-            "offset": offset
-        }
+        return DemographicsListResponse(
+            demographics=demographics,
+            total=total_count,
+            limit=limit,
+            offset=offset
+        )
         
     except Exception as e:
         logger.error(f"Error getting demographics: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-'''
-@router.get("/{session_id}/validate")
-async def validate_session(session_id: str, db: Session = Depends(get_db)):
-    """Validate if session exists and is active"""
-    session = db.query(SessionModel).filter(
-        SessionModel.session_id == session_id,
-        SessionModel.is_active == "true"
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or inactive")
-    
-    # Update last seen
-    session.last_activity = datetime.utcnow()
-    session.connection_status = "online"
-    db.commit()
-    
-    return {
-        "valid": True,
-        "session_id": session.session_id,
-        "participant_id": session.participant_id,
-        "last_activity": session.last_activity,
-        "session_age_minutes": (datetime.utcnow() - session.start_time).total_seconds() / 60,
-        "has_demographics": session.has_demographics
-    }
-'''
 
 @router.get("/{session_id}/validate", response_model=DemographicsValidate)
 async def validate_demographics(session_id: str, db: Session = Depends(get_db)):
@@ -232,7 +213,7 @@ async def validate_demographics(session_id: str, db: Session = Depends(get_db)):
         logger.error(f"Error validating demographics: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-@router.get("/debug/status")
+@router.get("/debug/status", response_model=DemographicsDebugResponse)
 async def debug_demographics_status(db: Session = Depends(get_db)):
     """Debug endpoint to check demographics database status"""
     
@@ -240,13 +221,13 @@ async def debug_demographics_status(db: Session = Depends(get_db)):
         total_count = db.query(Demographics).count()
         recent = db.query(Demographics).order_by(Demographics.completed_at.desc()).limit(5).all()
         
-        return {
-            "table_exists": True,
-            "total_records": total_count,
-            "recent_records": len(recent),
-            "recent_session_ids": [r.session_id for r in recent],
-            "database_status": "connected"
-        }
+        return DemographicsDebugResponse(
+            table_exists=True,
+            total_records=total_count,
+            recent_records=len(recent),
+            recent_session_ids=[r.session_id for r in recent],
+            database_status="connected"
+        )
         
     except Exception as e:
         logger.error(f"Database status check failed: {e}")

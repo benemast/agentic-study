@@ -87,7 +87,7 @@ export const TRACKING_EVENTS = {
   // Chat events
   MESSAGE_SENT: 'message_sent',
   MESSAGE_RECEIVED: 'message_received',
-  CHAT_CLEARED: 'chat_cleared',
+  MESSAGES_CLEARED: 'chat_cleared',
   
   // Demographics events
   DEMOGRAPHICS_STARTED: 'demographics_started',

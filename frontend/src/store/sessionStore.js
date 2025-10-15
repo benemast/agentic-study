@@ -68,7 +68,8 @@ export const useSessionStore = create(
         totalTimeSpent: 0,
         currentView: 'dashboard',
         currentWorkflow: { nodes: [], edges: [] },
-        interactions: []
+        interactions: [],
+        chatMessages: [],
       },
       
       // Metadata
@@ -363,6 +364,83 @@ export const useSessionStore = create(
       },
       
       // ========================================
+      // CHAT MESSAGES MANAGEMENT
+      // ========================================
+      
+      getChatMessages: () => {
+        return get().sessionData.chatMessages || [];
+      },
+      
+      setChatMessages: (messages) => {
+        set((state) => ({
+          sessionData: {
+            ...state.sessionData,
+            chatMessages: messages
+          }
+        }));
+        
+        // Auto-sync when messages change
+        get().updateLastActivity();
+      },
+      
+      addChatMessage: (message) => {
+        set((state) => ({
+          sessionData: {
+            ...state.sessionData,
+            chatMessages: [...state.sessionData.chatMessages, message]
+          }
+        }));
+        
+        get().updateLastActivity();
+      },
+      
+      updateChatMessage: (index, updates) => {
+        set((state) => {
+          const messages = [...state.sessionData.chatMessages];
+          messages[index] = { ...messages[index], ...updates };
+          return {
+            sessionData: {
+              ...state.sessionData,
+              chatMessages: messages
+            }
+          };
+        });
+        
+        get().updateLastActivity();
+      },
+      
+      clearChatMessages: () => {
+        set((state) => ({
+          sessionData: {
+            ...state.sessionData,
+            chatMessages: []
+          }
+        }));
+      },
+      
+      loadChatHistory: async () => {
+        const { sessionId } = get();
+        if (!sessionId) return;
+        
+        try {
+          const { chatAPI } = await import('../config/api');
+          const data = await chatAPI.getHistory(sessionId);
+          
+          set((state) => ({
+            sessionData: {
+              ...state.sessionData,
+              chatMessages: data.messages || []
+            }
+          }));
+          
+          return data.messages || [];
+        } catch (error) {
+          console.error('Failed to load chat history:', error);
+          return [];
+        }
+      },
+
+      // ========================================
       // SYNC & PERSISTENCE
       // ========================================
       
@@ -489,7 +567,7 @@ export const useSessionStore = create(
     }),
     // PERSIST CONFIGURATION
     {
-      name: 'agentic-session-storage',
+      name: 'agentic-study-session',
       
       // Ensure proper hydration
       partialize: (state) => ({

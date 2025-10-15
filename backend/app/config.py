@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_enabled: bool = True
     chat_rate_limit: str = "20/minute"
+    save_chat_rate_limit: str = "30/minute"
     api_rate_limit: str = "100/minute"
 
     # Sentry

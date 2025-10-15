@@ -113,9 +113,12 @@ async def preflight_handler(rest_of_path: str, request: Request):
 # Make sure exception handlers include CORS headers
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Catch-all exception handler with CORS"""
+    """Catch-all exception handler with CORS - ensures headers are always present"""
     logger.error(f"Unhandled exception: {exc}")
     logger.error(traceback.format_exc())
+    
+    # Get origin from request or default to *
+    origin = request.headers.get("origin", "*")
     
     return JSONResponse(
         status_code=500,
@@ -124,10 +127,11 @@ async def general_exception_handler(request: Request, exc: Exception):
             "detail": str(exc) if settings.debug else "Please try again later"
         },
         headers={
-            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
             "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": "*",
         }
     )
 
@@ -203,17 +207,26 @@ async def server_error_handler(request: Request, exc: Exception):
         }
     )
 
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Catch-all exception handler"""
-    logger.error(f"Unhandled exception: {exc}")
+@app.exception_handler(500)
+async def server_error_handler(request: Request, exc: Exception):
+    """Handle 500 errors with logging and CORS"""
+    logger.error(f"Internal server error: {exc}")
     logger.error(traceback.format_exc())
+    
+    origin = request.headers.get("origin", "*")
     
     return JSONResponse(
         status_code=500,
         content={
-            "error": "An error occurred",
-            "detail": str(exc) if settings.debug else "Please try again later"
+            "error": "Internal server error",
+            "detail": str(exc) if settings.debug else "An unexpected error occurred"
+        },
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": "*",
         }
     )
 

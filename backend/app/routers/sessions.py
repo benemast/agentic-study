@@ -5,13 +5,20 @@ from sqlalchemy import func, desc, true
 from typing import List, Optional, Dict, Any
 import json
 from datetime import datetime, timedelta
+import logging
+import traceback
 
 from app.database import get_db
 from app.models.session import Session as SessionModel, Interaction as InteractionModel
 from app.schemas.session import (
     SessionCreate, SessionResponse, InteractionCreate, InteractionResponse, 
-    SessionEnd, SessionUpdate, SessionSync, SessionQuickSave, SessionValidate
+    SessionEnd, SessionUpdate, SessionQuickSave, SessionValidateResponse, 
+    SessionSyncResponse, SessionQuickSaveResponse, SessionEndResponse, 
+    SessionListItem, SessionHealthResponse, SessionHeartbeatResponse,
+    SessionDeleteResponse
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -60,7 +67,7 @@ async def create_session(
         is_active=db_session.is_active == "true"
     )
 
-@router.get("/{session_id}/validate")
+@router.get("/{session_id}/validate", response_model=SessionValidateResponse)
 async def validate_session(session_id: str, db: Session = Depends(get_db)):
     """Validate if session exists and is active"""
     session = db.query(SessionModel).filter(
@@ -76,14 +83,14 @@ async def validate_session(session_id: str, db: Session = Depends(get_db)):
     session.connection_status = "online"
     db.commit()
     
-    return {
-        "valid": True,
-        "session_id": session.session_id,
-        "participant_id": session.participant_id,
-        "last_activity": session.last_activity,
-        "session_age_minutes": (datetime.utcnow() - session.start_time).total_seconds() / 60,
-        "has_demographics": session.has_demographics
-    }
+    return SessionValidateResponse(
+        valid=True,
+        session_id=session.session_id,
+        participant_id=session.participant_id,
+        last_activity=session.last_activity,
+        session_age_minutes=(datetime.utcnow() - session.start_time).total_seconds() / 60,
+        has_demographics=session.has_demographics
+    )
 
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: str, db: Session = Depends(get_db)):
@@ -152,7 +159,7 @@ async def update_session(
         has_demographics=session.has_demographics        
     )
 
-@router.post("/{session_id}/sync")
+@router.post("/{session_id}/sync", response_model=SessionSyncResponse)
 async def sync_session_data(
     session_id: str, 
     request: Request,
@@ -196,18 +203,18 @@ async def sync_session_data(
         
         db.commit()
         
-        return {
-            "success": True,
-            "synced_at": body['sync_timestamp'],
-            "session_id": session_id
-        }
+        return SessionSyncResponse(
+            success=True,
+            synced_at=body['sync_timestamp'],
+            session_id=session_id
+        )
         
     except Exception as e:
         db.rollback()
         print(f"Sync error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/{session_id}/quick-save")
+@router.post("/{session_id}/quick-save", response_model=SessionQuickSaveResponse)
 async def quick_save_session(
     session_id: str,
     save_data: SessionQuickSave,
@@ -238,78 +245,79 @@ async def quick_save_session(
     
     background_tasks.add_task(update_session)
     
-    return {"success": True, "quick_save": True}
-
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
-from typing import List, Optional, Dict, Any
-import json
-from datetime import datetime, timedelta
-
-# ... other imports
+    return SessionQuickSaveResponse(
+        success=True,
+        quick_save=True
+    )
 
 @router.post("/{session_id}/interactions", response_model=InteractionResponse)
 async def log_interaction(
     session_id: str, 
     interaction: InteractionCreate, 
-    request: Request,  # Add this to capture request data
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Log a user interaction with enhanced tracking"""
+    try:
+        # Verify session exists
+        session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Parse timestamp
+        timestamp = datetime.fromisoformat(interaction.timestamp.replace('Z', '+00:00'))
+        
+        # Extract additional tracking data from request
+        user_agent = request.headers.get("user-agent", "")
+        
+        # Get client IP (handle various proxy headers)
+        client_ip = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip() or
+            request.headers.get("x-real-ip", "") or
+            request.headers.get("cf-connecting-ip", "") or
+            getattr(request.client, "host", "unknown") if request.client else "unknown"
+        )
+        
+        # Get page URL from referer header
+        page_url = request.headers.get("referer", "")
+        
+        # Create interaction record with all tracking data
+        db_interaction = InteractionModel(
+            session_id=session_id,
+            timestamp=timestamp,
+            event_type=interaction.event_type,
+            event_data=interaction.event_data,
+            current_view=interaction.current_view,
+            user_agent=user_agent,
+            ip_address=client_ip,
+            page_url=page_url
+        )
+        
+        db.add(db_interaction)
+        
+        # Update session activity
+        session.last_activity = timestamp
+        session.connection_status = "online"
+        
+        db.commit()
+        db.refresh(db_interaction)
+        
+        return InteractionResponse(
+            id=db_interaction.id,
+            session_id=db_interaction.session_id,
+            timestamp=db_interaction.timestamp,
+            event_type=db_interaction.event_type,
+            event_data=db_interaction.event_data,
+            current_view=db_interaction.current_view
+        )
     
-    # Verify session exists
-    session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Parse timestamp
-    timestamp = datetime.fromisoformat(interaction.timestamp.replace('Z', '+00:00'))
-    
-    # Extract additional tracking data from request
-    user_agent = request.headers.get("user-agent", "")
-    
-    # Get client IP (handle various proxy headers)
-    client_ip = (
-        request.headers.get("x-forwarded-for", "").split(",")[0].strip() or
-        request.headers.get("x-real-ip", "") or
-        request.headers.get("cf-connecting-ip", "") or
-        getattr(request.client, "host", "unknown") if request.client else "unknown"
-    )
-    
-    # Get page URL from referer header
-    page_url = request.headers.get("referer", "")
-    
-    # Create interaction record with all tracking data
-    db_interaction = InteractionModel(
-        session_id=session_id,
-        timestamp=timestamp,
-        event_type=interaction.event_type,
-        event_data=interaction.event_data,
-        current_view=interaction.current_view,
-        # Add the missing fields:
-        user_agent=user_agent,
-        ip_address=client_ip,
-        page_url=page_url
-    )
-    
-    db.add(db_interaction)
-    
-    # Update session activity
-    session.last_activity = timestamp
-    session.connection_status = "online"
-    
-    db.commit()
-    db.refresh(db_interaction)
-    
-    return InteractionResponse(
-        id=db_interaction.id,
-        session_id=db_interaction.session_id,
-        timestamp=db_interaction.timestamp,
-        event_type=db_interaction.event_type,
-        event_data=db_interaction.event_data,
-        current_view=db_interaction.current_view
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging interaction for session {session_id}: {e}")
+        logger.error(traceback.format_exc())
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to log interaction: {str(e)}")
 
 @router.get("/{session_id}/interactions", response_model=List[InteractionResponse])
 async def get_interactions(
@@ -330,7 +338,7 @@ async def get_interactions(
     
     return interactions
 
-@router.get("/{session_id}/health")
+@router.get("/{session_id}/health", response_model=SessionHealthResponse)
 async def get_session_health(session_id: str, db: Session = Depends(get_db)):
     """Get session health status"""
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
@@ -353,22 +361,20 @@ async def get_session_health(session_id: str, db: Session = Depends(get_db)):
         time_since_activity < 30  # 30 minutes
     )
     
-    timeout_warning = time_since_activity > 45  # 45 minutes
-    
-    return {
-        "session_id": session_id,
-        "is_healthy": is_healthy,
-        "is_active": session.is_active == "true",
-        "connection_status": session.connection_status,
-        "session_duration_minutes": round(session_duration, 2),
-        "time_since_activity_minutes": round(time_since_activity, 2),
-        "timeout_warning": timeout_warning,
-        "interaction_count": interaction_count,
-        "last_activity": session.last_activity,
-        "metadata": session.session_metadata
-    }
+    return SessionHealthResponse(
+        session_id=session_id,
+        is_healthy=is_healthy,
+        is_active=session.is_active == "true",
+        connection_status=session.connection_status,
+        session_duration_minutes=round(session_duration, 2),
+        time_since_activity_minutes=round(time_since_activity, 2),
+        timeout_warning=timeout_warning,
+        interaction_count=interaction_count,
+        last_activity=session.last_activity,
+        metadata=session.session_metadata
+    )
 
-@router.post("/{session_id}/end")
+@router.post("/{session_id}/end", response_model=SessionEndResponse)
 async def end_session(session_id: str, session_end: SessionEnd, db: Session = Depends(get_db)):
     """End a user session with enhanced final data"""
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
@@ -398,13 +404,13 @@ async def end_session(session_id: str, session_end: SessionEnd, db: Session = De
     
     db.commit()
     
-    return {
-        "message": "Session ended successfully",
-        "session_duration_minutes": end_metadata["session_duration_minutes"],
-        "final_interaction_count": len(session_end.final_stats.get("interactions", []))
-    }
+    return SessionEndResponse(
+        message="Session ended successfully",
+        session_duration_minutes=end_metadata["session_duration_minutes"],
+        final_interaction_count=len(session_end.final_stats.get("interactions", []))
+    )
 
-@router.get("/")
+@router.get("/", response_model=List[SessionListItem])
 async def get_all_sessions(
     active_only: bool = False,
     limit: Optional[int] = 50,
@@ -418,20 +424,23 @@ async def get_all_sessions(
     
     sessions = query.order_by(desc(SessionModel.start_time)).limit(limit).all()
     
-    return [
-        {
-            "session_id": s.session_id,
-            "participant_id": s.participant_id,
-            "start_time": s.start_time,
-            "end_time": s.end_time,
-            "is_active": s.is_active == "true",
-            "connection_status": s.connection_status,
-            "last_activity": s.last_activity,
-            "interaction_count": db.query(func.count(InteractionModel.id))
-                                 .filter(InteractionModel.session_id == s.session_id).scalar()
-        }
-        for s in sessions
-    ]
+    result = []
+    for s in sessions:
+        interaction_count = db.query(func.count(InteractionModel.id))\
+                             .filter(InteractionModel.session_id == s.session_id).scalar()
+        
+        result.append(SessionListItem(
+            session_id=s.session_id,
+            participant_id=s.participant_id,
+            start_time=s.start_time,
+            end_time=s.end_time,
+            is_active=s.is_active == "true",
+            connection_status=s.connection_status,
+            last_activity=s.last_activity,
+            interaction_count=interaction_count
+        ))
+    
+    return result
 
 @router.get("/analytics/summary")
 async def get_analytics_summary(db: Session = Depends(get_db)):
@@ -590,7 +599,7 @@ async def export_sessions_csv(include_interactions: bool = False, db: Session = 
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", response_model=SessionDeleteResponse)
 async def delete_session(session_id: str, db: Session = Depends(get_db)):
     """Delete a session and all its interactions (admin only)"""
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
@@ -605,9 +614,11 @@ async def delete_session(session_id: str, db: Session = Depends(get_db)):
     db.delete(session)
     db.commit()
     
-    return {"message": f"Session {session_id} deleted successfully"}
+    return SessionDeleteResponse(
+        message=f"Session {session_id} deleted successfully"
+    )
 
-@router.post("/{session_id}/heartbeat")
+@router.post("/{session_id}/heartbeat", response_model=SessionHeartbeatResponse)
 async def session_heartbeat(session_id: str, db: Session = Depends(get_db)):
     """Update session activity timestamp (heartbeat)"""
     session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
@@ -619,4 +630,7 @@ async def session_heartbeat(session_id: str, db: Session = Depends(get_db)):
     session.connection_status = "online"
     db.commit()
     
-    return {"success": True, "timestamp": session.last_activity}
+    return SessionHeartbeatResponse(
+        success=True,
+        timestamp=session.last_activity
+    )

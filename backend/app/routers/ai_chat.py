@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
+import time
 from collections import defaultdict
 import json
 import asyncio
@@ -44,6 +45,29 @@ if settings.redis_enabled:
         print(f"Redis connection failed: {e}. Continuing without cache.")
         redis_client = None
 
+# Conditional rate limiter setup
+limiter = None
+if settings.rate_limit_enabled:
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
+    limiter = Limiter(key_func=get_remote_address)
+    print("✅ Rate limiting enabled")
+else:
+    print("⚠️ Rate limiting disabled")
+
+
+def conditional_limit(limit_string: str):
+    """
+    Decorator that applies rate limiting only if enabled in settings
+    """
+    def decorator(func):
+        if settings.rate_limit_enabled and limiter:
+            # Apply the rate limit decorator
+            return limiter.limit(limit_string)(func)
+        else:
+            # Return function unchanged (no rate limiting)
+            return func
+    return decorator
 
 def get_session_id_from_request(request: Request) -> str:
     """Extract session ID from request for rate limiting"""
@@ -55,6 +79,7 @@ def get_session_id_from_request(request: Request) -> str:
 
 
 @router.post("/chat")
+@conditional_limit(settings.chat_rate_limit)
 async def chat_stream(
     request: Request,
     chat_request: ChatRequest,
@@ -62,176 +87,246 @@ async def chat_stream(
 ):
     """
     Stream chat responses from OpenAI with rate limiting
-    Rate limit: 20 requests per minute per session
+    Rate limit: 20 requests per minute per session (if enabled)
     """
-    # Apply rate limiting if enabled
-    if settings.rate_limit_enabled and hasattr(request.app.state, 'limiter'):
-        limiter = request.app.state.limiter
-        # Use session_id for rate limiting instead of IP
-        await limiter.check_request(
-            request,
-            settings.chat_rate_limit,
-            key=chat_request.session_id
-        )
-    
-    # Validate session exists
-    session = db.query(SessionModel).filter(
-        SessionModel.session_id == chat_request.session_id
-    ).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Acquire per-session lock to prevent race conditions
-    async with session_locks[chat_request.session_id]:
-        # Load chat history within the lock
-        conversation = db.query(ChatConversation).filter(
-            ChatConversation.session_id == chat_request.session_id
+    try:
+        # Validate session exists
+        session = db.query(SessionModel).filter(
+            SessionModel.session_id == chat_request.session_id
         ).first()
         
-        if not conversation:
-            conversation = ChatConversation(
-                session_id=chat_request.session_id,
-                model=chat_request.model or settings.llm_model
-            )
-            db.add(conversation)
-            db.commit()
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session not found: {chat_request.session_id}")
         
-        # Limit context to last N messages for performance
-        limited_messages = chat_request.messages[-MAX_CONTEXT_MESSAGES:]
-        
-        # Prepare OpenAI request
-        openai_request = {
-            "model": chat_request.model or settings.llm_model,
-            "messages": [msg.dict() for msg in limited_messages],
-            "temperature": chat_request.temperature,
-            "max_tokens": chat_request.max_tokens or DEFAULT_MAX_TOKENS,
-            "stream": chat_request.stream
-        }
-        
-        if not chat_request.stream:
-            # Non-streaming response
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    OPENAI_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json=openai_request,
-                    timeout=60.0
-                )
-                
-                if response.status_code != 200:
-                    raise HTTPException(
-                        status_code=response.status_code,
-                        detail=f"OpenAI API error: {response.text}"
-                    )
-                
-                result = response.json()
-                assistant_message = result['choices'][0]['message']['content']
-                
-                # Save assistant message
-                db_message = ChatMessage(
-                    session_id=conversation.session_id,
-                    role="assistant",
-                    content=assistant_message,
-                    model=chat_request.model or settings.llm_model,
-                    tokens_used=result['usage']['total_tokens']
-                )
-                db.add(db_message)
-                
-                # Update conversation
-                conversation.message_count += 1
-                conversation.total_tokens += result['usage']['total_tokens']
-                conversation.last_message_at = datetime.utcnow()
-                
-                db.commit()
-                
-                return ChatResponse(
-                    message=Message(
-                        role="assistant",
-                        content=assistant_message,
-                        timestamp=datetime.utcnow().isoformat()
-                    ),
-                    session_id=conversation.session_id,
-                    tokens_used=result['usage']['total_tokens']
-                )
-        
-        # Streaming response
-        async def generate_stream():
-            full_content = ""
-            total_tokens = 0
+        # Acquire per-session lock to prevent race conditions
+        async with session_locks[chat_request.session_id]:
+            conversation = db.query(ChatConversation).filter(
+                ChatConversation.session_id == chat_request.session_id
+            ).first()
             
-            try:
+            if not conversation:
+                conversation = ChatConversation(
+                    session_id=chat_request.session_id,
+                    started_at=datetime.now(timezone.utc)
+                )
+                db.add(conversation)
+                db.commit()
+                db.refresh(conversation)
+            
+            # Limit context to last N messages for performance
+            limited_messages = chat_request.messages[-MAX_CONTEXT_MESSAGES:]
+            
+            # Save user message to database
+            if limited_messages and limited_messages[-1].role == "user":
+                                
+                # Calculate message index
+                message_index = db.query(ChatMessage).filter(
+                    ChatMessage.session_id == chat_request.session_id
+                ).count()
+                
+                user_message = ChatMessage(
+                    session_id=chat_request.session_id,
+                    role="user",
+                    content=limited_messages[-1].content,
+                    timestamp=datetime.now(timezone.utc),
+                    message_index=message_index,
+                    token_count=None,  # User messages don't have token counts from OpenAI
+                    model_used=chat_request.model or settings.llm_model,
+                    response_time_ms=None,  # Only for assistant responses
+                    message_metadata={
+                        "temperature": chat_request.temperature,
+                        "max_tokens": chat_request.max_tokens,
+                        "stream": chat_request.stream
+                    }
+                )
+                db.add(user_message)
+                conversation.total_user_messages += 1
+                conversation.message_count += 1
+                db.commit()
+            
+            # Prepare OpenAI request
+            openai_request = {
+                "model": chat_request.model or settings.llm_model,
+                "messages": [{"role": msg.role, "content": msg.content} for msg in limited_messages],
+                "temperature": chat_request.temperature,
+                "max_tokens": chat_request.max_tokens or DEFAULT_MAX_TOKENS,
+                "stream": chat_request.stream
+            }
+            
+            if not chat_request.stream:
+                # Non-streaming response
+                start_time = time.time()
+
                 async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
+                    response = await client.post(
                         OPENAI_API_URL,
                         headers={
                             "Authorization": f"Bearer {OPENAI_API_KEY}",
                             "Content-Type": "application/json"
                         },
                         json=openai_request,
-                        timeout=120.0
-                    ) as response:
-                        if response.status_code != 200:
-                            error_text = await response.aread()
-                            yield f"data: {json.dumps({'error': f'OpenAI API error: {error_text.decode()}'})}\n\n"
-                            return
-                        
-                        async for line in response.aiter_lines():
-                            if line.startswith('data: '):
-                                data = line[6:]
-                                
-                                if data.strip() == '[DONE]':
-                                    # Save complete message to database
-                                    db_message = ChatMessage(
-                                        session_id=conversation.session_id,
-                                        role="assistant",
-                                        content=full_content,
-                                        model=chat_request.model or settings.llm_model,
-                                        tokens_used=total_tokens
-                                    )
-                                    db.add(db_message)
-                                    
-                                    # Update conversation stats
-                                    conversation.message_count += 1
-                                    conversation.total_tokens += total_tokens
-                                    conversation.last_message_at = datetime.utcnow()
-                                    
-                                    db.commit()
-                                    
-                                    yield f"data: [DONE]\n\n"
-                                    break
-                                
-                                try:
-                                    chunk = json.loads(data)
-                                    if 'choices' in chunk and len(chunk['choices']) > 0:
-                                        delta = chunk['choices'][0].get('delta', {})
-                                        content = delta.get('content', '')
-                                        
-                                        if content:
-                                            full_content += content
-                                            yield f"data: {json.dumps({'content': content})}\n\n"
-                                        
-                                        # Estimate tokens (rough approximation)
-                                        if content:
-                                            total_tokens += len(content.split()) // 0.75
-                                
-                                except json.JSONDecodeError:
-                                    continue
+                        timeout=60.0
+                    )
+                    
+                    if response.status_code != 200:
+                        raise HTTPException(
+                            status_code=response.status_code,
+                            detail=f"OpenAI API error: {response.text}"
+                        )
+                    
+                    result = response.json()
+                    assistant_message = result['choices'][0]['message']['content']
+
+                    response_time_ms = int((time.time() - start_time) * 1000)
+                    
+                    # Calculate message index
+                    message_index = db.query(ChatMessage).filter(
+                        ChatMessage.session_id == chat_request.session_id
+                    ).count()
+
+                    # Save assistant message
+                    db_message = ChatMessage(
+                        session_id=conversation.session_id,
+                        role="assistant",
+                        content=assistant_message,
+                        timestamp=datetime.now(timezone.utc),
+                        message_index=message_index,
+                        token_count=result['usage']['total_tokens'],
+                        model_used=chat_request.model or settings.llm_model,
+                        response_time_ms=response_time_ms,
+                        message_metadata={
+                            "finish_reason": result['choices'][0].get('finish_reason'),
+                            "prompt_tokens": result['usage']['prompt_tokens'],
+                            "completion_tokens": result['usage']['completion_tokens'],
+                            "temperature": chat_request.temperature,
+                            "max_tokens": chat_request.max_tokens
+                        }
+                    )
+                    db.add(db_message)
+                    
+                    # Update conversation
+                    conversation.message_count += 1
+                    conversation.total_tokens_used += result['usage']['total_tokens']
+                    conversation.last_message_at = datetime.now(timezone.utc)
+                    conversation.total_assistant_messages += 1
+                    
+                    db.commit()
+                    
+                    return ChatResponse(
+                        message=Message(
+                            role="assistant",
+                            content=assistant_message,
+                            timestamp=datetime.now(timezone.utc).isoformat()
+                        ),
+                        usage=result['usage']
+                    )
             
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        
-        return StreamingResponse(
-            generate_stream(),
-            media_type="text/event-stream"
-        )
+            # Streaming response
+            async def generate_stream():
+                full_content = ""
+                total_tokens = 0
+                start_time = time.time()
+                finish_reason = None
+                
+                try:
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream(
+                            "POST",
+                            OPENAI_API_URL,
+                            headers={
+                                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            json=openai_request,
+                            timeout=120.0
+                        ) as response:
+                            if response.status_code != 200:
+                                error_text = await response.aread()
+                                yield f"data: {json.dumps({'error': f'OpenAI API error: {error_text.decode()}'})}\n\n"
+                                return
+                            
+                            async for line in response.aiter_lines():
+                                if line.startswith('data: '):
+                                    data = line[6:]
+                                    
+                                    if data.strip() == '[DONE]':
+                                        response_time_ms = int((time.time() - start_time) * 1000)
+                                        
+                                        # Calculate message index
+                                        message_index = db.query(ChatMessage).filter(
+                                            ChatMessage.session_id == conversation.session_id
+                                        ).count()
+
+                                        db_message = ChatMessage(
+                                            session_id=conversation.session_id,
+                                            role="assistant",
+                                            content=full_content,
+                                            timestamp=datetime.now(timezone.utc),
+                                            message_index=message_index,
+                                            token_count=total_tokens,
+                                            model_used=chat_request.model or settings.llm_model,
+                                            response_time_ms=response_time_ms,
+                                            message_metadata={
+                                                "finish_reason": finish_reason,
+                                                "temperature": chat_request.temperature,
+                                                "max_tokens": chat_request.max_tokens,
+                                                "stream": True,
+                                                "estimated_tokens": total_tokens
+                                            }
+                                        )
+                                        db.add(db_message)
+                                        
+                                        # Update conversation stats
+                                        conversation.message_count += 1
+                                        conversation.total_tokens_used += total_tokens
+                                        conversation.last_message_at = datetime.now(timezone.utc)
+                                        conversation.total_assistant_messages += 1
+                                        
+                                        db.commit()
+                                        
+                                        yield f"data: [DONE]\n\n"
+                                        break
+                                    
+                                    try:
+                                        chunk = json.loads(data)
+                                        if 'choices' in chunk and len(chunk['choices']) > 0:
+                                            delta = chunk['choices'][0].get('delta', {})
+                                            content = delta.get('content', '')
+
+                                            if 'finish_reason' in chunk['choices'][0]:
+                                                finish_reason = chunk['choices'][0]['finish_reason']
+                                            
+                                            if content:
+                                                full_content += content
+                                                yield f"data: {json.dumps({'content': content})}\n\n"
+                                            
+                                            # Estimate tokens (rough approximation: ~0.75 tokens per word)
+                                            if content:
+                                                word_count = len(content.split())
+                                                total_tokens += max(1, int(word_count / 0.75))
+                                    
+                                    except json.JSONDecodeError:
+                                        continue
+                
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/event-stream"
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error in chat endpoint: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/save-message", response_model=ChatMessageResponse)
+@conditional_limit(settings.save_chat_rate_limit)
 async def save_message(
     request: Request,
     message_data: SaveMessageRequest,
@@ -248,14 +343,6 @@ async def save_message(
     if not effective_session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     
-    if settings.rate_limit_enabled and hasattr(request.app.state, 'limiter'):
-        limiter = request.app.state.limiter
-        await limiter.check_request(
-            request,
-            "30/minute",
-            key=effective_session_id
-        )
-    
     try:
         async with session_locks[effective_session_id]:
             conversation = db.query(ChatConversation).filter(
@@ -265,21 +352,46 @@ async def save_message(
             if not conversation:
                 conversation = ChatConversation(
                     session_id=effective_session_id,
-                started_at=datetime.now(datetime.timezone.utc)
+                    started_at=datetime.now(timezone.utc)
                 )
                 db.add(conversation)
                 db.flush()
+
+            # CHECK FOR DUPLICATES
+            existing = db.query(ChatMessage).filter(
+                ChatMessage.session_id == effective_session_id,
+                ChatMessage.role == message_data.role,
+                ChatMessage.content == message_data.content
+            ).order_by(ChatMessage.timestamp.desc()).first()
             
+            if existing:
+                time_diff = (datetime.now(timezone.utc) - existing.timestamp).total_seconds()
+                if time_diff < 5:  # Duplicate within 5 seconds
+                    print(f"Skipping duplicate {message_data.role} message")
+                    # Return existing message instead
+                    return ChatMessageResponse(
+                        id=existing.id,
+                        session_id=existing.session_id,
+                        role=existing.role,
+                        content=existing.content,
+                        timestamp=existing.timestamp,
+                        message_index=existing.message_index,
+                        token_count=existing.token_count,
+                        model_used=existing.model_used,
+                        response_time_ms=existing.response_time_ms,
+                        message_metadata=existing.message_metadata
+                    )
+
             db_message = ChatMessage(
                 session_id=effective_session_id,
                 role=message_data.role,
                 content=message_data.content,
-                timestamp=datetime.now(datetime.timezone.utc)
+                timestamp=datetime.now(timezone.utc)
             )
             db.add(db_message)
             
             conversation.message_count += 1
-            conversation.last_message_at = datetime.now(datetime.timezone.utc)
+            conversation.last_message_at = datetime.now(timezone.utc)
             if message_data.role == 'user':
                 conversation.total_user_messages += 1
             elif message_data.role == 'assistant':
@@ -288,21 +400,24 @@ async def save_message(
             db.commit()
             db.refresh(db_message)
             
-            return {
-                "id": db_message.id,
-                "session_id": db_message.session_id,
-                "role": db_message.role,
-                "content": db_message.content,
-                "timestamp": db_message.timestamp.isoformat(),
-                "success": True
-            }
+            return ChatMessageResponse(
+                id=db_message.id,
+                session_id=db_message.session_id,
+                role=db_message.role,
+                content=db_message.content,
+                timestamp=db_message.timestamp,
+                message_index=db_message.message_index,
+                token_count=db_message.token_count,
+                model_used=db_message.model_used,
+                response_time_ms=db_message.response_time_ms,
+                message_metadata=db_message.message_metadata
+            )
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=500, 
             detail=f"Failed to save message: {str(e)}"
         )
-
 
 @router.get("/history/{session_id}", response_model=ChatHistoryResponse)
 async def get_chat_history(
@@ -321,9 +436,9 @@ async def get_chat_history(
             ChatConversation.session_id == session_id
         ).first()
         
-        return {
-            "session_id": session_id,
-            "messages": [
+        return ChatHistoryResponse(
+            session_id=session_id,
+            messages=[
                 {
                     "role": msg.role,
                     "content": msg.content,
@@ -331,16 +446,15 @@ async def get_chat_history(
                 }
                 for msg in messages
             ],
-            "total_messages": len(messages),
-            "conversation_started": conversation.started_at.isoformat() if conversation else None,
-            "last_message_at": conversation.last_message_at.isoformat() if conversation else None
-        }
+            total_messages=len(messages),
+            conversation_started=conversation.started_at if conversation else None,
+            last_message_at=conversation.last_message_at if conversation else None
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load chat history: {str(e)}"
         )
-
 
 @router.delete("/clear/{session_id}", response_model=ClearHistoryResponse)
 async def clear_chat_history(
@@ -366,18 +480,17 @@ async def clear_chat_history(
 
         db.commit()
         
-        return {
-            "message": "Chat history cleared",
-            "session_id": session_id,
-            "messages_cleared": message_count
-        }
+        return ClearHistoryResponse(            
+            message= "Chat history cleared",
+            session_id= session_id,
+            messages_cleared= message_count
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=500, 
             detail=f"Failed to delete conversation: {str(e)}"
         )
-
 
 @router.get("/stats/{session_id}", response_model=ConversationStats)
 async def get_conversation_stats(
@@ -393,16 +506,17 @@ async def get_conversation_stats(
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
         
-        return {
-            "session_id": session_id,
-            "message_count": conversation.message_count,
-            "total_tokens_used": conversation.total_tokens_used,
-            "total_user_messages": conversation.total_user_messages,
-            "total_assistant_messages": conversation.total_assistant_messages,
-            "estimated_cost_usd": conversation.estimated_cost_usd,
-            "started_at": conversation.started_at.isoformat(),
-            "last_message_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None
-        }
+        return ConversationStats(
+            session_id=session_id,
+            message_count=conversation.message_count,
+            total_tokens_used=conversation.total_tokens_used,
+            total_user_messages=conversation.total_user_messages,
+            total_assistant_messages=conversation.total_assistant_messages,
+            estimated_cost_usd=conversation.estimated_cost_usd,
+            started_at=conversation.started_at.isoformat(),
+            last_message_at=conversation.last_message_at.isoformat() if conversation.last_message_at else None
+        )
+
     except HTTPException:
         raise
     except Exception as e:

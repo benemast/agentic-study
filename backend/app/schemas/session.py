@@ -107,3 +107,58 @@ class SessionSummary(BaseModel):
     connection_status: str
     last_activity: Optional[datetime]
     interaction_count: int
+
+class SessionValidateResponse(BaseModel):
+    valid: bool
+    session_id: str
+    participant_id: int
+    last_activity: datetime
+    session_age_minutes: float
+    has_demographics: bool
+
+class SessionSyncResponse(BaseModel):
+    success: bool
+    synced_at: str
+    session_id: str
+
+class SessionQuickSaveResponse(BaseModel):
+    success: bool
+    quick_save: Optional[bool] = None
+    reason: Optional[str] = None
+
+class SessionEndResponse(BaseModel):
+    message: str
+    session_duration_minutes: float
+    final_interaction_count: int
+
+class SessionListItem(BaseModel):
+    session_id: str
+    participant_id: int
+    start_time: datetime
+    end_time: Optional[datetime]
+    is_active: bool
+    connection_status: str
+    last_activity: Optional[datetime]
+    interaction_count: int
+
+    class Config:
+        from_attributes = True
+
+class SessionHealthResponse(BaseModel):
+    session_id: str
+    is_healthy: bool
+    is_active: bool
+    connection_status: str
+    session_duration_minutes: float
+    time_since_activity_minutes: float
+    timeout_warning: bool
+    interaction_count: int
+    last_activity: Optional[datetime]
+    metadata: Optional[Dict[str, Any]]
+
+class SessionHeartbeatResponse(BaseModel):
+    success: bool
+    timestamp: datetime
+
+class SessionDeleteResponse(BaseModel):
+    message: str

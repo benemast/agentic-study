@@ -24,6 +24,7 @@ const { sessionId } = useSession();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const hasTrackedStart = useRef(false);
   
   const { t, currentLanguage, setLanguage } = useTranslation(); 
 
@@ -32,7 +33,10 @@ const { sessionId } = useSession();
 
   // Track demographics start
   useEffect(() => {
-    track(TRACKING_EVENTS.DEMOGRAPHICS_STARTED);
+    if (!hasTrackedStart.current) {
+      hasTrackedStart.current = true;
+      track(TRACKING_EVENTS.DEMOGRAPHICS_STARTED);
+    }
   }, [track]);
 
   // Validate required fields

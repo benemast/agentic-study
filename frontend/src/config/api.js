@@ -2,6 +2,7 @@
 /**
  * Centralized API client with error handling and retry logic
  */
+import * as Sentry from "@sentry/react";
 import { API_CONFIG, ERROR_MESSAGES } from './constants';
 
 class ApiClient {
@@ -84,6 +85,69 @@ class ApiClient {
       throw new ApiError(ERROR_MESSAGES.NETWORK_ERROR, 0, error);
     }
   }
+  /**
+   * Make a streaming request (returns raw Response object)
+   */
+  async requestStream(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`;
+    const config = {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout * 4); // Longer timeout for streams
+
+      const response = await fetch(url, {
+        ...config,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = new ApiError(
+          response.statusText,
+          response.status,
+          await response.json().catch(() => null)
+        );
+        
+        Sentry.captureException(error, {
+          tags: {
+            api_endpoint: endpoint,
+            http_status: response.status,
+            error_type: 'api_stream_error'
+          }
+        });
+        
+        throw error;
+      }
+
+      // Return the raw response for streaming
+      return response;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        Sentry.captureException(new Error('Stream Request Timeout'), {
+          tags: { error_type: 'stream_timeout' }
+        });
+        throw new ApiError('Stream timeout', 408);
+      }
+      
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      Sentry.captureException(error, {
+        tags: { error_type: 'stream_network_error' }
+      });
+      
+      throw new ApiError(ERROR_MESSAGES.NETWORK_ERROR, 0, error);
+    }
+  }
 
   // Convenience methods
   get(endpoint, options) {
@@ -92,6 +156,14 @@ class ApiClient {
 
   post(endpoint, data, options) {
     return this.request(endpoint, {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  postStream(endpoint, data, options) {
+    return this.requestStream(endpoint, {
       ...options,
       method: 'POST',
       body: JSON.stringify(data),
@@ -198,7 +270,8 @@ export const demographicsAPI = {
 };
 
 export const chatAPI = {
-  send: (data) => apiClient.post(API_ENDPOINTS.chat.send(), data),
+  //send: (data) => apiClient.post(API_ENDPOINTS.chat.send(), data),
+  send: (data) => apiClient.postStream(API_ENDPOINTS.chat.send(), data),
   saveMessage: (sessionId, message) => apiClient.post(API_ENDPOINTS.chat.saveMessage(sessionId), message),
   getHistory: (sessionId) => apiClient.get(API_ENDPOINTS.chat.history(sessionId)),
   clear: (sessionId) => apiClient.delete(API_ENDPOINTS.chat.clear(sessionId)),

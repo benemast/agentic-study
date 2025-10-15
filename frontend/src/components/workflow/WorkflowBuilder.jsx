@@ -20,6 +20,7 @@ import NodeEditor from '../nodes/NodeEditor';
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
 import LanguageSwitcher from '../LanguageSwitcher';
+import ExecutionProgress from '../ExecutionProgress';
 
 // Hooks
 import { useSession } from '../../hooks/useSession';
@@ -27,6 +28,8 @@ import { useTracking } from '../../hooks/useTracking';
 import { useSessionData } from '../../hooks/useSessionData';
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation';
 import { useTranslation } from '../../hooks/useTranslation';
+import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
+import { serializeWorkflow } from '../../utils/workflowSerializer';
 
 // Config & API
 import { sessionAPI } from '../../config/api';
@@ -466,8 +469,10 @@ const WorkflowBuilder = () => {
   }, []);
 
   // ========================================
-  // WORKFLOW ACTIONS
+  // WORKFLOW EXECUTION
   // ========================================
+  
+  /*
   const executeWorkflow = useCallback(() => {
     if (!workflowValidation.isValid) {
       showNotification(
@@ -490,7 +495,42 @@ const WorkflowBuilder = () => {
       'success'
     );
   }, [workflowValidation.isValid, nodes.length, edges.length, trackWorkflowExecuted, showNotification, t]);
+  */
+  const {
+    status: executionStatus,
+    progress: executionProgress,
+    progressPercentage,
+    currentStep,
+    result: executionResult,
+    error: executionError,
+    executeWorkflow,
+    cancelExecution
+  } = useWorkflowExecution(sessionId, 'workflow_builder');
 
+  const handleExecuteWorkflow = async () => {
+    if (!sessionId || nodes.length === 0) {
+      showNotification('Cannot execute empty workflow', 'error');
+      return;
+    }
+
+    try {
+      const result = await executeWorkflow({ nodes, edges }, {
+        source: 'default',
+        query: 'sample query'
+      });
+      
+      console.log(result);
+      
+      showNotification('Workflow execution started', 'success');
+    } catch (error) {
+      console.error('Failed to start workflow:', error);
+      showNotification('Failed to start workflow', 'error');
+    }
+  };
+
+  // ========================================
+  // WORKFLOW ACTIONS
+  // ========================================
   const saveWorkflow = useCallback(async () => {
     if (!sessionId) {
       showNotification(ERROR_MESSAGES.SESSION_EXPIRED, 'error');
@@ -605,7 +645,7 @@ const WorkflowBuilder = () => {
           nodes={nodes}
           edges={edges}
           workflowValidation={workflowValidation}
-          onExecute={executeWorkflow}
+          onExecute={handleExecuteWorkflow}
           onSave={saveWorkflow}
           onClear={clearWorkflow}
         />
@@ -699,6 +739,29 @@ const WorkflowBuilder = () => {
             )}
           </ReactFlow>
         </div>
+        {/* Execution Progress Panel */}
+        {executionStatus !== 'idle' && (
+          <div className="w-96 border-l border-gray-200 p-4 overflow-y-auto">
+            <ExecutionProgress
+              status={executionStatus}
+              progress={executionProgress}
+              progressPercentage={progressPercentage}
+              currentStep={currentStep}
+              condition="workflow_builder"
+              onCancel={cancelExecution}
+            />
+            
+            {/* Show results */}
+            {executionResult && (
+              <div className="mt-4 bg-green-50 rounded-lg p-4">
+                <h4 className="font-semibold text-green-900 mb-2">Results</h4>
+                <pre className="text-sm text-green-800 overflow-x-auto">
+                  {JSON.stringify(executionResult, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Node Editor Modal */}

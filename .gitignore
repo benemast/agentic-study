@@ -4,7 +4,7 @@
 # Migration files
 backend/app/migrate/
 frontend/src/components/WorkflowBuilder_oneFile.jsx
-frontend/src/components/SessionManager.jsx
+frontend/src/components/SessionManager_deprecated.jsx
 
 # ============================================
 # ENVIRONMENT & SECRETS
@@ -13,6 +13,21 @@ frontend/src/components/SessionManager.jsx
 .env.*
 !.env.example
 *.local
+
+# Backend
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+
+# Frontend
+frontend/.env
+frontend/.env.local
+frontend/node_modules/
+frontend/dist/
+frontend/build/
 
 # ============================================
 # PYTHON

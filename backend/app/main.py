@@ -13,7 +13,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import sessions, demographics, ai_chat, sentry
+from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket
 from app.database import create_tables, check_database_connection, get_database_info
 
 # Configure logging
@@ -135,11 +135,13 @@ async def general_exception_handler(request: Request, exc: Exception):
         }
     )
 
-# Include routers
+# Register routers
 app.include_router(sessions.router)
 app.include_router(demographics.router)
 app.include_router(ai_chat.router)
 app.include_router(sentry.router)
+app.include_router(orchestrator.router)
+app.include_router(websocket.router)
 
 # Health check endpoint
 @app.get("/health")

@@ -51,6 +51,9 @@ def create_tables():
         from app.models.session import Base
         from app.models.demographics import Demographics
         from app.models.ai_chat import ChatMessage, ChatConversation, ChatAnalytics
+        from app.models.execution import WorkflowExecution, ExecutionCheckpoint, ExecutionLog
+        
+        Base.metadata.create_all(bind=engine)
         
         Base.metadata.create_all(bind=engine)
         logger.info("✅ Database tables created successfully")

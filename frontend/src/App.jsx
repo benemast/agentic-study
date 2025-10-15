@@ -4,18 +4,21 @@ import * as Sentry from "@sentry/react";
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 
-// NEW: Modular imports
+// WebSocket Integration
+import { wsClient } from './services/websocket';
+import { useWebSocket } from './hooks/useWebSocket';
+
+// Components
 import SessionInitializer from './components/session/SessionInitializer';
+import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
+import WorkflowBuilder from './components/workflow/WorkflowBuilder';
+import AIChat from './components/AIChat';
+import LanguageSwitcher from './components/LanguageSwitcher';
+
+// Hooks
 import { useSession } from './hooks/useSession';
 import { useTracking } from './hooks/useTracking';
 import { useSessionData } from './hooks/useSessionData';
-
-// Existing components
-import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
-import WorkflowBuilder from './components/workflow/WorkflowBuilder';
-
-import AIChat from './components/AIChat';
-import LanguageSwitcher from './components/LanguageSwitcher';
 import { useTranslation } from './hooks/useTranslation';
 
 // Error Boundary Component
@@ -257,6 +260,15 @@ const AppContent = () => {
   
   const { sessionId } = useSession();
   const { trackViewChange } = useTracking();
+
+  // Auto-connect WebSocket
+  useEffect(() => {
+    if (sessionId) {
+      wsClient.connect(sessionId);
+    }
+    
+    return () => wsClient.disconnect();
+  }, [sessionId]);
 
   // Handle view changes
   const handleViewChange = (view) => {

@@ -29,7 +29,6 @@ import { useSessionData } from '../../hooks/useSessionData';
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
-import { serializeWorkflow } from '../../utils/workflowSerializer';
 
 // Config & API
 import { sessionAPI } from '../../config/api';
@@ -83,7 +82,16 @@ const WorkflowBuilder = () => {
     trackWorkflowCleared,
     trackError 
   } = useTracking();
-  const { currentWorkflow, updateWorkflow } = useSessionData();
+
+  const { 
+    sessionData = { currentWorkflow: { nodes: [], edges: [] } },
+    currentWorkflow,
+    updateWorkflow = () => console.warn('updateWorkflow not available'),
+    incrementWorkflowsCreated = () => {},
+    setCurrentView = () => {}
+  } = useSessionData();
+
+  //const { currentWorkflow, updateWorkflow } = useSessionData();
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const { t, currentLanguage } = useTranslation();
 
@@ -91,10 +99,24 @@ const WorkflowBuilder = () => {
   // INITIAL STATE
   // ========================================
   // Initialize workflow from session
-  const initialWorkflow = useMemo(() => 
-    currentWorkflow || { nodes: [], edges: [] }, 
-    [currentWorkflow]
-  );
+  const initialWorkflow = useMemo(() => {
+  // Check if currentWorkflow has the correct structure
+  if (!currentWorkflow) {
+    return { nodes: [], edges: [] };
+  }
+  
+  // Check if currentWorkflow.nodes exists (correct structure)
+  if (currentWorkflow.nodes) {
+    return currentWorkflow;
+  }
+  
+  // Wrong structure detected - currentWorkflow is likely an array
+  console.log("Wrong Workflow structure detected! Restructuring!");
+  return { 
+    nodes: Array.isArray(currentWorkflow) ? currentWorkflow : [], 
+    edges: [] 
+  };
+}, [currentWorkflow]);
 
   // Calculate initial node counter to prevent ID collisions
   const getInitialNodeCounter = useCallback(() => {
@@ -155,12 +177,21 @@ const WorkflowBuilder = () => {
   // ========================================
   // AUTO-SAVE - Sync with Session
   // ========================================
+  const previousWorkflowRef = useRef({ nodes: [], edges: [] });
+
   useEffect(() => {
     if (!sessionId || !isActive) return;
 
     const autoSaveInterval = setInterval(() => {
-      if (nodes.length > 0 || edges.length > 0) {
-        updateWorkflow(nodes, edges);
+      // Only update if workflow actually changed
+      const currentNodesStr = JSON.stringify(nodes);
+      const currentEdgesStr = JSON.stringify(edges);
+      const previousNodesStr = JSON.stringify(previousWorkflowRef.current.nodes);
+      const previousEdgesStr = JSON.stringify(previousWorkflowRef.current.edges);
+      
+      if (currentNodesStr !== previousNodesStr || currentEdgesStr !== previousEdgesStr) {
+        updateWorkflow({ nodes, edges });
+        previousWorkflowRef.current = { nodes, edges };
       }
     }, UI_CONFIG.DEBOUNCE_DELAY);
 
@@ -226,27 +257,25 @@ const WorkflowBuilder = () => {
     event.preventDefault();
 
     /*
+      const sourceNode = nodes.find(n => n.id === connection.source);
+      const targetNode = nodes.find(n => n.id === connection.target);
 
-    const sourceNode = nodes.find(n => n.id === connection.source);
-    const targetNode = nodes.find(n => n.id === connection.target);
+      if (!sourceNode || !targetNode) return false;
 
-    if (!sourceNode || !targetNode) return false;
+      // Check handle-specific connections
+      const sourceHandle = connection.sourceHandle || 'output-0';
+      const targetHandle = connection.targetHandle || 'input-0';
 
-    // Check handle-specific connections
-    const sourceHandle = connection.sourceHandle || 'output-0';
-    const targetHandle = connection.targetHandle || 'input-0';
+      const sourceHandleConnections = edges.filter(e => 
+        e.source === connection.source && (e.sourceHandle || 'output-0') === sourceHandle
+      );
+      const targetHandleConnections = edges.filter(e => 
+        e.target === connection.target && (e.targetHandle || 'input-0') === targetHandle
+      );
 
-    const sourceHandleConnections = edges.filter(e => 
-      e.source === connection.source && (e.sourceHandle || 'output-0') === sourceHandle
-    );
-    const targetHandleConnections = edges.filter(e => 
-      e.target === connection.target && (e.targetHandle || 'input-0') === targetHandle
-    );
-
-    // Get limits from node data (already stored during node creation)
-    const sourceHandleLimit = sourceNode.data?.maxOutputConnections || 1;
-    const targetHandleLimit = targetNode.data?.maxInputConnections || 1;
-
+      // Get limits from node data (already stored during node creation)
+      const sourceHandleLimit = sourceNode.data?.maxOutputConnections || 1;
+      const targetHandleLimit = targetNode.data?.maxInputConnections || 1;
     */
 
     try {
@@ -538,7 +567,7 @@ const WorkflowBuilder = () => {
     }
 
     try {
-      updateWorkflow(nodes, edges);
+      updateWorkflow({ nodes, edges });
       await sessionAPI.quickSave(sessionId, {
         workflow: { nodes, edges },
         timestamp: new Date().toISOString()
@@ -553,7 +582,7 @@ const WorkflowBuilder = () => {
     } catch (error) {
       console.error('Failed to save workflow:', error);
       
-      // ADD: Log workflow save failures with context
+      // Log workflow save failures with context
       Sentry.captureException(error, {
         tags: {
           error_type: 'workflow_save_failed',
@@ -580,7 +609,7 @@ const WorkflowBuilder = () => {
       nodeCount: 0, 
       edgeCount: 0 
     });
-    updateWorkflow([], []);
+    updateWorkflow({ nodes: [], edges: [] });
     showNotification(t('workflow.notifications.workflowCleared'), 'success');
   }, [setNodes, setEdges, updateWorkflow, trackWorkflowCleared, showNotification, t]);
 

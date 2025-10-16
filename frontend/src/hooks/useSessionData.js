@@ -1,9 +1,10 @@
 // frontend/src/hooks/useSessionData.js
 /**
  * Hook for accessing and updating session data
- * Workflow state, view state, etc.
+ * Single source of truth - abstracts both sessionStore and websocketStore
  */
 import { useSessionStore } from '../store/sessionStore';
+import useWebSocketStore from '../store/websocketStore';
 
 // Default session data structure
 const DEFAULT_SESSION_DATA = {
@@ -12,25 +13,52 @@ const DEFAULT_SESSION_DATA = {
   totalTimeSpent: 0,
   currentView: 'dashboard',
   currentWorkflow: { nodes: [], edges: [] },
-  interactions: []
+  interactions: [],
+  chatMessages: []
 };
 
 export const useSessionData = () => {
+  // ============================================================
+  // SESSION STORE
+  // ============================================================
   const sessionData = useSessionStore(state => state.sessionData) || DEFAULT_SESSION_DATA;
   const updateWorkflow = useSessionStore(state => state.updateWorkflow);
   const incrementWorkflowsCreated = useSessionStore(state => state.incrementWorkflowsCreated);
   const incrementWorkflowsExecuted = useSessionStore(state => state.incrementWorkflowsExecuted);
   const setCurrentView = useSessionStore(state => state.setCurrentView);
 
-  const chatMessages = useSessionStore(state => state.getChatMessages());
-  const setChatMessages = useSessionStore(state => state.setChatMessages);
-  const addChatMessage = useSessionStore(state => state.addChatMessage);
-  const updateChatMessage = useSessionStore(state => state.updateChatMessage);
-  const clearChatMessages = useSessionStore(state => state.clearChatMessages);
+  // ============================================================
+  // WEBSOCKET STORE (for real-time chat)
+  // ============================================================
+  
+  // Chat messages - prefer WebSocket store if available
+  const wsMessages = useWebSocketStore(state => state.chat.messages);
+  const sessionMessages = useSessionStore(state => state.sessionData.chatMessages);
+  
+  // Use WebSocket messages if available and populated, otherwise session messages
+  const chatMessages = (wsMessages && wsMessages.length > 0) ? wsMessages : sessionMessages || [];
+  
+  // Chat state (real-time)
+  const isStreaming = useWebSocketStore(state => state.chat.isStreaming);
+  const streamingContent = useWebSocketStore(state => state.chat.streamingContent);
+  const unreadCount = useWebSocketStore(state => state.chat.unreadCount);
+  
+  // Chat actions from WebSocket store
+  const addChatMessage = useWebSocketStore(state => state.addChatMessage);
+  const updateChatMessage = useWebSocketStore(state => state.updateChatMessage);
+  const clearChat = useWebSocketStore(state => state.clearChat);
+  const setChatHistory = useWebSocketStore(state => state.setChatHistory);
+  const markChatAsRead = useWebSocketStore(state => state.markChatAsRead);
+
+  // Load chat history - try WebSocket first, fallback to session
   const loadChatHistory = useSessionStore(state => state.loadChatHistory);
   
+  // ============================================================
+  // RETURN INTERFACE
+  // ============================================================
+  
   return {
-    // Current state - with safe defaults
+    // Session data
     sessionData,
     currentView: sessionData?.currentView || 'dashboard',
     currentWorkflow: sessionData?.currentWorkflow || { nodes: [], edges: [] },
@@ -39,23 +67,33 @@ export const useSessionData = () => {
     totalTimeSpent: sessionData?.totalTimeSpent || 0,
     interactions: sessionData?.interactions || [],
     
-    // Update methods
+    // Workflow methods
     updateWorkflow,
     incrementWorkflowsCreated,
     incrementWorkflowsExecuted,
     setCurrentView,
     
-    // Computed values - with safe access
+    // Computed values
     hasWorkflow: (sessionData?.currentWorkflow?.nodes?.length || 0) > 0,
     interactionCount: (sessionData?.interactions?.length || 0),
-
-    // AI Chat exports
+   
+    // ============================================================
+    // CHAT INTERFACE (abstracted from WebSocket store)
+    // ============================================================
+    
+    // Chat state
     chatMessages,
-    setChatMessages,
+    isStreaming,
+    streamingContent,
+    unreadCount,
+    
+    // Chat actions
     addChatMessage,
     updateChatMessage,
-    clearChatMessages,
+    clearChatMessages: clearChat,
+    setChatMessages: setChatHistory,
     loadChatHistory,
+    markChatAsRead,
   };
 };
 

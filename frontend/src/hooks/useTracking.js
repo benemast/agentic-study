@@ -5,6 +5,7 @@
  */
 import { useCallback } from 'react';
 import { useSessionStore } from '../store/sessionStore';
+import useWebSocketStore  from '../store/websocketStore';
 import { TRACKING_EVENTS } from '../config/constants';
 
 export const useTracking = () => {
@@ -12,7 +13,13 @@ export const useTracking = () => {
   const setCurrentView = useSessionStore(state => state.setCurrentView);
   const incrementWorkflowsCreated = useSessionStore(state => state.incrementWorkflowsCreated);
   const incrementWorkflowsExecuted = useSessionStore(state => state.incrementWorkflowsExecuted);
-  
+
+  // WebSocket batching capabilities
+  const wsTracking = useWebSocketStore(state => ({
+    queueTrackingEvent: state.queueTrackingEvent,
+    flushQueue: state.flushTrackingQueue,
+    isConnected: state.connection.status === 'connected'
+  }));
   // Generic event tracking
   const track = useCallback((eventType, eventData = {}) => {
     trackInteraction(eventType, eventData);
@@ -61,7 +68,7 @@ export const useTracking = () => {
     track(TRACKING_EVENTS.WORKFLOW_CLEARED, workflowData);
   }, [track]);
   
-// CHAT
+// CHAT TRACKING
   const trackMessageSent = useCallback((messageLength, messageData = {}) => {
     track(TRACKING_EVENTS.MESSAGE_SENT, { messageLength, ...messageData });
   }, [track]);
@@ -75,7 +82,7 @@ export const useTracking = () => {
   }, [track]);
   
   
-// ERROR
+// ERROR TRACKING
   const trackError = useCallback((errorType, errorMessage, errorContext = {}) => {
     track(TRACKING_EVENTS.ERROR_OCCURRED, { 
       errorType, 
@@ -83,6 +90,15 @@ export const useTracking = () => {
       ...errorContext 
     });
   }, [track]);
+  // Force flush for important events
+  const trackImportant = useCallback((eventType, eventData = {}) => {
+    track(eventType, eventData);
+    
+    // Force immediate flush if WebSocket is connected
+    if (wsTracking.isConnected) {
+      wsTracking.flushQueue();
+    }
+  }, [track, wsTracking]);
   
   return {
     // Generic
@@ -107,6 +123,9 @@ export const useTracking = () => {
     
     // Errors
     trackError,
+    
+    // High-priority tracking
+    trackImportant,
   };
 };
 

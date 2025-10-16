@@ -18,6 +18,19 @@ from app.schemas.session import (
     SessionDeleteResponse
 )
 
+from app.websocket.manager import ws_manager
+from app.websocket.handlers import (
+    handle_session_sync,
+    handle_session_heartbeat,
+    handle_tracking_event,
+    handle_execution_cancel,
+    handle_session_update,
+    handle_session_get,
+    handle_session_end,
+    handle_track_batch,
+    handle_batch_request,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])

@@ -11,13 +11,8 @@ export const useWorkflowState = () => {
 
   const saveWorkflowToSession = useCallback((nodes, edges) => {
     if (!sessionStore) return;
-    
-    useSessionStore.setState(state => ({
-      sessionData: {
-        ...state.sessionData,
-        currentWorkflow: { nodes, edges }
-      }
-    }));
+
+    sessionStore.updateWorkflow({ nodes, edges });
   }, [sessionStore]);
 
   return {
@@ -27,3 +22,5 @@ export const useWorkflowState = () => {
     incrementWorkflowsCreated: sessionStore?.incrementWorkflowsCreated || (() => {})
   };
 };
+
+export default useWorkflowState;

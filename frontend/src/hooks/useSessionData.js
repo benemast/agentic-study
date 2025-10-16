@@ -1,10 +1,8 @@
 // frontend/src/hooks/useSessionData.js
 /**
- * Hook for accessing and updating session data
- * Single source of truth - abstracts both sessionStore and websocketStore
+ * Hook for session data (workflows, views, metrics)
  */
 import { useSessionStore } from '../store/sessionStore';
-import useWebSocketStore from '../store/websocketStore';
 
 // Default session data structure
 const DEFAULT_SESSION_DATA = {
@@ -13,45 +11,31 @@ const DEFAULT_SESSION_DATA = {
   totalTimeSpent: 0,
   currentView: 'dashboard',
   currentWorkflow: { nodes: [], edges: [] },
-  interactions: [],
-  chatMessages: []
+  interactions: []
 };
 
 export const useSessionData = () => {
   // ============================================================
-  // SESSION STORE
+  // SESSION DATA
   // ============================================================
   const sessionData = useSessionStore(state => state.sessionData) || DEFAULT_SESSION_DATA;
+  
+  // ============================================================
+  // WORKFLOW METHODS
+  // ============================================================
   const updateWorkflow = useSessionStore(state => state.updateWorkflow);
   const incrementWorkflowsCreated = useSessionStore(state => state.incrementWorkflowsCreated);
   const incrementWorkflowsExecuted = useSessionStore(state => state.incrementWorkflowsExecuted);
+  
+  // ============================================================
+  // VIEW METHODS
+  // ============================================================
   const setCurrentView = useSessionStore(state => state.setCurrentView);
-
+  
   // ============================================================
-  // WEBSOCKET STORE (for real-time chat)
+  // TRACKING METHODS
   // ============================================================
-  
-  // Chat messages - prefer WebSocket store if available
-  const wsMessages = useWebSocketStore(state => state.chat.messages);
-  const sessionMessages = useSessionStore(state => state.sessionData.chatMessages);
-  
-  // Use WebSocket messages if available and populated, otherwise session messages
-  const chatMessages = (wsMessages && wsMessages.length > 0) ? wsMessages : sessionMessages || [];
-  
-  // Chat state (real-time)
-  const isStreaming = useWebSocketStore(state => state.chat.isStreaming);
-  const streamingContent = useWebSocketStore(state => state.chat.streamingContent);
-  const unreadCount = useWebSocketStore(state => state.chat.unreadCount);
-  
-  // Chat actions from WebSocket store
-  const addChatMessage = useWebSocketStore(state => state.addChatMessage);
-  const updateChatMessage = useWebSocketStore(state => state.updateChatMessage);
-  const clearChat = useWebSocketStore(state => state.clearChat);
-  const setChatHistory = useWebSocketStore(state => state.setChatHistory);
-  const markChatAsRead = useWebSocketStore(state => state.markChatAsRead);
-
-  // Load chat history - try WebSocket first, fallback to session
-  const loadChatHistory = useSessionStore(state => state.loadChatHistory);
+  const trackInteraction = useSessionStore(state => state.trackInteraction);
   
   // ============================================================
   // RETURN INTERFACE
@@ -71,29 +55,16 @@ export const useSessionData = () => {
     updateWorkflow,
     incrementWorkflowsCreated,
     incrementWorkflowsExecuted,
+    
+    // View methods
     setCurrentView,
+    
+    // Tracking
+    trackInteraction,
     
     // Computed values
     hasWorkflow: (sessionData?.currentWorkflow?.nodes?.length || 0) > 0,
     interactionCount: (sessionData?.interactions?.length || 0),
-   
-    // ============================================================
-    // CHAT INTERFACE (abstracted from WebSocket store)
-    // ============================================================
-    
-    // Chat state
-    chatMessages,
-    isStreaming,
-    streamingContent,
-    unreadCount,
-    
-    // Chat actions
-    addChatMessage,
-    updateChatMessage,
-    clearChatMessages: clearChat,
-    setChatMessages: setChatHistory,
-    loadChatHistory,
-    markChatAsRead,
   };
 };
 

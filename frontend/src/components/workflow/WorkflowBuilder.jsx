@@ -24,8 +24,8 @@ import ExecutionProgress from '../ExecutionProgress';
 
 // Hooks
 import { useSession } from '../../hooks/useSession';
-import { useTracking } from '../../hooks/useTracking';
 import { useSessionData } from '../../hooks/useSessionData';
+import { useTracking } from '../../hooks/useTracking';
 import { useWorkflowValidation } from '../../hooks/useWorkflowValidation';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
@@ -44,7 +44,7 @@ import { NODE_TEMPLATES, TAILWIND_COLORS } from '../../constants/nodeTemplates';
 import { ICONS } from '../../constants/icons';
 
 // Utils
-import { getNodeTranslationKey} from '../../utils/translationHelpers';
+import { getNodeTranslationKey } from '../../utils/translationHelpers';
 
 // ========================================
 // Notification Banner Component
@@ -70,7 +70,19 @@ const WorkflowBuilder = () => {
   // ========================================
   // HOOKS
   // ========================================
+
+  // Session identity & health
   const { sessionId, isActive, updateActivity } = useSession();
+  
+  // Session data (workflows only)
+  const { 
+    currentWorkflow,
+    updateWorkflow,
+    incrementWorkflowsCreated,
+    setCurrentView,
+  } = useSessionData();
+  
+  // Tracking
   const { 
     trackNodeAdded, 
     trackNodeDeleted, 
@@ -82,43 +94,35 @@ const WorkflowBuilder = () => {
     trackWorkflowCleared,
     trackError 
   } = useTracking();
-
-  const { 
-    sessionData = { currentWorkflow: { nodes: [], edges: [] } },
-    currentWorkflow,
-    updateWorkflow = () => console.warn('updateWorkflow not available'),
-    incrementWorkflowsCreated = () => {},
-    setCurrentView = () => {}
-  } = useSessionData();
-
-  //const { currentWorkflow, updateWorkflow } = useSessionData();
+  
+  // ReactFlow hooks
   const { screenToFlowPosition, getViewport } = useReactFlow();
+  
+  // Translation
   const { t, currentLanguage } = useTranslation();
 
   // ========================================
   // INITIAL STATE
   // ========================================
-  // Initialize workflow from session
   const initialWorkflow = useMemo(() => {
-  // Check if currentWorkflow has the correct structure
-  if (!currentWorkflow) {
-    return { nodes: [], edges: [] };
-  }
-  
-  // Check if currentWorkflow.nodes exists (correct structure)
-  if (currentWorkflow.nodes) {
-    return currentWorkflow;
-  }
-  
-  // Wrong structure detected - currentWorkflow is likely an array
-  console.log("Wrong Workflow structure detected! Restructuring!");
-  return { 
-    nodes: Array.isArray(currentWorkflow) ? currentWorkflow : [], 
-    edges: [] 
-  };
-}, [currentWorkflow]);
+    if (!currentWorkflow) {
+      return { nodes: [], edges: [] };
+    }
+    
+    // Check if currentWorkflow has correct structure
+    if (currentWorkflow.nodes) {
+      return currentWorkflow;
+    }
+    
+    // Wrong structure detected
+    console.warn("Wrong Workflow structure detected! Restructuring!");
+    return { 
+      nodes: Array.isArray(currentWorkflow) ? currentWorkflow : [], 
+      edges: [] 
+    };
+  }, [currentWorkflow]);
 
-  // Calculate initial node counter to prevent ID collisions
+  // Calculate initial node counter
   const getInitialNodeCounter = useCallback(() => {
     if (initialWorkflow.nodes.length === 0) return 0;
     
@@ -134,7 +138,7 @@ const WorkflowBuilder = () => {
   }, [initialWorkflow.nodes]);
 
   // ========================================
-  // STATE - UI & Local State
+  // STATE - UI & LOCAL
   // ========================================
   const [nodes, setNodes, onNodesChange] = useNodesState(initialWorkflow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialWorkflow.edges);
@@ -150,12 +154,11 @@ const WorkflowBuilder = () => {
   });
 
   // ========================================
-  // CONSTANTS - Icons & Node Types
+  // CONSTANTS
   // ========================================
   const PlusIcon = ICONS.Plus.component;
   const BrainIcon = ICONS.Brain.component;
 
-  // Custom node types for ReactFlow
   const nodeTypes = useMemo(() => ({ 
     custom: CustomNode 
   }), []);
@@ -166,10 +169,24 @@ const WorkflowBuilder = () => {
   const workflowValidation = useWorkflowValidation(nodes, edges);
 
   // ========================================
+  // WORKFLOW EXECUTION
+  // ========================================
+  const {
+    status: executionStatus,
+    progress: executionProgress,
+    progressPercentage,
+    currentStep,
+    result: executionResult,
+    error: executionError,
+    executeWorkflow,
+    cancelExecution
+  } = useWorkflowExecution(sessionId, 'workflow_builder');
+
+  // ========================================
   // NOTIFICATIONS
   // ========================================
   const showNotification = useCallback((message, type = 'error') => {
-    console.log("showNotification: " + message)   
+    console.log("showNotification: " + message);
     setNotification({ message, type });
     setTimeout(() => setNotification(null), UI_CONFIG.NOTIFICATION_DURATION);
   }, []);
@@ -190,6 +207,7 @@ const WorkflowBuilder = () => {
       const previousEdgesStr = JSON.stringify(previousWorkflowRef.current.edges);
       
       if (currentNodesStr !== previousNodesStr || currentEdgesStr !== previousEdgesStr) {
+        // Use the updateWorkflow from useSessionData
         updateWorkflow({ nodes, edges });
         previousWorkflowRef.current = { nodes, edges };
       }
@@ -213,8 +231,7 @@ const WorkflowBuilder = () => {
     ));
     
     trackNodeDeleted(nodeId);
-    //showNotification(t('workflow.notifications.nodeDeleted'), 'success')
-  }, [setNodes, setEdges, trackNodeDeleted, showNotification, t]);
+  }, [setNodes, setEdges, trackNodeDeleted]);
 
   const editNode = useCallback((nodeId) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -256,28 +273,6 @@ const WorkflowBuilder = () => {
   const onDrop = useCallback((event) => {
     event.preventDefault();
 
-    /*
-      const sourceNode = nodes.find(n => n.id === connection.source);
-      const targetNode = nodes.find(n => n.id === connection.target);
-
-      if (!sourceNode || !targetNode) return false;
-
-      // Check handle-specific connections
-      const sourceHandle = connection.sourceHandle || 'output-0';
-      const targetHandle = connection.targetHandle || 'input-0';
-
-      const sourceHandleConnections = edges.filter(e => 
-        e.source === connection.source && (e.sourceHandle || 'output-0') === sourceHandle
-      );
-      const targetHandleConnections = edges.filter(e => 
-        e.target === connection.target && (e.targetHandle || 'input-0') === targetHandle
-      );
-
-      // Get limits from node data (already stored during node creation)
-      const sourceHandleLimit = sourceNode.data?.maxOutputConnections || 1;
-      const targetHandleLimit = targetNode.data?.maxInputConnections || 1;
-    */
-
     try {
       const nodeTemplate = JSON.parse(
         event.dataTransfer.getData('application/reactflow')
@@ -288,7 +283,6 @@ const WorkflowBuilder = () => {
         return;
       }
 
-      // Check max nodes limit
       if (nodes.length >= WORKFLOW_CONFIG.MAX_NODES) {
         showNotification(
           t('workflow.notifications.maxNodesReached', { max: WORKFLOW_CONFIG.MAX_NODES }),
@@ -306,7 +300,6 @@ const WorkflowBuilder = () => {
       const nodeId = `${nodeTemplate.id}-${nodeCounter}`;
       setNodeCounter(prev => prev + 1);
 
-      // Get translations for this specific node
       const nodeTranslations = t(getNodeTranslationKey(nodeTemplate.id));
 
       const newNode = {
@@ -341,7 +334,6 @@ const WorkflowBuilder = () => {
         method: 'drag_drop'
       });
       
-      //showNotification(t('workflow.notifications.nodeAdded'), 'success');
     } catch (error) {
       console.error('Error dropping node:', error);
       showNotification('Failed to add node', 'error');
@@ -358,7 +350,6 @@ const WorkflowBuilder = () => {
     showNotification,
     t
   ]);
-
 
   // ========================================
   // EDGE/CONNECTION OPERATIONS
@@ -426,12 +417,7 @@ const WorkflowBuilder = () => {
   const onConnect = useCallback((params) => {
     const validation = getConnectionValidation(params);
 
-      console.log("Connection valid: " + validation.isValid);
-    
     if (!validation.isValid) {
-      
-      console.log("Validation reason: " + validation.reason);
-
       switch (validation.reason) {
         case 'max_edges_reached':
           showNotification(
@@ -469,7 +455,7 @@ const WorkflowBuilder = () => {
       
     trackEdgeAdded(params.source, params.target);
     showNotification(t('workflow.notifications.connectionAdded'), 'success');
-  }, [getConnectionValidation, edges, nodes, setEdges, trackEdgeAdded, showNotification, t]);
+  }, [getConnectionValidation, setEdges, trackEdgeAdded, showNotification, t]);
 
   const onEdgesDelete = useCallback((edgesToDelete) => {
     edgesToDelete.forEach(edge => {
@@ -500,45 +486,17 @@ const WorkflowBuilder = () => {
   // ========================================
   // WORKFLOW EXECUTION
   // ========================================
-  
-  /*
-  const executeWorkflow = useCallback(() => {
+  const handleExecuteWorkflow = async () => {
+    if (!sessionId || nodes.length === 0) {
+      showNotification('Cannot execute empty workflow', 'error');
+      return;
+    }
+
     if (!workflowValidation.isValid) {
       showNotification(
         t('workflow.notifications.validationFailed'), 
         'error'
       );
-      return;
-    }
-
-    trackWorkflowExecuted({ 
-      nodeCount: nodes.length, 
-      edgeCount: edges.length 
-    });
-    
-    showNotification(
-      t('workflow.notifications.workflowExecuted', { 
-        nodes: nodes.length, 
-        connections: edges.length 
-      }), 
-      'success'
-    );
-  }, [workflowValidation.isValid, nodes.length, edges.length, trackWorkflowExecuted, showNotification, t]);
-  */
-  const {
-    status: executionStatus,
-    progress: executionProgress,
-    progressPercentage,
-    currentStep,
-    result: executionResult,
-    error: executionError,
-    executeWorkflow,
-    cancelExecution
-  } = useWorkflowExecution(sessionId, 'workflow_builder');
-
-  const handleExecuteWorkflow = async () => {
-    if (!sessionId || nodes.length === 0) {
-      showNotification('Cannot execute empty workflow', 'error');
       return;
     }
 
@@ -550,10 +508,31 @@ const WorkflowBuilder = () => {
       
       console.log(result);
       
+      trackWorkflowExecuted({ 
+        nodeCount: nodes.length, 
+        edgeCount: edges.length 
+      });
+      
       showNotification('Workflow execution started', 'success');
     } catch (error) {
       console.error('Failed to start workflow:', error);
+      
+      Sentry.captureException(error, {
+        tags: {
+          error_type: 'workflow_execution_failed',
+          component: 'WorkflowBuilder'
+        },
+        contexts: {
+          workflow: {
+            node_count: nodes.length,
+            edge_count: edges.length,
+            session_id: sessionId,
+          }
+        }
+      });
+      
       showNotification('Failed to start workflow', 'error');
+      trackError('workflow_execution_failed', error.message);
     }
   };
 
@@ -567,7 +546,9 @@ const WorkflowBuilder = () => {
     }
 
     try {
+      // Update via useSessionData hook
       updateWorkflow({ nodes, edges });
+      
       await sessionAPI.quickSave(sessionId, {
         workflow: { nodes, edges },
         timestamp: new Date().toISOString()
@@ -581,8 +562,7 @@ const WorkflowBuilder = () => {
       showNotification(SUCCESS_MESSAGES.SAVED, 'success');
     } catch (error) {
       console.error('Failed to save workflow:', error);
-      
-      // Log workflow save failures with context
+
       Sentry.captureException(error, {
         tags: {
           error_type: 'workflow_save_failed',
@@ -605,16 +585,20 @@ const WorkflowBuilder = () => {
   const clearWorkflow = useCallback(() => {
     setNodes([]);
     setEdges([]);
+    
+    // Update via useSessionData hook
+    updateWorkflow({ nodes: [], edges: [] });
+    
     trackWorkflowCleared({ 
       nodeCount: 0, 
       edgeCount: 0 
     });
-    updateWorkflow({ nodes: [], edges: [] });
+
     showNotification(t('workflow.notifications.workflowCleared'), 'success');
   }, [setNodes, setEdges, updateWorkflow, trackWorkflowCleared, showNotification, t]);
 
   // ========================================
-  // ENHANCED NODES WITH CALLBACKS
+  // ENHANCED NODES
   // ========================================
   const enhancedNodes = useMemo(() => 
     nodes.map(node => ({
@@ -632,7 +616,7 @@ const WorkflowBuilder = () => {
                       connectionState.sourceNodeId !== node.id,
       }
     })),
-    [nodes, t, deleteNode, editNode, connectionState, edges, isValidConnection,]
+    [nodes, t, deleteNode, editNode, connectionState, edges, isValidConnection]
   );
 
   // ========================================

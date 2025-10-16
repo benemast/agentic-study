@@ -6,39 +6,54 @@ import { Send, Trash2, Loader2, Bot, User, Lock, Edit2, Check, X, Zap, MessageSq
 
 import ExecutionProgress from './ExecutionProgress';
 
+// Hooks
 import { useSession } from '../hooks/useSession';
-import { useSessionData } from '../hooks/useSessionData';
+import { useChat } from '../hooks/useChat';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { useTracking } from '../hooks/useTracking';
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
-import { useWebSocket } from '../hooks/useWebSocket';
 
+// Config
 import { chatAPI } from '../config/api';
-import { AI_CONFIG, ERROR_MESSAGES, API_CONFIG } from '../config/constants';
+import { AI_CONFIG, ERROR_MESSAGES } from '../config/constants';
 
 const AIChat = () => {
-  // ============================================================
-  // HOOKS - Must be called unconditionally at top level
-  // ============================================================
+  // ========================================
+  // HOOK USAGE
+  // ========================================
   
+  // Session identity & health
   const { sessionId } = useSession();
-  const { trackMessageSent, trackMessageReceived, trackMessagesCleared, trackError } = useTracking();
   
-  // Session data  
-  const { 
-    chatMessages, 
-    setChatMessages, 
-    addChatMessage, 
-    updateChatMessage, 
-    clearChatMessages,
-    loadChatHistory,
+  // Chat messages (combines WebSocket + Session store)
+  const {
+    messages: chatMessages,
     isStreaming: wsIsStreaming,
-    streamingContent: wsStreamingContent
-  } = useSessionData();
-
-  // WebSocket hook
-  const wsHook = useWebSocket({ autoConnect: true });
-  const isWebSocketConnected = wsHook?.isConnected || false;
-
+    streamingContent: wsStreamingContent,
+    addMessage,
+    updateMessage,
+    clearChat,
+    loadHistory,
+    hasMessages,
+    isLoadingHistory,
+  } = useChat();
+  
+  // WebSocket connection
+  const {
+    isConnected: isWebSocketConnected,
+    sendChat,
+    clearChat: clearChatRemote,
+    on: wsOn,
+  } = useWebSocket({ autoConnect: true });
+  
+  // Tracking
+  const { 
+    trackMessageSent, 
+    trackMessageReceived, 
+    trackMessagesCleared, 
+    trackError 
+  } = useTracking();
+  
   // Execution hook for LangGraph orchestrator
   const {
     status: executionStatus,
@@ -51,150 +66,122 @@ const AIChat = () => {
     cancelExecution
   } = useWorkflowExecution(sessionId, 'ai_assistant');
 
-  // ============================================================
-  // LOCAL STATE
-  // ============================================================
-  
+  // ========================================
+  // LOCAL UI STATE
+  // ========================================
+
   const [input, setInput] = useState('');
   const [error, setError] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingContent, setEditingContent] = useState('');
   const [mode, setMode] = useState('chat'); // 'chat' or 'task'
-  
-  // Streaming state - single source of truth
-  const [isLoading, setIsLoading] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
-  const streamingMessageIndexRef = useRef(null);
 
-  // Refs
+  // Local streaming state (REST fallback)
+  const [localIsStreaming, setLocalIsStreaming] = useState(false);
+  const [localStreamingContent, setLocalStreamingContent] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Determine which streaming state to use
+  const isStreaming = wsIsStreaming || localIsStreaming;
+  const streamingContent = wsStreamingContent || localStreamingContent;
+
+  // ========================================
+  // REFS
+  // ========================================
+
   const messagesEndRef = useRef(null);
   const hasLoadedHistory = useRef(false);
-  const isLoadingHistory = useRef(false);
   const inputRef = useRef(null);
   const editInputRef = useRef(null);
+  const streamingMessageIndexRef = useRef(null);
 
-  // ============================================================
+  // ========================================
   // WEBSOCKET EVENT HANDLERS
-  // ============================================================
+  // ========================================
   
   useEffect(() => {
-    if (!wsHook?.on) return;
-
-    const unsubscribes = [];
+    // Only subscribe if WebSocket is connected
+    if (!isWebSocketConnected || !wsOn) return;
+    console.log('🔌 Setting up WebSocket event listeners');
 
     // Listen for streaming chunks
-    unsubscribes.push(
-      wsHook.on('chat_stream', (data) => {
-        const content = data.content || '';
-        const fullContent = data.full_content || localStreamingContent + content;
-        
-        setLocalStreamingContent(fullContent);
-        
-        // Update the streaming message if we have an index
-        if (streamingMessageIndexRef.current !== null) {
-          updateChatMessage(streamingMessageIndexRef.current, {
-            content: fullContent,
-            isStreaming: true
-          });
-        }
-      })
-    );
+    const unsubStream = wsOn('chat_stream', (data) => {
+      const fullContent = data.full_content || '';
+
+      console.log("Chat Stream!\nFull Content: " + fullContent)
+      console.log(data)
+      console.log("streamingMessageIndexRef: " + streamingMessageIndexRef.current)
+      
+      if (streamingMessageIndexRef.current !== null) {
+        updateMessage(streamingMessageIndexRef.current, {
+          content: fullContent,
+          isStreaming: true
+        });
+      }
+    });
     
     // Listen for completion
-    unsubscribes.push(
-      wsHook.on('chat_complete', (data) => {
-        const finalContent = data.content || localStreamingContent;
-        
-        // Update the final message
-        if (streamingMessageIndexRef.current !== null) {
-          updateChatMessage(streamingMessageIndexRef.current, {
-            content: finalContent,
-            isStreaming: false
-          });
-        }
-        
-        // Reset streaming state
-        setLocalIsStreaming(false);
-        setLocalStreamingContent('');
-        streamingMessageIndexRef.current = null;
-        setIsLoading(false);
-        
-        // Track message received
-        trackMessageReceived(finalContent.length, 0);
-        
-        // Focus input
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 100);
-      })
-    );
+    const unsubComplete = wsOn('chat_complete', (data) => {
+      const finalContent = data.content || '';
+
+      console.log("Chat Completed!\nFinal Content: " + finalContent)
+      console.log(data)
+      console.log("streamingMessageIndexRef: " + streamingMessageIndexRef.current)
+
+      if (streamingMessageIndexRef.current !== null) {
+        updateMessage(streamingMessageIndexRef.current, {
+          content: finalContent,
+          isStreaming: false
+        });
+      }
+      
+      setLocalIsStreaming(false);
+      setLocalStreamingContent('');
+      streamingMessageIndexRef.current = null;
+      setIsLoading(false);
+      
+      trackMessageReceived(finalContent.length, 0);
+      
+      setTimeout(() => inputRef.current?.focus(), 100);
+    });
     
     // Listen for errors
-    unsubscribes.push(
-      wsHook.on('chat_error', (data) => {
-        console.error('Chat WebSocket error:', data.error);
-        setError(data.error || 'Chat error occurred');
-        setLocalIsStreaming(false);
-        setLocalStreamingContent('');
-        setIsLoading(false);
-        streamingMessageIndexRef.current = null;
-        
-        // Remove failed streaming message if exists
-        if (streamingMessageIndexRef.current !== null) {
-          const messages = [...chatMessages];
-          if (messages[streamingMessageIndexRef.current]?.isStreaming) {
-            messages.splice(streamingMessageIndexRef.current, 1);
-            setChatMessages(messages);
-          }
-        }
-      })
-    );
+    const unsubError = wsOn('chat_error', (data) => {
+      console.error('Chat WebSocket error:', data.error);
+      setError(data.error || 'Chat error occurred');
+      setLocalIsStreaming(false);
+      setLocalStreamingContent('');
+      setIsLoading(false);
+      streamingMessageIndexRef.current = null;
+    });
     
     // Cleanup
     return () => {
-      unsubscribes.forEach(unsubscribe => {
-        if (typeof unsubscribe === 'function') {
-          unsubscribe();
-        }
-      });
+      console.log('🔌 Cleaning up WebSocket event listeners');
+      unsubStream();
+      unsubComplete();
+      unsubError();
     };
-  }, [wsHook, localStreamingContent, chatMessages, updateChatMessage, setChatMessages, trackMessageReceived]);
+  }, [isWebSocketConnected, wsOn]);
 
+  // ============================================================
+  // EFFECTS
+  // ============================================================
+  
   // Auto-scroll to bottom
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isLoading, streamingContent, executionProgress]);
 
   // Load chat history on mount
   useEffect(() => {
-    if (sessionId && !hasLoadedHistory.current && !isLoadingHistory.current) {
+    if (sessionId && !hasLoadedHistory.current && !isLoadingHistory) {
+      hasLoadedHistory.current = true;
       loadHistory();
     }
-  }, [sessionId]);
+  }, [sessionId, isLoadingHistory, loadHistory]);
 
-  const loadHistory = async () => {
-    if (!sessionId || hasLoadedHistory.current || isLoadingHistory.current) return;
-
-    isLoadingHistory.current = true;
-    hasLoadedHistory.current = true;
-
-    try {
-      console.log('Loading chat history...');
-      await loadChatHistory();
-      console.log('Chat history loaded:', chatMessages.length, 'messages');
-    } catch (err) {
-      console.error('Failed to load chat history:', err);
-    } finally {
-      isLoadingHistory.current = false;
-    }
-  };
-
-  // Add execution result to chat when complete
+  // Handle execution results
   useEffect(() => {
     if (executionResult && executionStatus === 'completed') {
       const resultMessage = {
@@ -203,11 +190,11 @@ const AIChat = () => {
         timestamp: new Date().toISOString(),
         isExecutionResult: true
       };
-      
-      addChatMessage(resultMessage);
+
+      addMessage(resultMessage);
       trackMessageReceived(resultMessage.content.length, 0);
     }
-  }, [executionResult, executionStatus, addChatMessage, trackMessageReceived]);
+  }, [executionResult, executionStatus, addMessage, trackMessageReceived]);
 
   // Handle execution errors
   useEffect(() => {
@@ -217,23 +204,27 @@ const AIChat = () => {
     }
   }, [executionError, executionStatus, trackError]);
 
+  // ========================================
+  // HELPER FUNCTIONS
+  // ========================================
+
   const formatExecutionResult = (result) => {
     if (!result) return 'Task completed successfully.';
-    
     if (typeof result === 'string') return result;
-    
     if (result.insights) {
       return `**Task Complete!**\n\n${result.insights.join('\n\n')}`;
     }
-    
     return '**Task Complete!**\n\n```json\n' + JSON.stringify(result, null, 2) + '\n```';
   };
 
+  // ========================================
+  // SEND MESSAGE
+  // ========================================
+
   const sendMessage = async (e) => {
     e.preventDefault();
-    
+
     if (!input.trim() || isLoading || isStreaming) return;
-    
     if (!sessionId) {
       setError(ERROR_MESSAGES.SESSION_EXPIRED);
       return;
@@ -244,53 +235,44 @@ const AIChat = () => {
       content: input.trim(),
       timestamp: new Date().toISOString()
     };
-
-    // Check if in task mode
+    // Task mode
     if (mode === 'task') {
       await executeTask(userMessage);
       return;
     }
 
-    // Regular chat mode
-    addChatMessage(userMessage);
+    // Chat mode
+    addMessage(userMessage);
+
+    // Calculate index for assistant message (after user message is added)
+    const assistantMessageIndex = chatMessages.length + 1;
+    
     setInput('');
     setIsLoading(true);
     setError(null);
 
     trackMessageSent(userMessage.content.length);
 
-
-    // Use messages from store
     const contextMessages = chatMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
 
     try {
-      // Check if WebSocket is available and connected
-      if (isWebSocketConnected && wsHook?.sendChat) {
-        console.log('Sending message via WebSocket');
-        
+      // Use WebSocket if available
+      if (isWebSocketConnected && sendChat) {
         // Add empty assistant message for streaming
-        const assistantMessage = {
+        addMessage({
           role: 'assistant',
           content: '',
           timestamp: new Date().toISOString(),
           isStreaming: true
-        };
+        });
         
-        addChatMessage(assistantMessage);
-        streamingMessageIndexRef.current = chatMessages.length + 1; // Account for user message + assistant
-        
+        streamingMessageIndexRef.current = assistantMessageIndex;
         setLocalIsStreaming(true);
-        setLocalStreamingContent('');
         
-        // Send via WebSocket
-        await wsHook.sendChat(userMessage.content, [...contextMessages, userMessage]);
-        
-        // WebSocket handlers will handle the response
+        await sendChat(userMessage.content, [...contextMessages, userMessage]);
         
       } else {
-        console.log('WebSocket not available, using REST API');
-        
-        // Fallback to REST API
+        // Fallback to REST
         await sendViaREST(userMessage, contextMessages);
       }
       
@@ -321,22 +303,15 @@ const AIChat = () => {
       setIsLoading(false);
       setLocalIsStreaming(false);
       trackError('chat_error', err.message);
-      
-      // Remove failed streaming message if exists
-      if (streamingMessageIndexRef.current !== null) {
-        const messages = [...chatMessages];
-        if (messages[streamingMessageIndexRef.current]?.isStreaming) {
-          messages.splice(streamingMessageIndexRef.current, 1);
-          setChatMessages(messages);
-        }
-        streamingMessageIndexRef.current = null;
-      }
+      streamingMessageIndexRef.current = null;
     }
   };
       
-  // Separate REST API fallback function
+  // ========================================
+  // REST API FALLBACK
+  // ========================================
   const sendViaREST = async (userMessage, contextMessages) => {
-    try{
+    try {
       const chatRequest = {
         session_id: sessionId,
         messages: [...contextMessages, userMessage],
@@ -347,7 +322,6 @@ const AIChat = () => {
       };
 
       const response = await chatAPI.send(chatRequest);
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -356,22 +330,19 @@ const AIChat = () => {
       const decoder = new TextDecoder();
       let fullContent = '';
       const startTime = Date.now();
-      
-      // Add empty assistant message for streaming
-      addChatMessage({
+
+      addMessage({
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
         isStreaming: true
       });
       
-      const assistantIndex = chatMessages.length + 1;
+      const assistantIndex = chatMessages.length;
       setLocalIsStreaming(true);
 
-      // Stream response
       while (true) {
         const { done, value } = await reader.read();
-        
         if (done) break;
 
         const chunk = decoder.decode(value);
@@ -380,25 +351,15 @@ const AIChat = () => {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
-            
-            if (data.trim() === '[DONE]') {
-              break;
-            }
+            if (data.trim() === '[DONE]') break;
 
             try {
               const parsed = JSON.parse(data);
-              
-              if (parsed.error) {
-                throw new Error(parsed.error);
-              }
+              if (parsed.error) throw new Error(parsed.error);
               
               if (parsed.content) {
                 fullContent += parsed.content;
-                
-                // Update streaming message
-                updateChatMessage(assistantIndex, {
-                  content: fullContent
-                });
+                updateMessage(assistantIndex, { content: fullContent });
               }
             } catch (err) {
               console.error('Error processing response chunk:', err);
@@ -409,20 +370,13 @@ const AIChat = () => {
       }
 
       const responseTime = Date.now() - startTime;
-
-      // Mark streaming as complete
-      updateChatMessage(assistantIndex, {
-        isStreaming: false
-      });
-
-      // Track assistant message
+      updateMessage(assistantIndex, { isStreaming: false });
       trackMessageReceived(fullContent.length, responseTime);
       setIsLoading(false);
       setLocalIsStreaming(false);
       
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
+      setTimeout(() => inputRef.current?.focus(), 100);
+
         /*
         // Save complete message to backend
         if (fullContent) {
@@ -434,13 +388,10 @@ const AIChat = () => {
         }
           */
     } catch (err) {
-      console.error('Chat error:', err);
-      
+      console.error('REST API error:', err);
+
       Sentry.captureException(err, {
-        tags: {
-          error_type: 'chat_message_failed',
-          component: 'AIChat'
-        },
+        tags: { error_type: 'chat_message_failed', component: 'AIChat' },
         contexts: {
           chat: {
             message_length: userMessage.content.length,
@@ -454,25 +405,22 @@ const AIChat = () => {
       setIsLoading(false);
       setLocalIsStreaming(false);
       trackError('chat_error', err.message);
-      
-      // Remove failed streaming message
-      const messages = [...chatMessages];
-      if (messages.length > assistantIndex && messages[assistantIndex]?.isStreaming) {
-        messages.splice(assistantIndex, 1);
-        setChatMessages(messages);
-      }
     }
   };
 
+  // ========================================
+  // TASK EXECUTION
+  // ========================================
+  
   const executeTask = async (userMessage) => {
-    addChatMessage(userMessage);
+    addMessage(userMessage);
     setInput('');
     setError(null);
 
     trackMessageSent(userMessage.content.length);
 
     try {
-      addChatMessage({
+      addMessage({
         role: 'system',
         content: '🤖 Agent is analyzing your request and planning the task execution...',
         timestamp: new Date().toISOString(),
@@ -491,11 +439,8 @@ const AIChat = () => {
         timestamp: new Date().toISOString()
       });
 
-      // The result will be added to chat via the useEffect hook
-      
     } catch (error) {
       console.error('Failed to execute task:', error);
-      
       Sentry.captureException(error, {
         tags: {
           error_type: 'task_execution_failed',
@@ -514,21 +459,24 @@ const AIChat = () => {
     }
   };
 
+  // ========================================
+  // CLEAR HISTORY
+  // ========================================
+
   const clearHistory = async () => {
     if (!sessionId || isStreaming) return;
-
     if (!confirm('Are you sure you want to clear the chat history?')) return;
 
     try {
       // Clear via WebSocket if available
-      if (isWebSocketConnected && wsHook?.clearChat) {
-        await wsHook.clearChat();
+      if (isWebSocketConnected && clearChatRemote) {
+        await clearChatRemote();
       } else {
         // Fallback to REST
         await chatAPI.clear(sessionId);
       }
 
-      clearChatMessages();
+      clearChat();
       trackMessagesCleared('chat_cleared');
       setError(null);
       setLocalStreamingContent('');
@@ -540,13 +488,15 @@ const AIChat = () => {
     }
   };
 
+  // ========================================
+  // EDIT MESSAGE
+  // ========================================
+
   const startEdit = (index) => {
     if (isStreaming || isLoading) return;
     setEditingIndex(index);
     setEditingContent(chatMessages[index].content);
-    setTimeout(() => {
-      editInputRef.current?.focus();
-    }, 0);
+    setTimeout(() => editInputRef.current?.focus(), 0);
   };
 
   const cancelEdit = () => {
@@ -558,7 +508,7 @@ const AIChat = () => {
     if (!editingContent.trim() || editingIndex === null) return;
 
     const editedMessage = chatMessages[editingIndex];
-    
+
     if (editedMessage.role !== 'user') {
       setError('Only user messages can be edited');
       cancelEdit();
@@ -566,14 +516,7 @@ const AIChat = () => {
     }
 
     try {
-      // Update message
-      updateChatMessage(editingIndex, {
-        content: editingContent.trim(),
-        edited: true,
-        editedAt: new Date().toISOString()
-      });
-
-      // Remove all messages after the edited one
+      // Keep messages up to and including the edited one
       const messagesToKeep = chatMessages.slice(0, editingIndex + 1);
       messagesToKeep[editingIndex] = {
         ...messagesToKeep[editingIndex],
@@ -582,41 +525,34 @@ const AIChat = () => {
         editedAt: new Date().toISOString()
       };
       
-      setChatMessages(messagesToKeep);
+      // Clear and re-add messages
+      clearChat();
+      messagesToKeep.forEach(msg => addMessage(msg));
+      
       cancelEdit();
 
-      // Regenerate response with the edited message
+      // Regenerate response
       setIsLoading(true);
       setError(null);
 
-      const editedUserMessage = {
-        ...messagesToKeep[editingIndex],
-        role: 'user'
-      };
-
+      const editedUserMessage = { ...messagesToKeep[editingIndex], role: 'user' };
       const contextMessages = messagesToKeep.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
+      const assistantMessageIndex = messagesToKeep.length;
 
-      // Send regeneration request
-      if (isWebSocketConnected && wsHook?.sendChat) {
-        // Add empty assistant message for streaming
-        const assistantMessage = {
+      if (isWebSocketConnected && sendChat) {
+        // Add empty assistant message
+        addMessage({
           role: 'assistant',
           content: '',
           timestamp: new Date().toISOString(),
           isStreaming: true
-        };
+        });
         
-        addChatMessage(assistantMessage);
-        streamingMessageIndexRef.current = messagesToKeep.length;
-        
+        streamingMessageIndexRef.current = assistantMessageIndex;
         setLocalIsStreaming(true);
-        setLocalStreamingContent('');
         
-        // Send via WebSocket
-        await wsHook.sendChat(editedUserMessage.content, contextMessages);
-        
+        await sendChat(editedUserMessage.content, contextMessages);
       } else {
-        // Fallback to REST
         await sendViaREST(editedUserMessage, contextMessages.slice(0, -1));
       }
 
@@ -626,19 +562,14 @@ const AIChat = () => {
       setIsLoading(false);
       setLocalIsStreaming(false);
       trackError('edit_regenerate_error', err.message);
-      
-      // Clean up failed streaming message
-      if (streamingMessageIndexRef.current !== null) {
-        const messages = [...chatMessages];
-        if (messages[streamingMessageIndexRef.current]?.isStreaming) {
-          messages.splice(streamingMessageIndexRef.current, 1);
-          setChatMessages(messages);
-        }
-        streamingMessageIndexRef.current = null;
-      }
+      streamingMessageIndexRef.current = null;
     }
   };
 
+  // ========================================
+  // UI HELPERS
+  // ========================================
+  
   const toggleMode = () => {
     setMode(prev => prev === 'chat' ? 'task' : 'chat');
   };
@@ -646,6 +577,9 @@ const AIChat = () => {
   const isInputDisabled = isLoading || isStreaming || !sessionId || ['running', 'starting'].includes(executionStatus);
   const isExecuting = ['running', 'starting'].includes(executionStatus);
 
+  // ========================================
+  // RENDER
+  // ========================================
   return (
     <div className="flex h-full bg-gray-50">
       {/* Main Chat Area */}
@@ -704,7 +638,7 @@ const AIChat = () => {
 
               <button
                 onClick={clearHistory}
-                disabled={isStreaming || chatMessages.length === 0}
+                disabled={isStreaming || !hasMessages}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Clear chat history"
               >
@@ -722,12 +656,11 @@ const AIChat = () => {
               '⚡ Task mode: AI agent will autonomously execute your request using workflows'
             )}
           </div>
-          
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {chatMessages.length === 0 && !isLoading && (
+          {!hasMessages && !isLoading && (
             <div className="text-center text-gray-500 mt-8">
               <Bot className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <p className="text-lg font-medium mb-2">Start a conversation</p>
@@ -853,23 +786,6 @@ const AIChat = () => {
               )}
             </div>
           ))}
-
-          {/* Show streaming content if WebSocket is not updating messages directly */}
-          {isStreaming && streamingContent && streamingMessageIndexRef.current === null && (
-            <div className="flex gap-3 justify-start">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                  <Bot className="w-5 h-5 text-blue-600" />
-                </div>
-              </div>
-              <div className="bg-white text-gray-900 border border-gray-200 rounded-lg px-4 py-2 max-w-[70%]">
-                <p className="whitespace-pre-wrap break-words">
-                  {streamingContent}
-                  <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-1 align-middle" />
-                </p>
-              </div>
-            </div>
-          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">

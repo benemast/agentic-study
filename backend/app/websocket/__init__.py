@@ -23,7 +23,16 @@ from .handlers import (
     handle_session_heartbeat,
     handle_tracking_event,
     handle_workflow_execute,
-    handle_execution_cancel
+    handle_execution_cancel,
+    handle_session_update,
+    handle_session_get,
+    handle_session_end,
+    handle_chat_history_request,
+    handle_chat_clear,
+    handle_track_batch,
+    handle_get_interactions,
+    handle_batch_request,
+    register_handlers
 )
 
 __all__ = [
@@ -35,6 +44,15 @@ __all__ = [
     'handle_tracking_event',
     'handle_workflow_execute',
     'handle_execution_cancel',
+    'handle_session_update',
+    'handle_session_get',
+    'handle_session_end',
+    'handle_chat_history_request',
+    'handle_chat_clear',
+    'handle_track_batch',
+    'handle_get_interactions',
+    'handle_batch_request',
+    'register_handlers'
 ]
 
 __version__ = '1.0.0'

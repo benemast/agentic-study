@@ -4,10 +4,6 @@ import * as Sentry from "@sentry/react";
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 
-// WebSocket Integration
-import { wsClient } from './services/websocket';
-import { useWebSocket } from './hooks/useWebSocket';
-
 // Components
 import SessionInitializer from './components/session/SessionInitializer';
 import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
@@ -151,9 +147,29 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
   );
 };
 
+// Connection Status Component
+const ConnectionStatus = () => {
+  const { isHealthy, connectionStatus, syncStatus } = useSession();
+  
+  if (!connectionStatus || connectionStatus === 'online') return null;
+  
+  return (
+    <div className={`fixed top-0 left-0 right-0 z-50 px-4 py-2 text-center text-sm ${
+      connectionStatus === 'offline' ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'
+    }`}>
+      {connectionStatus === 'offline' ? (
+        <>⚠️ Working offline - Changes will sync when reconnected</>
+      ) : (
+        <>❌ Connection error - Please refresh the page</>
+      )}
+      {syncStatus === 'pending' && <span className="ml-2">(pending sync)</span>}
+    </div>
+  );
+};
+
 // Dashboard Component
 const Dashboard = () => {
-  const { sessionId, participantId } = useSession();
+  const { sessionId, participantId, isHealthy } = useSession();
   const { workflowsCreated, workflowsExecuted, interactions, currentView } = useSessionData();
   
   return (
@@ -164,8 +180,11 @@ const Dashboard = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <h3 className="font-semibold text-blue-900 mb-2">Session Information</h3>
         <div className="grid grid-cols-2 gap-2 text-sm text-blue-700">
-          <div>Session ID: <span className="font-mono">{sessionId}</span></div>
-          <div>Participant: #{participantId}</div>
+          <div>Session ID: <span className="font-mono">{sessionId || 'Loading...'}</span></div>
+          <div>Participant: #{participantId || 'N/A'}</div>
+          <div>Status: <span className={isHealthy ? 'text-green-600' : 'text-red-600'}>
+            {isHealthy ? '✅ Healthy' : '⚠️ Issues'}
+          </span></div>
         </div>
       </div>
       
@@ -178,7 +197,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Workflows Created</p>
-              <p className="text-2xl font-bold text-gray-900">{workflowsCreated}</p>
+              <p className="text-2xl font-bold text-gray-900">{workflowsCreated || 0}</p>
             </div>
           </div>
         </div>
@@ -190,7 +209,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Executions</p>
-              <p className="text-2xl font-bold text-gray-900">{workflowsExecuted}</p>
+              <p className="text-2xl font-bold text-gray-900">{workflowsExecuted || 0}</p>
             </div>
           </div>
         </div>
@@ -214,7 +233,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Current View</p>
-              <p className="text-lg font-bold text-gray-900 capitalize">{currentView}</p>
+              <p className="text-lg font-bold text-gray-900 capitalize">{currentView || 'dashboard'}</p>
             </div>
           </div>
         </div>
@@ -258,17 +277,8 @@ const AppContent = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showDemographics, setShowDemographics] = useState(false);
   
-  const { sessionId } = useSession();
+  const { sessionId, isActive } = useSession();
   const { trackViewChange } = useTracking();
-
-  // Auto-connect WebSocket
-  useEffect(() => {
-    if (sessionId) {
-      wsClient.connect(sessionId);
-    }
-    
-    return () => wsClient.disconnect();
-  }, [sessionId]);
 
   // Handle view changes
   const handleViewChange = (view) => {
@@ -346,7 +356,7 @@ const AppContent = () => {
   };
 
   // Loading state while session initializes
-  if (!sessionId) {
+  if (!sessionId || !isActive) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -358,18 +368,24 @@ const AppContent = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar
-        activeView={activeView}
-        onViewChange={handleViewChange}
-        isCollapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-      />
+    <>
+      {/* Connection Status Bar */}
+      <ConnectionStatus />
       
-      <main className="flex-1 overflow-y-auto">
-        {renderContent()}
-      </main>
-    </div>
+      {/* Main Layout */}
+      <div className="flex h-screen bg-gray-50">
+        <Sidebar
+          activeView={activeView}
+          onViewChange={handleViewChange}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
+        
+        <main className="flex-1 overflow-y-auto">
+          {renderContent()}
+        </main>
+      </div>
+    </>
   );
 };
 

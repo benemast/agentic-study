@@ -53,14 +53,18 @@ export const removeSessionIdFromUrl = () => {
  * Get session metadata (browser info, screen size, etc.)
  */
 export const getSessionMetadata = () => ({
-  browserInfo: navigator.userAgent,
-  screenSize: `${window.screen.width}x${window.screen.height}`,
+  userAgent: navigator.userAgent,
+  screenResolution: `${window.screen.width}x${window.screen.height}`,
+  viewport: `${window.innerWidth}x${window.innerHeight}`,
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   language: navigator.language,
+  platform: navigator.platform,
   referrer: document.referrer,
   pageVisibility: !document.hidden,
   cookiesEnabled: navigator.cookieEnabled,
-  onlineStatus: navigator.onLine
+  onlineStatus: navigator.onLine,
+  deviceMemory: navigator.deviceMemory || 'unknown',
+  hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
 });
 
 /**

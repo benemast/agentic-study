@@ -1,6 +1,7 @@
 # backend/app/websocket/handlers.py
 from datetime import datetime, timezone
 import logging
+import traceback
 import json
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
@@ -381,13 +382,12 @@ async def handle_chat_message_update(session_id: str, message: dict):
         
         # Update message
         chat_message.content = new_content
-        chat_message.edited = True
-        chat_message.edited_at = datetime.now(timezone.utc)
-        
+
         if not chat_message.message_metadata:
             chat_message.message_metadata = {}
+        
         chat_message.message_metadata['edited'] = True
-        chat_message.message_metadata['edited_at'] = chat_message.edited_at.isoformat()
+        chat_message.message_metadata['edited_at'] = datetime.now(timezone.utc).isoformat()
         
         db.commit()
         
@@ -413,6 +413,8 @@ async def handle_chat_message_update(session_id: str, message: dict):
         
     except Exception as e:
         logger.error(f"Error updating chat message: {e}")
+        logger.error(traceback.format_exc())
+        db.rollback()
         await ws_manager.send_to_session(session_id, {
             'type': 'response',
             'request_id': request_id,
@@ -537,21 +539,32 @@ async def handle_tracking_event(session_id: str, message: dict):
     """Handle analytics tracking event"""
     db = SessionLocal()
     try:
+        session = db.query(SessionModel).filter(
+            SessionModel.session_id == session_id
+        ).first()
+        
+        if not session:
+            logger.warning(f"Session not found for tracking: {session_id}")
+            return
+        
         event_type = message.get('event_type')
-        event_data = message.get('data', {})
+        event_data = message.get('event_data', message.get('data', {}))
         
         # Create interaction record
         interaction = Interaction(
             session_id=session_id,
-            interaction_type=event_type,
-            view_name=event_data.get('view', 'unknown'),
-            target=event_data.get('target', ''),
-            value=event_data.get('value', ''),
-            timestamp=datetime.utcnow(),
-            metadata=event_data
+            event_type=event_type,
+            event_data=event_data,
+            current_view=event_data.get('view', event_data.get('current_view', 'unknown')),
+            timestamp=datetime.utcnow()
         )
         
         db.add(interaction)
+        
+        # Update session activity
+        session.last_activity = datetime.utcnow()
+        session.connection_status = "online"
+        
         db.commit()
         
         await ws_manager.send_to_session(session_id, {
@@ -561,6 +574,7 @@ async def handle_tracking_event(session_id: str, message: dict):
     
     except Exception as e:
         logger.error(f"Error in tracking: {e}")
+        logger.error(traceback.format_exc())  
     finally:
         db.close()
 

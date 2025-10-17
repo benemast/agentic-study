@@ -73,7 +73,6 @@ export const useChat = () => {
    */  
 
   const updateMessage = (indexOrId, updates) => {
-    console.log('[useChat] updateMessage called:', indexOrId, updates);
     
     // If it's a number, treat as index
     if (typeof indexOrId === 'number') {
@@ -84,22 +83,18 @@ export const useChat = () => {
         const message = messages[indexOrId];
         if (message?.id && updateMessageWS) {
           updateMessageWS(message.id, updates);
-          console.log('[useChat] Updated in WebSocket store');
         } else if (updateMessageWS) {
           // If no ID, try updating by index (some WebSocket stores support this)
           updateMessageWS(indexOrId, updates);
-          console.log('[useChat] Updated in WebSocket store by index');
         }
       } else {
         // Using session messages, update there
         updateMessageSession(indexOrId, updates);
-        console.log('[useChat] Updated in Session store');
       }
     } else {
       // It's an ID (WebSocket store)
       if (updateMessageWS) {
         updateMessageWS(indexOrId, updates);
-        console.log('[useChat] Updated in WebSocket store by ID');
       }
       
       // ONLY sync to session if not using WebSocket messages
@@ -107,7 +102,6 @@ export const useChat = () => {
         const index = messages.findIndex(m => m.id === indexOrId);
         if (index !== -1) {
           updateMessageSession(index, updates);
-          console.log('[useChat] Synced to Session store');
         }
       } else {
         console.log('[useChat] Skipped Session store sync (using WebSocket)');

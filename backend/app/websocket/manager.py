@@ -131,35 +131,75 @@ class WebSocketManager:
     async def send_to_connection(self, websocket: WebSocket, message: dict):
         """Send message to a specific WebSocket connection"""
         try:
+            # Check if websocket is still open before sending
+            if websocket.client_state.value != 1:  # 1 = CONNECTED
+                logger.warning(f"WebSocket not connected (state: {websocket.client_state.name})")
+                return False
+            
             await websocket.send_json(message)
             self.metrics['messages_sent'] += 1
+            return True
+        
+        except RuntimeError as e:
+            if "WebSocket is not connected" in str(e):
+                logger.warning(f"Attempted to send to disconnected WebSocket: {e}")
+                # Remove this connection from the pool
+                # We'll need to find which session it belongs to
+                for session_id in list(self.pool.connections.keys()):
+                    if websocket in self.pool.connections[session_id]:
+                        self.pool.remove_connection(session_id, websocket)
+                        logger.info(f"Removed stale WebSocket from session: {session_id}")
+                        break
+            else:
+                logger.error(f"RuntimeError sending to connection: {e}")
+            self.metrics['errors_total'] += 1
+            return False
+        
         except Exception as e:
             logger.error(f"Error sending to connection: {e}")
             self.metrics['errors_total'] += 1
     
     async def send_to_session(self, session_id: str, message: dict):
-        """Send message to first connection of a session"""
+        """Send message to first active connection of a session"""
         connections = self.pool.get_connections(session_id)
         
         if not connections:
             # Queue message if no connections
+            logger.debug(f"No connections for session {session_id}, queueing message")
             self.queue_message(session_id, message)
-            return
+            return False
         
-        # Send to first connection
-        await self.send_to_connection(connections[0], message)
+        # Try to send to first connection, if it fails try others
+        for ws in connections:
+            success = await self.send_to_connection(ws, message)
+            if success:
+                return True
+            else:
+                # Remove dead connection
+                self.pool.remove_connection(session_id, ws)
+        
+        # If all connections failed, queue the message
+        logger.warning(f"All connections failed for session {session_id}, queueing message")
+        self.queue_message(session_id, message)
+        return False
     
     async def broadcast_to_session(self, session_id: str, message: dict):
         """Broadcast message to all connections of a session"""
         connections = self.pool.get_connections(session_id)
         
         if not connections:
+            logger.debug(f"No connections for session {session_id}, queueing message")
             self.queue_message(session_id, message)
             return
         
-        # Send to all connections concurrently
+        # Send to all connections concurrently, collect results
         tasks = [self.send_to_connection(ws, message) for ws in connections]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Log if all sends failed
+        if not any(r is True for r in results):
+            logger.warning(f"All broadcasts failed for session {session_id}")
+            self.queue_message(session_id, message)
     
     async def broadcast_to_all(self, message: dict, exclude_sessions: Optional[Set[str]] = None):
         """Broadcast message to all connected sessions"""

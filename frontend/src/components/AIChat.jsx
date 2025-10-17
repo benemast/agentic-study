@@ -95,25 +95,46 @@ const AIChat = () => {
   const editInputRef = useRef(null);
   const streamingMessageIndexRef = useRef(null);
 
+  // TODO(architecture): Move WebSocket into App Level WebSocketProvider
+  // - see preliminary file frontend/src/providers/WebSocketProvider.jsx
+  // Priority: Medium - works but not ideal
+  const wsOnRef = useRef(wsOn);
+
+  // TODO(performance): Add useCallback to memoize these functions
+  // - updateMessage in useChat.js
+  // - trackMessageReceived in useTracking.js
+  // - addMessage, clearChat, setChatHistory in useChat.js
+  // Current workaround: Using refs in AIChat.jsx (lines 105-179)
+  // Priority: Medium - works but not ideal
+  const updateMessageRef = useRef(updateMessage);
+  const trackMessageReceivedRef = useRef(trackMessageReceived);
+
   // ========================================
   // WEBSOCKET EVENT HANDLERS
   // ========================================
   
+  // Update refs when functions change
+  useEffect(() => {
+    wsOnRef.current = wsOn;
+    updateMessageRef.current = updateMessage;
+    trackMessageReceivedRef.current = trackMessageReceived;
+  });
+  
   useEffect(() => {
     // Only subscribe if WebSocket is connected
-    if (!isWebSocketConnected || !wsOn) return;
+    if (!isWebSocketConnected) return;
+
+    const currentWsOn = wsOnRef.current;
+    if (!currentWsOn) return;
+    
     console.log('🔌 Setting up WebSocket event listeners');
 
     // Listen for streaming chunks
-    const unsubStream = wsOn('chat_stream', (data) => {
+    const unsubStream = currentWsOn('chat_stream', (data) => {
       const fullContent = data.full_content || '';
 
-      console.log("Chat Stream!\nFull Content: " + fullContent)
-      console.log(data)
-      console.log("streamingMessageIndexRef: " + streamingMessageIndexRef.current)
-      
       if (streamingMessageIndexRef.current !== null) {
-        updateMessage(streamingMessageIndexRef.current, {
+        updateMessageRef.current(streamingMessageIndexRef.current, {
           content: fullContent,
           isStreaming: true
         });
@@ -121,15 +142,11 @@ const AIChat = () => {
     });
     
     // Listen for completion
-    const unsubComplete = wsOn('chat_complete', (data) => {
+    const unsubComplete = currentWsOn('chat_complete', (data) => {
       const finalContent = data.content || '';
 
-      console.log("Chat Completed!\nFinal Content: " + finalContent)
-      console.log(data)
-      console.log("streamingMessageIndexRef: " + streamingMessageIndexRef.current)
-
       if (streamingMessageIndexRef.current !== null) {
-        updateMessage(streamingMessageIndexRef.current, {
+        updateMessageRef.current(streamingMessageIndexRef.current, {
           content: finalContent,
           isStreaming: false
         });
@@ -140,13 +157,13 @@ const AIChat = () => {
       streamingMessageIndexRef.current = null;
       setIsLoading(false);
       
-      trackMessageReceived(finalContent.length, 0);
+      trackMessageReceivedRef.current(finalContent.length, 0);
       
       setTimeout(() => inputRef.current?.focus(), 100);
     });
     
     // Listen for errors
-    const unsubError = wsOn('chat_error', (data) => {
+    const unsubError = currentWsOn('chat_error', (data) => {
       console.error('Chat WebSocket error:', data.error);
       setError(data.error || 'Chat error occurred');
       setLocalIsStreaming(false);
@@ -162,7 +179,7 @@ const AIChat = () => {
       unsubComplete();
       unsubError();
     };
-  }, [isWebSocketConnected, wsOn]);
+  }, [isWebSocketConnected]);
 
   // ============================================================
   // EFFECTS

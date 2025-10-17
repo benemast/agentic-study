@@ -21,8 +21,7 @@ from app.websocket.handlers import (
     handle_chat_clear,
     handle_track_batch,
     handle_get_interactions,
-    handle_batch_request,
-    register_handlers
+    handle_batch_request
 )
 
 logger = logging.getLogger(__name__)
@@ -92,10 +91,10 @@ async def websocket_endpoint(
         # Main message loop
         while True:
             try:
-                # Receive message with timeout
+                # Receive message with timeout to prevent hanging
                 data = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=None  # No timeout on receive
+                    timeout=300.0  # 5 minute timeout
                 )
                 
                 # Parse and handle message
@@ -110,31 +109,57 @@ async def websocket_endpoint(
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON received: {e}")
-                    await ws_manager.send_to_session(session_id, {
-                        'type': 'error',
-                        'error': 'Invalid JSON',
-                        'details': str(e)
-                    })
+                    # Check connection before sending error
+                    if websocket.client_state.value == 1:
+                        try:
+                            await websocket.send_json({
+                                'type': 'error',
+                                'error': 'Invalid JSON',
+                                'details': str(e)
+                            })
+                        except:
+                            break
                     
                 except Exception as e:
                     logger.error(f"Error processing message: {e}", exc_info=True)
                     
-                    # Send error response with request_id if available
-                    error_response = {
-                        'type': 'error',
-                        'error': str(e),
-                        'error_type': type(e).__name__
-                    }
-                    
-                    if 'request_id' in message:
-                        error_response['request_id'] = message['request_id']
-                        error_response['type'] = 'response'
-                        error_response['status'] = 'error'
-                    
-                    await ws_manager.send_to_session(session_id, error_response)
+                    # Try to send error response if connection is alive
+                    if websocket.client_state.value == 1:
+                        try:
+                            error_response = {
+                                'type': 'error',
+                                'error': str(e),
+                                'error_type': type(e).__name__
+                            }
+                            
+                            if isinstance(message, dict) and 'request_id' in message:
+                                error_response['request_id'] = message['request_id']
+                                error_response['type'] = 'response'
+                                error_response['status'] = 'error'
+                            
+                            await websocket.send_json(error_response)
+                        except:
+                            break
+            
+            # Handle timeout gracefully        
+            except asyncio.TimeoutError:
+                logger.info(f"WebSocket timeout for session {session_id}, checking if still alive")
+                if websocket.client_state.value != 1:
+                    logger.info(f"WebSocket disconnected during timeout: {connection_id}")
+                    break
+                # Connection still alive, continue
+                continue
                     
             except WebSocketDisconnect:
                 logger.info(f"WebSocket disconnected normally: {connection_id}")
+                break
+            
+            # Catch RuntimeError for "WebSocket is not connected"    
+            except RuntimeError as e:
+                if "not connected" in str(e).lower():
+                    logger.info(f"WebSocket already disconnected: {connection_id}")
+                else:
+                    logger.error(f"RuntimeError in message loop: {e}", exc_info=True)
                 break
                 
             except Exception as e:
@@ -145,8 +170,11 @@ async def websocket_endpoint(
         logger.error(f"Error in WebSocket endpoint: {e}", exc_info=True)
         
     finally:
-        # Clean up connection
-        ws_manager.disconnect(session_id, websocket)
+        # Clean up connection safely
+        try:
+            ws_manager.disconnect(session_id, websocket)
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
         logger.info(f"WebSocket cleaned up: session={session_id}, connection={connection_id}")
 
 

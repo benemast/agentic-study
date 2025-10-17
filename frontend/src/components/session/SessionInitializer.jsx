@@ -16,10 +16,19 @@ const SessionInitializer = ({ children }) => {
   const [initError, setInitError] = useState(null);
   const initRef = useRef(false);
   
-  const { initialize, end } = useSession();
-  const quickSave = useSessionStore(state => state.quickSave);
-  const syncSessionData = useSessionStore(state => state.syncSessionData);
-  const updateLastActivity = useSessionStore(state => state.updateLastActivity);
+  const { initialize } = useSession();
+  
+  // Store functions in refs to avoid re-running effects
+  const quickSaveRef = useRef(useSessionStore.getState().quickSave);
+  const syncSessionDataRef = useRef(useSessionStore.getState().syncSessionData);
+  const updateLastActivityRef = useRef(useSessionStore.getState().updateLastActivity);
+  
+  // Keep refs updated
+  useEffect(() => {
+    quickSaveRef.current = useSessionStore.getState().quickSave;
+    syncSessionDataRef.current = useSessionStore.getState().syncSessionData;
+    updateLastActivityRef.current = useSessionStore.getState().updateLastActivity;
+  });
 
   // Initialize session once on mount
   useEffect(() => {
@@ -33,7 +42,7 @@ const SessionInitializer = ({ children }) => {
       } catch (error) {
         console.error('Session initialization failed:', error);
         setInitError(error.message);
-        setIsInitialized(true); // Still render the app
+        setIsInitialized(true);
       }
     };
 
@@ -42,12 +51,12 @@ const SessionInitializer = ({ children }) => {
 
   // Auto-save on page unload
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      quickSave();
+    const handleBeforeUnload = () => {
+      quickSaveRef.current();
     };
 
     const handleUnload = () => {
-      quickSave();
+      quickSaveRef.current();
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -57,53 +66,53 @@ const SessionInitializer = ({ children }) => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleUnload);
     };
-  }, [quickSave]);
+  }, []);
 
   // Periodic sync
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      syncSessionData();
+      syncSessionDataRef.current();
     }, SESSION_CONFIG.AUTO_SAVE_INTERVAL);
 
     return () => clearInterval(syncInterval);
-  }, [syncSessionData]);
+  }, []);
 
   // Heartbeat to update activity
   useEffect(() => {
     const heartbeatInterval = setInterval(() => {
-      updateLastActivity();
+      updateLastActivityRef.current();
     }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
 
     return () => clearInterval(heartbeatInterval);
-  }, [updateLastActivity]);
+  }, []);
 
   // Page visibility tracking
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         console.log('Page visible again');
-        updateLastActivity();
+        updateLastActivityRef.current();
       } else {
         console.log('Page hidden, quick saving...');
-        quickSave();
+        quickSaveRef.current();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [quickSave, updateLastActivity]);
+  }, []);
 
   // Online/offline handling
   useEffect(() => {
     const handleOnline = () => {
       console.log('Back online');
-      updateLastActivity();
+      updateLastActivityRef.current();
       useSessionStore.setState({ connectionStatus: 'online' });
     };
 
     const handleOffline = () => {
       console.log('Gone offline');
-      quickSave();
+      quickSaveRef.current();
       useSessionStore.setState({ connectionStatus: 'offline' });
     };
 
@@ -114,7 +123,7 @@ const SessionInitializer = ({ children }) => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [quickSave, updateLastActivity]);
+  }, []);
 
   // Loading state
   if (!isInitialized) {

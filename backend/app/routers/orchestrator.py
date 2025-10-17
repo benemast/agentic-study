@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 import logging
 
-from app.database import get_db
+from app.database import get_db, get_db_context
 from app.models.session import Session as SessionModel
 from app.models.execution import WorkflowExecution, ExecutionCheckpoint
 from app.orchestrator.service import orchestrator
@@ -17,6 +17,7 @@ from app.schemas.orchestrator import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
+
 
 @router.post("/execute", response_model=ExecutionResponse)
 async def execute_workflow(
@@ -56,41 +57,62 @@ async def execute_workflow(
                     status_code=400,
                     detail="task_description is required for ai_assistant condition"
                 )
-        
-        # Prepare task data
-        task_data = {
-            'workflow': request.workflow,
-            'task_description': request.task_description,
-            'input_data': request.input_data,
-            'metadata': request.metadata
-        }
-        
-        # Execute in background
-        async def run_execution():
-            try:
-                await orchestrator.execute_workflow(
-                    db=db,
-                    session_id=request.session_id,
-                    condition=request.condition,
-                    task_data=task_data
-                )
-            except Exception as e:
-                logger.error(f"Background execution failed: {e}")
-        
-        background_tasks.add_task(run_execution)
-        
-        # Create placeholder execution record for immediate response
         execution = WorkflowExecution(
             session_id=request.session_id,
             condition=request.condition,
             status='pending',
-            workflow_definition=request.workflow,
-            task_description=request.task_description,
-            input_data=request.input_data
+            workflow_definition=request.workflow if request.condition == 'workflow_builder' else None,
+            task_description=request.task_description if request.condition == 'ai_assistant' else None,
+            input_data=request.input_data,
+            execution_metadata=request.metadata
         )
+        
         db.add(execution)
         db.commit()
         db.refresh(execution)
+        
+        logger.info(f"Created execution record: {execution.id}")
+        
+        # Pass execution_id to background task, not create new one
+        async def run_execution():
+            """Background task that uses existing execution record"""
+            try:
+                # Prepare task data
+                task_data = {
+                    'workflow': request.workflow,
+                    'task_description': request.task_description,
+                    'input_data': request.input_data,
+                    'metadata': request.metadata or {}
+                }
+                
+                # Execute with existing execution record using context manager
+                with get_db_context() as bg_db:
+                    await orchestrator.execute_workflow_with_id(
+                        db=bg_db,
+                        execution_id=execution.id,
+                        session_id=request.session_id,
+                        condition=request.condition,
+                        task_data=task_data
+                    )
+                
+            except Exception as e:
+                logger.error(f"Background execution failed: {e}", exc_info=True)
+                
+                # Update execution with error
+                try:
+                    with get_db_context() as error_db:
+                        bg_execution = error_db.query(WorkflowExecution).filter(
+                            WorkflowExecution.id == execution.id
+                        ).first()
+                        
+                        if bg_execution:
+                            bg_execution.status = 'failed'
+                            bg_execution.error_message = str(e)
+                except Exception as update_error:
+                    logger.error(f"Failed to update execution error status: {update_error}")
+        
+        # Add background task
+        background_tasks.add_task(run_execution)
         
         return ExecutionResponse(
             execution_id=execution.id,

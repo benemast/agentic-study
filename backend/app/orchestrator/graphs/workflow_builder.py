@@ -7,6 +7,7 @@ from datetime import datetime
 
 from .shared_state import SharedWorkflowState
 from ..tools.registry import tool_registry
+from app.database import get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,179 @@ class WorkflowBuilderGraph:
         self.websocket_manager = websocket_manager
         self.registry = tool_registry
     
+    def _create_node_handler(
+        self, 
+        node: Dict[str, Any], 
+        tool: Any
+    ) -> Callable:
+        """
+        Create handler function for a workflow node
+        
+        Args:
+            node: Node definition
+            tool: Tool instance to execute
+            
+        Returns:
+            Async handler function
+        """
+        node_id = node['id']
+        node_label = node['data'].get('label', node_id)
+        template_id = node['data']['template_id']
+        
+        async def node_handler(state: SharedWorkflowState) -> SharedWorkflowState:
+            """Execute single workflow node"""
+            execution_id = state['execution_id']
+            step_start_time = time.time()
+
+            # Atomic increment
+            new_step = self.state_manager.increment_field(execution_id, 'step_number', 1)
+            state['step_number'] = new_step
+            
+            # Single field update
+            self.state_manager.update_state_field(execution_id, 'current_node', node_id)
+            
+            logger.info(f"Executing node: {node_id} ({node_label})")
+            
+            # Checkpoint: node start (buffered)
+            if self.state_manager.should_checkpoint(state['condition'], 'node_start'):
+                with get_db_context() as db:
+                    await self.state_manager.checkpoint_to_db(
+                        db=db,
+                        execution_id=execution_id,
+                        step_number=new_step,
+                        checkpoint_type='node_start',
+                        state=dict(state),
+                        node_id=node_id,
+                        buffered=True 
+                    )
+            
+            # Send WebSocket update (batched)
+            if self.websocket_manager:
+                await self.websocket_manager.send_node_progress(
+                    session_id=state['session_id'],
+                    execution_id=execution_id,
+                    node_id=node_id,
+                    step_number=new_step,
+                    status='running',
+                    node_label=node_label
+                )
+            
+            # Execute tool
+            try:
+                # Prepare input from previous results
+                input_data = state.get('working_data', {})
+                
+                # Execute tool
+                result = await tool.run(input_data)
+
+                if result.get('success'):
+                    # Update working data in state
+                    state['working_data'] = result.get('data', state['working_data'])
+
+                    # Update Redis directly
+                    self.state_manager.update_state_field(
+                        execution_id,
+                        'working_data',
+                        state['working_data']
+                    )
+                    
+                    # Store result
+                    state['results'][node_id] = {
+                        'success': True,
+                        'output': result.get('data'),
+                        'execution_time_ms': result.get('execution_time_ms', 0)
+                    }
+                    
+                    # Send success event
+                    if self.websocket_manager:
+                        await self.websocket_manager.send_node_progress(
+                            session_id=state['session_id'],
+                            execution_id=state['execution_id'],
+                            node_id=node_id,
+                            step_number=state['step_number'],
+                            status='completed',
+                            result=result
+                        )
+                else:
+                    # Append error efficiently
+                    error_msg = result.get('error', 'Unknown error')
+                    self.state_manager.append_to_list_field(
+                        execution_id,
+                        'errors',
+                        {
+                            'step': new_step,
+                            'node': node_id,
+                            'error': error_msg
+                        }
+                    )
+                    state['errors'].append({
+                        'step': new_step,
+                        'node': node_id,
+                        'error': error_msg
+                    })
+                
+                    # Send error event
+                    if self.websocket_manager:
+                        await self.websocket_manager.send_node_progress(
+                            session_id=state['session_id'],
+                            execution_id=state['execution_id'],
+                            node_id=node_id,
+                            step_number=state['step_number'],
+                            status='failed',
+                            result={'error': error_msg}
+                        )
+                
+            except Exception as e:
+                logger.exception(f"Node {node_id} execution error: {e}")
+                
+                # Append error
+                self.state_manager.append_to_list_field(
+                    execution_id,
+                    'errors',
+                    {'step': new_step, 'node': node_id, 'error': str(e)}
+                )
+                
+                # Send error event via WebSocket
+                if self.websocket_manager:
+                    await self.websocket_manager.send_node_progress(
+                        session_id=state['session_id'],
+                        execution_id=state['execution_id'],
+                        node_id=node_id,
+                        step_number=state['step_number'],
+                        status='failed',
+                        result={'error': error_msg}
+                    )
+            
+            # Update timing
+            step_time = int((time.time() - step_start_time) * 1000)
+
+            # Batch field updates
+            self.state_manager.update_state_fields(execution_id, {
+                'last_step_at': datetime.utcnow().isoformat(),
+                'total_time_ms': state.get('total_time_ms', 0) + step_time
+            })
+
+            state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
+            state['last_step_at'] = datetime.utcnow().isoformat()
+            
+            # Checkpoint: node end
+            if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
+                with get_db_context() as db:
+                    await self.state_manager.checkpoint_to_db(
+                        db=db,
+                        execution_id=execution_id,
+                        step_number=new_step,
+                        checkpoint_type='node_end',
+                        state=dict(state),
+                        node_id=node_id,
+                        time_since_last_ms=step_time,
+                        buffered=True 
+                    )
+        
+            return state
+        
+        return node_handler
+
     def build_graph(self, workflow_definition: Dict[str, Any]) -> StateGraph:
         """
         Build LangGraph from user-defined workflow
@@ -156,9 +330,7 @@ class WorkflowBuilderGraph:
             
             # Checkpoint: node start
             if self.state_manager.should_checkpoint(state['condition'], 'node_start'):
-                from app.database import SessionLocal
-                db = SessionLocal()
-                try:
+                with get_db_context() as db:
                     self.state_manager.checkpoint_to_db(
                         db=db,
                         execution_id=state['execution_id'],
@@ -169,8 +341,6 @@ class WorkflowBuilderGraph:
                         time_since_last_ms=time_since_last,
                         metadata={'node_label': node_data.get('label', node_id)}
                     )
-                finally:
-                    db.close()
             
             # Send WebSocket progress update
             if self.websocket_manager:
@@ -210,8 +380,7 @@ class WorkflowBuilderGraph:
                 
                 # Checkpoint: node end
                 if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
-                    db = SessionLocal()
-                    try:
+                    with get_db_context() as db:
                         self.state_manager.checkpoint_to_db(
                             db=db,
                             execution_id=state['execution_id'],
@@ -225,8 +394,6 @@ class WorkflowBuilderGraph:
                                 'execution_time_ms': result.get('execution_time_ms', 0)
                             }
                         )
-                    finally:
-                        db.close()
                 
                 # Send WebSocket progress update
                 if self.websocket_manager:
@@ -252,145 +419,6 @@ class WorkflowBuilderGraph:
         
         return execute_node
     
-    def _create_node_handler(
-        self, 
-        node: Dict[str, Any], 
-        tool: Any
-    ) -> Callable:
-        """
-        Create handler function for a workflow node
-        
-        Args:
-            node: Node definition
-            tool: Tool instance to execute
-            
-        Returns:
-            Async handler function
-        """
-        node_id = node['id']
-        node_label = node['data'].get('label', node_id)
-        
-        async def node_handler(state: SharedWorkflowState) -> SharedWorkflowState:
-            """Execute single workflow node"""
-            step_start_time = time.time()
-            
-            # Increment step
-            state['step_number'] = state.get('step_number', 0) + 1
-            state['current_node'] = node_id
-            
-            logger.info(f"Executing node: {node_label} (step {state['step_number']})")
-            
-            # Send start event via WebSocket
-            if self.websocket_manager:
-                await self.websocket_manager.send_node_progress(
-                    session_id=state['session_id'],
-                    execution_id=state['execution_id'],
-                    node_id=node_id,
-                    step_number=state['step_number'],
-                    status='started'
-                )
-            
-            # Checkpoint: node start
-            if self.state_manager.should_checkpoint(state['condition'], 'node_start'):
-                from app.database import SessionLocal
-                db = SessionLocal()
-                try:
-                    self.state_manager.checkpoint_to_db(
-                        db=db,
-                        execution_id=state['execution_id'],
-                        step_number=state['step_number'],
-                        checkpoint_type='node_start',
-                        state=dict(state),
-                        node_id=node_id,
-                        metadata={'node_label': node_label}
-                    )
-                finally:
-                    db.close()
-            
-            # Execute tool
-            try:
-                input_data = self._prepare_tool_input(state, node)
-                result = await tool.run(input_data)
-                
-                # Store result
-                state['results'][node_id] = result
-                
-                # Update working data if successful
-                if result.get('success'):
-                    state['working_data'] = result.get('data', state['working_data'])
-                    logger.info(f"Node {node_label} completed successfully")
-                else:
-                    error_msg = result.get('error', 'Unknown error')
-                    state['errors'].append({
-                        'node_id': node_id,
-                        'step': state['step_number'],
-                        'error': error_msg
-                    })
-                    logger.error(f"Node {node_label} failed: {error_msg}")
-                
-                # Send completion event via WebSocket
-                if self.websocket_manager:
-                    await self.websocket_manager.send_node_progress(
-                        session_id=state['session_id'],
-                        execution_id=state['execution_id'],
-                        node_id=node_id,
-                        step_number=state['step_number'],
-                        status='completed',
-                        result=result
-                    )
-                
-            except Exception as e:
-                logger.exception(f"Error executing node {node_label}: {e}")
-                state['errors'].append({
-                    'node_id': node_id,
-                    'step': state['step_number'],
-                    'error': str(e)
-                })
-                
-                # Send error event via WebSocket
-                if self.websocket_manager:
-                    await self.websocket_manager.send_node_progress(
-                        session_id=state['session_id'],
-                        execution_id=state['execution_id'],
-                        node_id=node_id,
-                        step_number=state['step_number'],
-                        status='failed',
-                        result={'error': str(e)}
-                    )
-            
-            # Update timing
-            step_time = int((time.time() - step_start_time) * 1000)
-            state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
-            state['last_step_at'] = datetime.utcnow().isoformat()
-            
-            # Checkpoint: node end
-            if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
-                from app.database import SessionLocal
-                db = SessionLocal()
-                try:
-                    self.state_manager.checkpoint_to_db(
-                        db=db,
-                        execution_id=state['execution_id'],
-                        step_number=state['step_number'],
-                        checkpoint_type='node_end',
-                        state=dict(state),
-                        node_id=node_id,
-                        time_since_last_ms=step_time,
-                        metadata={
-                            'node_label': node_label,
-                            'success': result.get('success', False)
-                        }
-                    )
-                finally:
-                    db.close()
-            
-            # Update Redis with latest state
-            self.state_manager.save_state_to_memory(state['execution_id'], dict(state))
-            
-            return state
-        
-        return node_handler
-
     def _build_edge_map(self, edges: list) -> Dict[str, list]:
         """
         Build a map of source -> [targets] from edge list

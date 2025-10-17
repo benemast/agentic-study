@@ -1,33 +1,44 @@
 # backend/app/websocket/manager.py
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, Set, Callable, Any, Optional, List
-import json
+"""
+WebSocket Manager with Batch Support + Connection Pooling
+"""
+from fastapi import WebSocket
+from typing import Dict, List, Set, Optional, Any, Callable
 import logging
+import json
 import asyncio
+import time
 from datetime import datetime
 from collections import defaultdict
-import time
+
+from .batch_manager import ws_batch_manager, WebSocketBatchManager
 
 logger = logging.getLogger(__name__)
 
+
 class ConnectionPool:
-    """Manage multiple connections per session (tabs/windows)"""
+    """
+    Manages multiple WebSocket connections per session
+    
+    Features:
+    - Multiple connections per session (e.g., multiple browser tabs)
+    - Connection health tracking
+    - Automatic cleanup of stale connections
+    """
     
     def __init__(self):
-        # session_id -> list of WebSocket connections
+        # session_id -> List[WebSocket]
         self.connections: Dict[str, List[WebSocket]] = defaultdict(list)
-        # connection_id -> session_id mapping
-        self.connection_sessions: Dict[str, str] = {}
-        # connection_id -> metadata
-        self.connection_metadata: Dict[str, dict] = {}
-    
+        # websocket -> {session_id, connection_id, connected_at}
+        self.connection_info: Dict[WebSocket, Dict[str, Any]] = {}
+
     def add_connection(self, session_id: str, websocket: WebSocket, connection_id: str):
         """Add a connection to the pool"""
         self.connections[session_id].append(websocket)
-        self.connection_sessions[connection_id] = session_id
-        self.connection_metadata[connection_id] = {
-            'connected_at': datetime.utcnow().isoformat(),
-            'last_activity': time.time()
+        self.connection_info[websocket] = {
+            'session_id': session_id,
+            'connection_id': connection_id,
+            'connected_at': time.time()
         }
     
     def remove_connection(self, session_id: str, websocket: WebSocket):
@@ -36,48 +47,73 @@ class ConnectionPool:
             if websocket in self.connections[session_id]:
                 self.connections[session_id].remove(websocket)
             
-            # Clean up empty lists
+            # Clean up empty session
             if not self.connections[session_id]:
                 del self.connections[session_id]
         
-        # Clean up metadata
-        conn_id = None
-        for cid, sid in list(self.connection_sessions.items()):
-            if sid == session_id:
-                conn_id = cid
-                break
-        
-        if conn_id:
-            del self.connection_sessions[conn_id]
-            if conn_id in self.connection_metadata:
-                del self.connection_metadata[conn_id]
+        # Remove from connection info
+        if websocket in self.connection_info:
+            del self.connection_info[websocket]
     
     def get_connections(self, session_id: str) -> List[WebSocket]:
         """Get all connections for a session"""
         return self.connections.get(session_id, [])
     
-    def get_all_sessions(self) -> Set[str]:
+    def get_all_sessions(self) -> List[str]:
         """Get all active session IDs"""
-        return set(self.connections.keys())
+        return list(self.connections.keys())
+    
+    def get_connection_count(self) -> int:
+        """Get total number of connections"""
+        return sum(len(conns) for conns in self.connections.values())
+    
+    def get_session_count(self) -> int:
+        """Get number of active sessions"""
+        return len(self.connections)
 
 
 class WebSocketManager:
     """
-    Enhanced WebSocket connection manager with:
-    - Multiple connections per session
-    - Broadcasting capabilities
-    - Message queuing
-    - Request-response pattern
-    - Connection pooling
+    COMPLETE WebSocket Manager with:
+    - Connection pooling (multiple connections per session)
+    - Message batching for performance
+    - Health checks and reconnection
+    - Message queuing for offline sessions
     - Rate limiting
+    - Channel subscriptions
+    - Request-response pattern support
     """
     
-    def __init__(self):
+    def __init__(self, enable_batching: bool = True):
+        # Connection pool
         self.pool = ConnectionPool()
+        
+        # Message handlers for request-response pattern
         self.handlers: Dict[str, Callable] = {}
+        
+        # Message queue for offline sessions
         self.message_queue: Dict[str, List[dict]] = defaultdict(list)
-        self.rate_limits: Dict[str, dict] = defaultdict(lambda: {'count': 0, 'reset_at': time.time() + 60})
+        self.max_queue_size = 100
+        
+        # Rate limiting
+        self.rate_limits: Dict[str, dict] = defaultdict(
+            lambda: {'count': 0, 'reset_at': time.time() + 60}
+        )
+        self.rate_limit_max = 100  # messages per minute
+        
+        # Channel subscriptions
         self.subscriptions: Dict[str, Set[str]] = defaultdict(set)
+        
+        # Batch manager for performance
+        self.enable_batching = enable_batching
+        self.batch_manager: Optional[WebSocketBatchManager] = None
+        
+        if enable_batching:
+            self.batch_manager = ws_batch_manager
+            # Set flush callback
+            self.batch_manager.flush_callback = self._send_batch_to_session
+            # Start background flusher
+            self.batch_manager.start()
         
         # Metrics
         self.metrics = {
@@ -87,10 +123,24 @@ class WebSocketManager:
             'errors_total': 0
         }
         
-        logger.info("Enhanced WebSocket Manager initialized")
+        logger.info(
+            f"WebSocketManager initialized "
+            f"(batching: {enable_batching}, pooling: enabled)"
+        )
     
-    async def connect(self, websocket: WebSocket, session_id: str, connection_id: Optional[str] = None):
-        """Accept and register a WebSocket connection"""
+    # ==================== CONNECTION MANAGEMENT ====================
+    
+    async def connect(
+        self, 
+        websocket: WebSocket, 
+        session_id: str, 
+        connection_id: Optional[str] = None
+    ):
+        """
+        Accept and register a WebSocket connection
+        
+        Supports multiple connections per session (e.g., multiple tabs)
+        """
         await websocket.accept()
         
         if not connection_id:
@@ -99,22 +149,36 @@ class WebSocketManager:
         self.pool.add_connection(session_id, websocket, connection_id)
         self.metrics['connections_total'] += 1
         
-        logger.info(f"WebSocket connected: session={session_id}, connection={connection_id}")
+        logger.info(
+            f"WebSocket connected: session={session_id}, "
+            f"connection={connection_id}, "
+            f"total_for_session={len(self.pool.get_connections(session_id))}"
+        )
         
-        # Send welcome message
-        await self.send_to_connection(websocket, {
+        # Send welcome message directly (bypass batching)
+        await self._send_direct(websocket, {
             'type': 'connected',
             'session_id': session_id,
             'connection_id': connection_id,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.utcnow().isoformat(),
+            'batching_enabled': self.enable_batching
         })
         
-        # Send any queued messages
+        # Process any queued messages
         await self.process_queue(session_id)
     
     def disconnect(self, session_id: str, websocket: Optional[WebSocket] = None):
-        """Remove a WebSocket connection"""
+        """
+        Remove a WebSocket connection
+        
+        If websocket provided: remove that specific connection
+        If websocket None: remove all connections for session
+        """
         if websocket:
+            # Flush pending batches for this session
+            if self.enable_batching and self.batch_manager:
+                asyncio.create_task(self.batch_manager.flush_session(session_id))
+            
             self.pool.remove_connection(session_id, websocket)
             logger.info(f"WebSocket disconnected: session={session_id}")
         else:
@@ -125,13 +189,19 @@ class WebSocketManager:
             logger.info(f"All WebSockets disconnected for session: {session_id}")
     
     def is_connected(self, session_id: str) -> bool:
-        """Check if a session has any active connections"""
+        """Check if session has any active connections"""
         return len(self.pool.get_connections(session_id)) > 0
     
-    async def send_to_connection(self, websocket: WebSocket, message: dict):
-        """Send message to a specific WebSocket connection"""
+    # ==================== MESSAGE SENDING ====================
+    
+    async def _send_direct(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+        """
+        Send message directly to a specific WebSocket
+        
+        Returns True if successful, False if failed
+        """
         try:
-            # Check if websocket is still open before sending
+            # Check if websocket is still open
             if websocket.client_state.value != 1:  # 1 = CONNECTED
                 logger.warning(f"WebSocket not connected (state: {websocket.client_state.name})")
                 return False
@@ -142,13 +212,11 @@ class WebSocketManager:
         
         except RuntimeError as e:
             if "WebSocket is not connected" in str(e):
-                logger.warning(f"Attempted to send to disconnected WebSocket: {e}")
-                # Remove this connection from the pool
-                # We'll need to find which session it belongs to
+                logger.warning(f"Attempted to send to disconnected WebSocket")
+                # Find and remove this connection
                 for session_id in list(self.pool.connections.keys()):
                     if websocket in self.pool.connections[session_id]:
                         self.pool.remove_connection(session_id, websocket)
-                        logger.info(f"Removed stale WebSocket from session: {session_id}")
                         break
             else:
                 logger.error(f"RuntimeError sending to connection: {e}")
@@ -158,181 +226,190 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error sending to connection: {e}")
             self.metrics['errors_total'] += 1
+            return False
     
-    async def send_to_session(self, session_id: str, message: dict):
-        """Send message to first active connection of a session"""
+    async def send_to_session(
+        self, 
+        session_id: str, 
+        message: Dict[str, Any],
+        priority: str = 'normal',
+        immediate: bool = False
+    ):
+        """
+        Send message to first active connection of a session
+        
+        With batching support for performance
+        """
+        # Check rate limit
+        if not self._check_rate_limit(session_id):
+            logger.warning(f"Rate limit exceeded for session: {session_id}")
+            self.metrics['rate_limit_hits'] += 1
+            return
+        
         connections = self.pool.get_connections(session_id)
         
         if not connections:
             # Queue message if no connections
-            logger.debug(f"No connections for session {session_id}, queueing message")
+            logger.debug(f"No connections for {session_id}, queueing message")
             self.queue_message(session_id, message)
-            return False
+            return
         
-        # Try to send to first connection, if it fails try others
-        for ws in connections:
-            success = await self.send_to_connection(ws, message)
-            if success:
-                return True
-            else:
-                # Remove dead connection
-                self.pool.remove_connection(session_id, ws)
-        
-        # If all connections failed, queue the message
-        logger.warning(f"All connections failed for session {session_id}, queueing message")
-        self.queue_message(session_id, message)
-        return False
+        # Use batching if enabled and not immediate
+        if self.enable_batching and self.batch_manager and not immediate:
+            await self.batch_manager.add_message(
+                session_id=session_id,
+                message=message,
+                priority=priority,
+                immediate=immediate
+            )
+        else:
+            # Send immediately to first connection
+            websocket = connections[0]
+            success = await self._send_direct(websocket, message)
+            
+            if not success:
+                # Try other connections
+                for ws in connections[1:]:
+                    if await self._send_direct(ws, message):
+                        break
     
-    async def broadcast_to_session(self, session_id: str, message: dict):
-        """Broadcast message to all connections of a session"""
+    async def _send_batch_to_session(
+        self, 
+        session_id: str, 
+        batch_message: Dict[str, Any]
+    ):
+        """
+        Internal: Callback for batch manager to send batched messages
+        """
         connections = self.pool.get_connections(session_id)
         
         if not connections:
-            logger.debug(f"No connections for session {session_id}, queueing message")
+            logger.warning(f"No connections for {session_id} when flushing batch")
+            return
+        
+        # Send to first connection
+        websocket = connections[0]
+        success = await self._send_direct(websocket, batch_message)
+        
+        # If failed, try other connections
+        if not success:
+            for ws in connections[1:]:
+                if await self._send_direct(ws, batch_message):
+                    break
+    
+    async def broadcast_to_session(self, session_id: str, message: Dict[str, Any]):
+        """
+        Broadcast message to ALL connections of a session
+        
+        Useful for multi-tab synchronization
+        """
+        connections = self.pool.get_connections(session_id)
+        
+        if not connections:
             self.queue_message(session_id, message)
             return
         
-        # Send to all connections concurrently, collect results
-        tasks = [self.send_to_connection(ws, message) for ws in connections]
+        # Send to all connections
+        tasks = []
+        for ws in connections:
+            tasks.append(self._send_direct(ws, message))
+        
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Log if all sends failed
-        if not any(r is True for r in results):
-            logger.warning(f"All broadcasts failed for session {session_id}")
-            self.queue_message(session_id, message)
+        # Clean up failed connections
+        for ws, success in zip(connections, results):
+            if not success:
+                self.pool.remove_connection(session_id, ws)
     
-    async def broadcast_to_all(self, message: dict, exclude_sessions: Optional[Set[str]] = None):
-        """Broadcast message to all connected sessions"""
-        exclude_sessions = exclude_sessions or set()
-        
+    async def send_to_sessions(
+        self,
+        session_ids: List[str],
+        message: Dict[str, Any],
+        priority: str = 'normal'
+    ):
+        """Send same message to multiple sessions efficiently"""
         tasks = []
-        for session_id in self.pool.get_all_sessions():
-            if session_id not in exclude_sessions:
-                tasks.append(self.broadcast_to_session(session_id, message))
+        for session_id in session_ids:
+            if self.is_connected(session_id):
+                tasks.append(
+                    self.send_to_session(session_id, message, priority)
+                )
         
-        await asyncio.gather(*tasks, return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
     
-    def queue_message(self, session_id: str, message: dict):
-        """Queue a message for offline delivery"""
-        self.message_queue[session_id].append({
-            **message,
-            'queued_at': datetime.utcnow().isoformat()
-        })
-        
-        # Limit queue size
-        if len(self.message_queue[session_id]) > 100:
-            self.message_queue[session_id] = self.message_queue[session_id][-100:]
+    # ==================== MESSAGE QUEUING ====================
+    
+    def queue_message(self, session_id: str, message: Dict[str, Any]):
+        """Queue message for offline session"""
+        if len(self.message_queue[session_id]) < self.max_queue_size:
+            self.message_queue[session_id].append(message)
+        else:
+            logger.warning(f"Message queue full for session: {session_id}")
     
     async def process_queue(self, session_id: str):
-        """Process queued messages for a session"""
+        """Process queued messages when session reconnects"""
         if session_id not in self.message_queue:
             return
         
-        messages = self.message_queue.pop(session_id, [])
+        messages = self.message_queue[session_id]
+        self.message_queue[session_id] = []
+        
+        logger.info(f"Processing {len(messages)} queued messages for {session_id}")
         
         for message in messages:
-            await self.send_to_session(session_id, {
-                **message,
-                'from_queue': True
-            })
+            await self.send_to_session(session_id, message)
     
-    def register_handler(self, message_type: str, handler: Callable):
-        """Register a message handler"""
-        self.handlers[message_type] = handler
-        logger.info(f"Registered handler for: {message_type}")
+    # ==================== RATE LIMITING ====================
     
-    def check_rate_limit(self, session_id: str, max_requests: int = 100) -> bool:
-        """Check if session is within rate limits"""
+    def _check_rate_limit(self, session_id: str) -> bool:
+        """Check if session has exceeded rate limit"""
         now = time.time()
-        limits = self.rate_limits[session_id]
+        limit_info = self.rate_limits[session_id]
         
-        # Reset if window expired
-        if now > limits['reset_at']:
-            limits['count'] = 0
-            limits['reset_at'] = now + 60
+        # Reset counter if time window expired
+        if now > limit_info['reset_at']:
+            limit_info['count'] = 0
+            limit_info['reset_at'] = now + 60
         
         # Check limit
-        if limits['count'] >= max_requests:
+        if limit_info['count'] >= self.rate_limit_max:
             return False
         
-        limits['count'] += 1
+        limit_info['count'] += 1
         return True
     
-    async def handle_message(self, session_id: str, message: dict, websocket: Optional[WebSocket] = None):
-        """Route message to appropriate handler"""
-        # Check rate limit
-        if not self.check_rate_limit(session_id):
-            await self.send_to_session(session_id, {
-                'type': 'error',
-                'error': 'Rate limit exceeded',
-                'retry_after': 60
-            })
-            return
-        
-        message_type = message.get('type')
-        
-        if not message_type:
-            await self.send_to_session(session_id, {
-                'type': 'error',
-                'error': 'Message type is required'
-            })
-            return
-        
-        handler = self.handlers.get(message_type)
-        
-        if not handler:
-            await self.send_to_session(session_id, {
-                'type': 'error',
-                'error': f'No handler for message type: {message_type}'
-            })
-            return
-        
-        # Execute handler
-        try:
-            self.metrics['messages_received'] += 1
-            await handler(session_id, message)
-        except Exception as e:
-            logger.error(f"Error in handler {message_type}: {e}")
-            self.metrics['errors_total'] += 1
-            
-            await self.send_to_session(session_id, {
-                'type': 'error',
-                'error': str(e),
-                'handler': message_type
-            })
+    # ==================== CHANNEL SUBSCRIPTIONS ====================
     
     def subscribe(self, session_id: str, channel: str):
         """Subscribe session to a channel"""
         self.subscriptions[session_id].add(channel)
+        logger.debug(f"Session {session_id} subscribed to {channel}")
     
     def unsubscribe(self, session_id: str, channel: str):
         """Unsubscribe session from a channel"""
         if session_id in self.subscriptions:
             self.subscriptions[session_id].discard(channel)
+            logger.debug(f"Session {session_id} unsubscribed from {channel}")
     
-    async def publish_to_channel(self, channel: str, message: dict):
-        """Publish message to all sessions subscribed to a channel"""
-        tasks = []
+    async def broadcast_to_channel(
+        self,
+        channel: str,
+        message: Dict[str, Any],
+        priority: str = 'normal'
+    ):
+        """Broadcast message to all subscribers of a channel"""
+        subscribers = [
+            sid for sid, channels in self.subscriptions.items()
+            if channel in channels
+        ]
         
-        for session_id, channels in self.subscriptions.items():
-            if channel in channels:
-                tasks.append(self.broadcast_to_session(session_id, {
-                    **message,
-                    'channel': channel
-                }))
-        
-        await asyncio.gather(*tasks, return_exceptions=True)
+        if subscribers:
+            logger.debug(f"Broadcasting to {len(subscribers)} subscribers of {channel}")
+            await self.send_to_sessions(subscribers, message, priority)
     
-    def get_metrics(self) -> dict:
-        """Get manager metrics"""
-        return {
-            **self.metrics,
-            'active_sessions': len(self.pool.connections),
-            'total_connections': sum(len(conns) for conns in self.pool.connections.values()),
-            'queued_messages': sum(len(msgs) for msgs in self.message_queue.values())
-        }
-    
-    async def health_check(self) -> dict:
+    # ==================== HEALTH CHECKS ====================
+    async def health_check(self) -> Dict[str, Any]:
         """Perform health check on all connections"""
         healthy = 0
         unhealthy = 0
@@ -341,8 +418,13 @@ class WebSocketManager:
             connections = self.pool.get_connections(session_id)
             for ws in connections:
                 try:
-                    await ws.send_json({'type': 'ping'})
-                    healthy += 1
+                    # Try to send ping
+                    success = await self._send_direct(ws, {'type': 'ping'})
+                    if success:
+                        healthy += 1
+                    else:
+                        unhealthy += 1
+                        self.pool.remove_connection(session_id, ws)
                 except:
                     unhealthy += 1
                     self.pool.remove_connection(session_id, ws)
@@ -353,48 +435,33 @@ class WebSocketManager:
             'timestamp': datetime.utcnow().isoformat()
         }
     
-    # ============================================================
-    # EXECUTION PROGRESS METHODS (for Orchestrator integration)
-    # ============================================================
+    # ==================== ORCHESTRATOR INTEGRATION ====================
     
     async def send_execution_progress(
         self,
         session_id: str,
         execution_id: int,
         event_type: str,
-        data: dict
+        data: Dict[str, Any],
+        priority: str = 'normal'
     ):
-        """
-        Send execution progress update to all connections in a session
-        
-        This is the unified method for orchestrator progress updates.
-        Replaces the old send_progress() method from the local WebSocketManager.
-        
-        Args:
-            session_id: Session ID to send to
-            event_type: Type of execution event (e.g., 'node_start', 'agent_decision', 'execution_completed')
-            execution_id: Execution ID
-            data: Event-specific data
-            
-        Usage:
-            await ws_manager.send_execution_progress(
-                session_id,
-                execution_id,
-                'node_start',
-                {'node_id': 'gather-data', 'step': 1}
-            )
-        """
+        """Send execution progress update"""
         message = {
             'type': 'execution_progress',
             'event_type': event_type,
             'execution_id': execution_id,
             'timestamp': datetime.utcnow().isoformat(),
-            **data
+            'data': data
         }
         
-        await self.broadcast_to_session(session_id, message)
+        # High priority for critical events
+        if event_type in ['execution_failed', 'execution_cancelled', 'error']:
+            priority = 'high'
+            immediate = True
+        else:
+            immediate = False
         
-        logger.debug(f"Sent execution progress: session={session_id}, event={event_type}, execution={execution_id}")
+        await self.send_to_session(session_id, message, priority, immediate)
     
     async def send_node_progress(
         self,
@@ -403,99 +470,117 @@ class WebSocketManager:
         node_id: str,
         step_number: int,
         status: str,
-        result: dict = None
+        result: Optional[Dict[str, Any]] = None,
+        node_label: Optional[str] = None
     ):
-        """
-        Convenience method for sending node execution progress (Workflow Builder)
-        
-        Args:
-            session_id: Session ID
-            execution_id: Execution ID
-            node_id: Node identifier
-            step_number: Current step number
-            status: 'started', 'completed', 'failed'
-            result: Node execution result (optional)
-        """
-        data = {
+        """Send node execution progress"""
+        message = {
+            'type': 'node_progress',
+            'execution_id': execution_id,
             'node_id': node_id,
-            'step': step_number,
-            'status': status
+            'node_label': node_label,
+            'step_number': step_number,
+            'status': status,
+            'timestamp': datetime.utcnow().isoformat(),
+            'result': result
         }
         
-        if result:
-            data['result'] = result
-        
-        event_type = f'node_{status}'
-        await self.send_execution_progress(session_id, execution_id, event_type, data)
+        await self.send_to_session(session_id, message, priority='normal')
     
     async def send_agent_decision(
         self,
         session_id: str,
         execution_id: int,
         step_number: int,
-        decision: dict
+        decision: Dict[str, Any]
     ):
-        """
-        Convenience method for sending agent decision (AI Assistant)
-        
-        Args:
-            session_id: Session ID
-            execution_id: Execution ID
-            step_number: Current step number
-            decision: Agent decision dictionary (action, reasoning, confidence, etc.)
-        """
-        data = {
-            'step': step_number,
-            'action': decision.get('action'),
-            'reasoning': decision.get('reasoning'),
-            'tool_name': decision.get('tool_name'),
-            'confidence': decision.get('confidence', 0.0)
+        """Send AI agent decision update"""
+        message = {
+            'type': 'agent_decision',
+            'execution_id': execution_id,
+            'step_number': step_number,
+            'timestamp': datetime.utcnow().isoformat(),
+            'decision': decision
         }
         
-        await self.send_execution_progress(session_id, execution_id, 'agent_decision', data)
+        await self.send_to_session(session_id, message, priority='normal')
     
-    async def send_execution_error(
+    async def send_agent_thinking(
         self,
         session_id: str,
         execution_id: int,
-        error: str,
-        step_number: int = None
+        thinking: Dict[str, Any]
     ):
-        """
-        Send execution error notification
-        
-        Args:
-            session_id: Session ID
-            execution_id: Execution ID
-            error: Error message
-            step_number: Step where error occurred (optional)
-        """
-        data = {
-            'error': error,
-            'step': step_number
+        """Send agent thinking/reasoning update"""
+        message = {
+            'type': 'agent_thinking',
+            'execution_id': execution_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            'thinking': thinking
         }
         
-        await self.send_execution_progress(session_id, execution_id, 'execution_error', data)
+        await self.send_to_session(session_id, message, priority='normal')
     
-    # Backward compatibility: alias for old method name
-    async def send_progress(self, session_id: str, message: dict):
-        """
-        Legacy method for backward compatibility
+    # ==================== BATCH CONTROL ====================
+    
+    async def flush_session_batches(self, session_id: str) -> int:
+        """Manually flush all batched messages for a session"""
+        if self.enable_batching and self.batch_manager:
+            return await self.batch_manager.flush_session(session_id)
+        return 0
+    
+    async def flush_all_batches(self) -> int:
+        """Flush all pending batches"""
+        if self.enable_batching and self.batch_manager:
+            return await self.batch_manager.flush_all()
+        return 0
+    
+    # ==================== METRICS & MONITORING ====================
+    
+    def get_connection_count(self) -> int:
+        """Get number of active connections"""
+        return self.pool.get_connection_count()
+    
+    def get_session_count(self) -> int:
+        """Get number of active sessions"""
+        return self.pool.get_session_count()
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive metrics"""
+        metrics = {
+            'active_sessions': self.pool.get_session_count(),
+            'active_connections': self.pool.get_connection_count(),
+            'total_subscriptions': sum(len(subs) for subs in self.subscriptions.values()),
+            'queued_messages': sum(len(msgs) for msgs in self.message_queue.values()),
+            **self.metrics
+        }
         
-        DEPRECATED: Use send_execution_progress() instead
-        """
-        logger.warning("send_progress() is deprecated, use send_execution_progress()")
+        # Add batch manager metrics
+        if self.enable_batching and self.batch_manager:
+            metrics['batching'] = self.batch_manager.get_metrics()
         
-        # Try to extract execution_id if present
-        execution_id = message.get('execution_id')
-        event_type = message.get('type', 'unknown')
+        return metrics
+    
+    # ==================== SHUTDOWN ====================
+    
+    async def shutdown(self):
+        """Cleanup on shutdown"""
+        logger.info("Shutting down WebSocketManager")
         
-        if execution_id:
-            await self.send_execution_progress(session_id, execution_id, event_type, message)
-        else:
-            # Fallback to broadcast
-            await self.broadcast_to_session(session_id, message)
+        # Flush all pending batches
+        if self.enable_batching and self.batch_manager:
+            await self.batch_manager.stop()
+        
+        # Close all connections
+        for session_id in list(self.pool.get_all_sessions()):
+            connections = self.pool.get_connections(session_id)
+            for websocket in connections:
+                try:
+                    await websocket.close()
+                except:
+                    pass
+                self.pool.remove_connection(session_id, websocket)
 
 
-# Create singleton instance
-ws_manager = WebSocketManager()
+# Global instance
+ws_manager = WebSocketManager(enable_batching=True)

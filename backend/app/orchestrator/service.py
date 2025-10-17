@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 import traceback
 
-from app.models.execution import WorkflowExecution
+from app.models.execution import ExecutionCheckpoint, WorkflowExecution
 from .state_manager import HybridStateManager
 from .graphs.workflow_builder import WorkflowBuilderGraph
 from .graphs.ai_assistant import AIAssistantGraph
@@ -16,17 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestrationService:
-    """
-    Main orchestration service for executing workflows and agent tasks
-    
-    Handles:
-    - Workflow Builder: User-defined workflows
-    - AI Assistant: Autonomous agent tasks
-    """
+    """Main orchestration service for executing workflows and agent tasks"""
     
     def __init__(self):
         self.state_manager = HybridStateManager()
-        # Use global ws_manager singleton
         self.ws_manager = ws_manager
         logger.info("✅ Orchestration service initialized")
     
@@ -38,18 +31,12 @@ class OrchestrationService:
         task_data: Dict[str, Any]
     ) -> WorkflowExecution:
         """
-        Execute a workflow or agent task
+        DEPRECATED: Use execute_workflow_with_id instead
         
-        Args:
-            db: Database session
-            session_id: User session ID
-            condition: 'workflow_builder' or 'ai_assistant'
-            task_data: Task definition and input data
-            
-        Returns:
-            WorkflowExecution record
+        This method creates a new execution record.
+        For better control, create the execution record first and use execute_workflow_with_id.
         """
-        logger.info(f"Starting execution: session={session_id}, condition={condition}")
+        logger.warning("execute_workflow is deprecated, use execute_workflow_with_id")
         
         # Create execution record
         execution = WorkflowExecution(
@@ -66,7 +53,45 @@ class OrchestrationService:
         db.commit()
         db.refresh(execution)
         
-        logger.info(f"Created execution record: id={execution.id}")
+        # Execute with the created ID
+        return await self.execute_workflow_with_id(
+            db=db,
+            execution_id=execution.id,
+            session_id=session_id,
+            condition=condition,
+            task_data=task_data
+        )
+    
+    async def execute_workflow_with_id(
+        self,
+        db: Session,
+        execution_id: int,
+        session_id: str,
+        condition: str,
+        task_data: Dict[str, Any]
+    ) -> WorkflowExecution:
+        """
+        Execute a workflow using an existing execution record
+        
+        Args:
+            db: Database session
+            execution_id: Existing execution record ID
+            session_id: User session ID
+            condition: 'workflow_builder' or 'ai_assistant'
+            task_data: Task definition and input data
+            
+        Returns:
+            Updated WorkflowExecution record
+        """
+        logger.info(f"Starting execution: id={execution_id}, session={session_id}, condition={condition}")
+        
+        # Fetch existing execution record
+        execution = db.query(WorkflowExecution).filter(
+            WorkflowExecution.id == execution_id
+        ).first()
+        
+        if not execution:
+            raise ValueError(f"Execution {execution_id} not found")
         
         try:
             # Build appropriate graph
@@ -89,7 +114,7 @@ class OrchestrationService:
             # Save initial state to Redis
             self.state_manager.save_state_to_memory(execution.id, initial_state)
             
-            # Checkpoint: execution start
+            # Checkpoint: execution start (with transaction)
             self.state_manager.checkpoint_to_db(
                 db=db,
                 execution_id=execution.id,
@@ -129,13 +154,20 @@ class OrchestrationService:
             execution.final_result = final_state.get('working_data')
             execution.steps_completed = final_state.get('step_number', 0)
             execution.execution_time_ms = final_state.get('total_time_ms', 0)
-            execution.checkpoints_count = len(
-                self.state_manager.get_checkpoint_history(db, execution.id)
-            )
+            
+            # Get checkpoint count
+            from app.database import get_db_context
+            with get_db_context() as checkpoint_db:
+                checkpoint_count = checkpoint_db.query(ExecutionCheckpoint).filter(
+                    ExecutionCheckpoint.execution_id == execution.id
+                ).count()
+                execution.checkpoints_count = checkpoint_count
             
             # Check for errors
             if final_state.get('errors'):
                 execution.error_message = f"{len(final_state['errors'])} errors occurred"
+            
+            db.commit()
             
             # Send completion event
             await self.ws_manager.send_execution_progress(
@@ -154,11 +186,16 @@ class OrchestrationService:
         except Exception as e:
             logger.exception(f"Execution {execution.id} failed: {e}")
             
-            # Update execution with error
-            execution.status = 'failed'
-            execution.completed_at = datetime.utcnow()
-            execution.error_message = str(e)
-            execution.error_traceback = traceback.format_exc()
+            # Update execution with error (rollback-safe)
+            try:
+                execution.status = 'failed'
+                execution.completed_at = datetime.utcnow()
+                execution.error_message = str(e)
+                execution.error_traceback = traceback.format_exc()
+                db.commit()
+            except Exception as commit_error:
+                logger.error(f"Failed to commit error status: {commit_error}")
+                db.rollback()
             
             # Send error event
             await self.ws_manager.send_execution_progress(
@@ -171,20 +208,22 @@ class OrchestrationService:
                 }
             )
             
-            # Checkpoint: error
+            # Checkpoint: error (separate transaction)
             try:
                 current_state = self.state_manager.get_state_from_memory(execution.id)
                 if current_state:
-                    self.state_manager.checkpoint_to_db(
-                        db=db,
-                        execution_id=execution.id,
-                        step_number=current_state.get('step_number', 0),
-                        checkpoint_type='error',
-                        state=current_state,
-                        metadata={'error': str(e)}
-                    )
-            except:
-                pass  # Don't fail on checkpoint error
+                    from app.database import get_db_context
+                    with get_db_context() as error_db:
+                        self.state_manager.checkpoint_to_db(
+                            db=error_db,
+                            execution_id=execution.id,
+                            step_number=current_state.get('step_number', 0),
+                            checkpoint_type='error',
+                            state=current_state,
+                            metadata={'error': str(e)}
+                        )
+            except Exception as checkpoint_error:
+                logger.error(f"Failed to create error checkpoint: {checkpoint_error}")
             
             raise
         
@@ -192,20 +231,23 @@ class OrchestrationService:
             # Cleanup Redis state
             self.state_manager.clear_memory_state(execution.id)
             
-            # Final checkpoint
-            self.state_manager.checkpoint_to_db(
-                db=db,
-                execution_id=execution.id,
-                step_number=execution.steps_completed,
-                checkpoint_type='execution_end',
-                state={'status': execution.status},
-                metadata={'total_time_ms': execution.execution_time_ms}
-            )
+            # Final checkpoint (separate transaction)
+            try:
+                from app.database import get_db_context
+                with get_db_context() as final_db:
+                    self.state_manager.checkpoint_to_db(
+                        db=final_db,
+                        execution_id=execution.id,
+                        step_number=execution.steps_completed,
+                        checkpoint_type='execution_end',
+                        state={'status': execution.status},
+                        metadata={'total_time_ms': execution.execution_time_ms}
+                    )
+            except Exception as checkpoint_error:
+                logger.error(f"Failed to create final checkpoint: {checkpoint_error}")
             
             # Unsubscribe from execution channel
             self.ws_manager.unsubscribe(session_id, 'execution')
-            
-            db.commit()
         
         return execution
     
@@ -243,13 +285,13 @@ class OrchestrationService:
             'total_time_ms': 0,
             'user_interventions': 0,
             'checkpoints_created': 0,
-            'metadata': task_data.get('metadata', {})
+            'metadata': task_data.get('metadata', {}),
         }
         
-        # Condition-specific initialization
+        # Add condition-specific fields
         if execution.condition == 'workflow_builder':
             state['workflow_definition'] = task_data.get('workflow')
-        else:
+        else:  # ai_assistant
             state['task_description'] = task_data.get('task_description')
             state['agent_plan'] = []
             state['agent_memory'] = []

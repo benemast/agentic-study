@@ -1,4 +1,5 @@
 # backend/app/database.py
+from contextlib import contextmanager
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
@@ -31,6 +32,32 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@contextmanager
+def get_db_context():
+    """
+    Context manager for database sessions
+    Ensures proper cleanup even if exceptions occur
+    
+    Usage:
+        with get_db_context() as db:
+            db.query(...)
+            db.commit()
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        # Auto-commit on successful completion
+        db.commit()
+    except Exception as e:
+        # Auto-rollback on error
+        logger.error(f"Database transaction error: {e}")
+        db.rollback()
+        raise
+    finally:
+        # Always close the session
+        db.close()
+
 
 def get_db():
     """Dependency for getting database sessions"""

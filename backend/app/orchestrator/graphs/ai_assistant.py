@@ -13,6 +13,7 @@ from ..tools.registry import tool_registry
 from ..llm.decision_maker import decision_maker
 from ..llm.tool_schemas import ToolName
 from app.config import settings
+from app.database import get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class AIAssistantGraph:
     def __init__(self, state_manager, websocket_manager=None):
         self.state_manager = state_manager
         self.websocket_manager = websocket_manager
-        self.max_steps = 10  # Prevent infinite loops
+        self.max_steps = 10
         self.decision_maker = decision_maker
         self.registry = tool_registry
     
@@ -80,10 +81,15 @@ class AIAssistantGraph:
         This is where the intelligent decision making happens
         """
         step_start_time = time.time()
-        state['step_number'] = state.get('step_number', 0) + 1
-        state['current_node'] = 'planner'
+        execution_id = state['execution_id']
+        # Atomic increment
+        new_step = self.state_manager.increment_field(execution_id, 'step_number', 1)
+        state['step_number'] = new_step
         
-        logger.info(f"Agent planning step {state['step_number']}")
+        # Field update
+        self.state_manager.update_state_field(execution_id, 'current_node', 'planner')
+        
+        logger.info(f"Agent planning step {new_step}")
         
         try:
             # Get intelligent decision from LLM
@@ -96,44 +102,53 @@ class AIAssistantGraph:
             # Convert Pydantic model to dict for storage
             decision_dict = decision.dict()
             
-            # Store decision in agent memory
-            if 'agent_memory' not in state:
-                state['agent_memory'] = []
-            
-            state['agent_memory'].append({
-                'step': state['step_number'],
+            # Append to agent memory efficiently
+            memory_entry = {
+                'step': new_step,
                 'decision': decision_dict,
                 'timestamp': datetime.utcnow().isoformat()
-            })
+            }
+            
+            self.state_manager.append_to_list_field(
+                execution_id,
+                'agent_memory',
+                memory_entry
+            )
+            
+            state['agent_memory'].append(memory_entry)
             
             # Update timing
-            state['last_step_at'] = datetime.utcnow().isoformat()
             step_time = int((time.time() - step_start_time) * 1000)
+            
+            # Batch updates
+            self.state_manager.update_state_fields(execution_id, {
+                'last_step_at': datetime.utcnow().isoformat(),
+                'total_time_ms': state.get('total_time_ms', 0) + step_time
+            })
+            
+            state['last_step_at'] = datetime.utcnow().isoformat()
             state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
             
-            # Update Redis
-            self.state_manager.save_state_to_memory(state['execution_id'], dict(state))
+             # Store next action in metadata
+            state['metadata']['next_action'] = decision.action
+            state['metadata']['next_tool'] = decision.tool_name.value if decision.tool_name else None
             
-            # Checkpoint agent decision
+            # Checkpoint agent decision (buffered)
             if self.state_manager.should_checkpoint(state['condition'], 'agent_decision'):
-                from app.database import SessionLocal
-                db = SessionLocal()
-                try:
-                    self.state_manager.checkpoint_to_db(
+                with get_db_context() as db:
+                    await self.state_manager.checkpoint_to_db(
                         db=db,
-                        execution_id=state['execution_id'],
-                        step_number=state['step_number'],
+                        execution_id=execution_id,
+                        step_number=new_step,
                         checkpoint_type='agent_decision',
                         state=dict(state),
                         agent_reasoning=decision.reasoning,
+                        buffered=True,
                         metadata={
                             'decision': decision_dict,
-                            'confidence': decision.confidence,
-                            'alternatives': decision.alternatives_considered
+                            'confidence': decision.confidence
                         }
                     )
-                finally:
-                    db.close()
             
             # Send WebSocket update with decision details
             if self.websocket_manager:
@@ -143,12 +158,6 @@ class AIAssistantGraph:
                     step_number=state['step_number'],
                     decision=decision_dict
                 )
-            
-            # Store next action in metadata for routing
-            state['metadata']['next_action'] = decision.action
-            state['metadata']['next_tool'] = decision.tool_name.value if decision.tool_name else None
-            state['metadata']['tool_params'] = decision.tool_params
-            state['metadata']['decision_confidence'] = decision.confidence
             
             logger.info(
                 f"✓ Decision: {decision.action} -> {decision.tool_name} "
@@ -160,15 +169,17 @@ class AIAssistantGraph:
             logger.error(f"Error in planning step: {e}", exc_info=True)
             
             # Log error but continue with safe fallback
+            self.state_manager.append_to_list_field(
+                execution_id,
+                'errors',
+                {'step': new_step, 'node': 'planner', 'error': str(e)}
+            )
+            
             state['errors'].append({
-                'step': state['step_number'],
+                'step': new_step,
                 'node': 'planner',
                 'error': str(e)
             })
-            
-            # Set safe fallback action
-            state['metadata']['next_action'] = 'finish'
-            state['metadata']['next_tool'] = None
         
         return state
     
@@ -226,11 +237,9 @@ class AIAssistantGraph:
             result = await tool.run(input_data)
             
             # Update state with result
-            if result['success']:
-                state['results'][f"step_{state['step_number']}"] = result
+            if result.get('success'):                
                 state['working_data'] = result.get('data', state['working_data'])
-                
-                logger.info(f"✓ Tool execution successful")
+                logger.info(f"✓ Tool executed successfully: {tool_ai_id}")
                 
                 # Send success event
                 if self.websocket_manager:
@@ -246,13 +255,12 @@ class AIAssistantGraph:
                     )
             else:
                 error_msg = result.get('error', 'Unknown error')
+                logger.error(f"Tool execution failed: {error_msg}")
                 state['errors'].append({
                     'step': state['step_number'],
-                    'error': error_msg,
-                    'tool': tool_ai_id
+                    'tool': tool_ai_id,
+                    'error': error_msg
                 })
-                
-                logger.error(f"✗ Tool execution failed: {error_msg}")
                 
                 # Send error event
                 if self.websocket_manager:
@@ -264,11 +272,11 @@ class AIAssistantGraph:
                     )
                 
         except Exception as e:
-            logger.exception(f"Exception executing tool {tool_ai_id}: {e}")
+            logger.exception(f"Tool execution error: {e}")
             state['errors'].append({
                 'step': state['step_number'],
-                'error': str(e),
-                'tool': tool_ai_id
+                'tool': tool_ai_id,
+                'error': str(e)
             })
             
             # Send error event
@@ -285,8 +293,38 @@ class AIAssistantGraph:
         state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
         state['last_step_at'] = datetime.utcnow().isoformat()
         
+        # Checkpoint: execution step
+        if self.state_manager.should_checkpoint(state['condition'], 'execution_step'):
+            # ✅ USE CONTEXT MANAGER
+            with get_db_context() as db:
+                self.state_manager.checkpoint_to_db(
+                    db=db,
+                    execution_id=state['execution_id'],
+                    step_number=state['step_number'],
+                    checkpoint_type='execution_step',
+                    state=dict(state),
+                    metadata={
+                        'tool': tool_ai_id,
+                        'action': action,
+                        'execution_time_ms': step_time
+                    }
+                )
+
         # Update Redis
         self.state_manager.save_state_to_memory(state['execution_id'], dict(state))
+        
+        # Send completion event
+        if self.websocket_manager:
+            await self.websocket_manager.send_execution_progress(
+                session_id=state['session_id'],
+                execution_id=state['execution_id'],
+                event_type='tool_execution_complete',
+                data={
+                    'tool_name': tool_ai_id,
+                    'step': state['step_number'],
+                    'success': result.get('success', False)
+                }
+            )
         
         return state
     

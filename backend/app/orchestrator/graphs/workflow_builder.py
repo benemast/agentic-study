@@ -6,13 +6,7 @@ import time
 from datetime import datetime
 
 from .shared_state import SharedWorkflowState
-from ..tools.data_tools import (
-    GatherDataTool, FilterDataTool, CleanDataTool, 
-    SortDataTool, CombineDataTool
-)
-from ..tools.analysis_tools import (
-    SentimentAnalysisTool, GenerateInsightsTool, ShowResultsTool
-)
+from ..tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +20,10 @@ class WorkflowBuilderGraph:
     High visibility and control for the user
     """
     
-    # Tool registry: maps node template IDs to tool instances
-    TOOL_REGISTRY = {
-        'gather-data': GatherDataTool(),
-        'filter-data': FilterDataTool(),
-        'clean-data': CleanDataTool(),
-        'sort-data': SortDataTool(),
-        'combine-data': CombineDataTool(),
-        'sentiment-analysis': SentimentAnalysisTool(),
-        'generate-insights': GenerateInsightsTool(),
-        'show-results': ShowResultsTool(),
-    }
-    
     def __init__(self, state_manager, websocket_manager=None):
         self.state_manager = state_manager
         self.websocket_manager = websocket_manager
+        self.registry = tool_registry
     
     def build_graph(self, workflow_definition: Dict[str, Any]) -> StateGraph:
         """
@@ -56,6 +39,12 @@ class WorkflowBuilderGraph:
         edges = workflow_definition['edges']
         
         logger.info(f"Building workflow with {len(nodes)} nodes and {len(edges)} edges")
+
+        is_valid, errors = self.registry.validate_workflow_definition(workflow_definition)
+        if not is_valid:
+            error_msg = f"Invalid workflow: {', '.join(errors)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # Initialize graph
         graph = StateGraph(SharedWorkflowState)
@@ -64,39 +53,76 @@ class WorkflowBuilderGraph:
         for node in nodes:
             node_id = node['id']
             template_id = node['data']['template_id']
-            tool = self.TOOL_REGISTRY.get(template_id)
+            
+            tool = self.registry.get_workflow_tool(template_id)
             
             if not tool:
                 logger.warning(f"Unknown tool: {template_id}, skipping node {node_id}")
                 continue
             
             # Create node function with closure over tool and node_id
-            graph.add_node(
-                node_id,
-                self._create_node_function(tool, node_id, node['data'])
-            )
+            
+            handler = self._create_node_handler(node, tool)
+            graph.add_node(node_id, handler)
             
             logger.debug(f"Added node: {node_id} ({template_id})")
         
-        # Add edges to graph
+        # Find nodes with no incoming edges (potential entry points)
+        all_node_ids = {node['id'] for node in nodes}
+        target_node_ids = {edge['target'] for edge in edges}
+        entry_candidates = all_node_ids - target_node_ids
+        
+        logger.info(f"Entry point candidates: {entry_candidates}")
+        
+        # Set entry point
+        if entry_candidates:
+            # Use the first node without incoming edges as entry point
+            entry_point = list(entry_candidates)[0]
+            graph.set_entry_point(entry_point)
+            logger.info(f"Set entry point to: {entry_point}")
+        elif nodes:
+            # Fallback: use the first node in the list
+            entry_point = nodes[0]['id']
+            graph.set_entry_point(entry_point)
+            logger.warning(f"No clear entry point found, using first node: {entry_point}")
+        else:
+            raise ValueError("Workflow has no nodes")
+        
+        # Build edge map
         edge_map = self._build_edge_map(edges)
         
+        # Add edges to graph
         for node_id, targets in edge_map.items():
-            if node_id == 'START':
-                # Set entry point
-                if targets:
-                    graph.set_entry_point(targets[0])
-            elif len(targets) == 1 and targets[0] != 'END':
-                # Simple edge
-                graph.add_edge(node_id, targets[0])
-            elif not targets or targets[0] == 'END':
-                # End node
+            if len(targets) == 1:
+                target = targets[0]
+                if target in all_node_ids:
+                    # Normal edge to another node
+                    graph.add_edge(node_id, target)
+                    logger.debug(f"Added edge: {node_id} -> {target}")
+                else:
+                    # No target or END
+                    graph.add_edge(node_id, END)
+                    logger.debug(f"Added edge: {node_id} -> END")
+            elif len(targets) == 0:
+                # No outgoing edges - connect to END
                 graph.add_edge(node_id, END)
+                logger.debug(f"Added edge: {node_id} -> END (no targets)")
+        
+        # Find nodes with no outgoing edges and connect them to END
+        source_node_ids = {edge['source'] for edge in edges}
+        terminal_nodes = all_node_ids - source_node_ids
+        
+        for terminal_node in terminal_nodes:
+            if terminal_node != entry_point:  # Don't add END edge for entry point if it's terminal
+                graph.add_edge(terminal_node, END)
+                logger.debug(f"Added terminal edge: {terminal_node} -> END")
         
         # Handle conditional nodes (Logic If)
         for node in nodes:
             if node['data']['template_id'] == 'logic-if':
                 self._add_conditional_edges(graph, node, edges)
+        
+        logger.info("Graph construction complete")
         
         return graph.compile()
     
@@ -226,6 +252,145 @@ class WorkflowBuilderGraph:
         
         return execute_node
     
+    def _create_node_handler(
+        self, 
+        node: Dict[str, Any], 
+        tool: Any
+    ) -> Callable:
+        """
+        Create handler function for a workflow node
+        
+        Args:
+            node: Node definition
+            tool: Tool instance to execute
+            
+        Returns:
+            Async handler function
+        """
+        node_id = node['id']
+        node_label = node['data'].get('label', node_id)
+        
+        async def node_handler(state: SharedWorkflowState) -> SharedWorkflowState:
+            """Execute single workflow node"""
+            step_start_time = time.time()
+            
+            # Increment step
+            state['step_number'] = state.get('step_number', 0) + 1
+            state['current_node'] = node_id
+            
+            logger.info(f"Executing node: {node_label} (step {state['step_number']})")
+            
+            # Send start event via WebSocket
+            if self.websocket_manager:
+                await self.websocket_manager.send_node_progress(
+                    session_id=state['session_id'],
+                    execution_id=state['execution_id'],
+                    node_id=node_id,
+                    step_number=state['step_number'],
+                    status='started'
+                )
+            
+            # Checkpoint: node start
+            if self.state_manager.should_checkpoint(state['condition'], 'node_start'):
+                from app.database import SessionLocal
+                db = SessionLocal()
+                try:
+                    self.state_manager.checkpoint_to_db(
+                        db=db,
+                        execution_id=state['execution_id'],
+                        step_number=state['step_number'],
+                        checkpoint_type='node_start',
+                        state=dict(state),
+                        node_id=node_id,
+                        metadata={'node_label': node_label}
+                    )
+                finally:
+                    db.close()
+            
+            # Execute tool
+            try:
+                input_data = self._prepare_tool_input(state, node)
+                result = await tool.run(input_data)
+                
+                # Store result
+                state['results'][node_id] = result
+                
+                # Update working data if successful
+                if result.get('success'):
+                    state['working_data'] = result.get('data', state['working_data'])
+                    logger.info(f"Node {node_label} completed successfully")
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    state['errors'].append({
+                        'node_id': node_id,
+                        'step': state['step_number'],
+                        'error': error_msg
+                    })
+                    logger.error(f"Node {node_label} failed: {error_msg}")
+                
+                # Send completion event via WebSocket
+                if self.websocket_manager:
+                    await self.websocket_manager.send_node_progress(
+                        session_id=state['session_id'],
+                        execution_id=state['execution_id'],
+                        node_id=node_id,
+                        step_number=state['step_number'],
+                        status='completed',
+                        result=result
+                    )
+                
+            except Exception as e:
+                logger.exception(f"Error executing node {node_label}: {e}")
+                state['errors'].append({
+                    'node_id': node_id,
+                    'step': state['step_number'],
+                    'error': str(e)
+                })
+                
+                # Send error event via WebSocket
+                if self.websocket_manager:
+                    await self.websocket_manager.send_node_progress(
+                        session_id=state['session_id'],
+                        execution_id=state['execution_id'],
+                        node_id=node_id,
+                        step_number=state['step_number'],
+                        status='failed',
+                        result={'error': str(e)}
+                    )
+            
+            # Update timing
+            step_time = int((time.time() - step_start_time) * 1000)
+            state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
+            state['last_step_at'] = datetime.utcnow().isoformat()
+            
+            # Checkpoint: node end
+            if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
+                from app.database import SessionLocal
+                db = SessionLocal()
+                try:
+                    self.state_manager.checkpoint_to_db(
+                        db=db,
+                        execution_id=state['execution_id'],
+                        step_number=state['step_number'],
+                        checkpoint_type='node_end',
+                        state=dict(state),
+                        node_id=node_id,
+                        time_since_last_ms=step_time,
+                        metadata={
+                            'node_label': node_label,
+                            'success': result.get('success', False)
+                        }
+                    )
+                finally:
+                    db.close()
+            
+            # Update Redis with latest state
+            self.state_manager.save_state_to_memory(state['execution_id'], dict(state))
+            
+            return state
+        
+        return node_handler
+
     def _build_edge_map(self, edges: list) -> Dict[str, list]:
         """
         Build a map of source -> [targets] from edge list

@@ -310,6 +310,7 @@ const WorkflowBuilder = () => {
           label: nodeTranslations.label || nodeTemplate.label,
           type: nodeTranslations.type || nodeTemplate.type,
           description: nodeTranslations.description || '',
+          template_id: nodeTemplate.id,
           category: nodeTemplate.category,
           iconName: nodeTemplate.icon,
           color: nodeTemplate.color,

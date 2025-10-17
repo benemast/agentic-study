@@ -13,7 +13,7 @@ Key Components:
 """
 
 from .state_manager import HybridStateManager
-from .service import OrchestrationService, WebSocketManager, orchestrator
+from .service import OrchestrationService, orchestrator
 from .graphs.workflow_builder import WorkflowBuilderGraph
 from .graphs.ai_assistant import AIAssistantGraph
 from .graphs.shared_state import SharedWorkflowState, NodeExecutionResult, AgentDecision
@@ -24,7 +24,6 @@ __all__ = [
     
     # Services
     'OrchestrationService',
-    'WebSocketManager',
     'orchestrator',
     
     # Graphs

@@ -15,31 +15,6 @@ from app.websocket.manager import ws_manager
 logger = logging.getLogger(__name__)
 
 
-class WebSocketManager:
-    """Manages WebSocket connections for real-time progress updates"""
-    
-    def __init__(self):
-        self.active_connections: Dict[str, Any] = {}
-    
-    async def connect(self, session_id: str, websocket):
-        await websocket.accept()
-        self.active_connections[session_id] = websocket
-        logger.info(f"WebSocket connected: {session_id}")
-    
-    def disconnect(self, session_id: str):
-        self.active_connections.pop(session_id, None)
-        logger.info(f"WebSocket disconnected: {session_id}")
-    
-    async def send_progress(self, session_id: str, message: dict):
-        """Send progress update to client"""
-        if session_id in self.active_connections:
-            try:
-                await self.active_connections[session_id].send_json(message)
-            except Exception as e:
-                logger.error(f"Error sending WebSocket message: {e}")
-                self.disconnect(session_id)
-
-
 class OrchestrationService:
     """
     Main orchestration service for executing workflows and agent tasks
@@ -51,7 +26,8 @@ class OrchestrationService:
     
     def __init__(self):
         self.state_manager = HybridStateManager()
-        self.websocket_manager = ws_manager
+        # Use global ws_manager singleton
+        self.ws_manager = ws_manager
         logger.info("✅ Orchestration service initialized")
     
     async def execute_workflow(
@@ -97,13 +73,13 @@ class OrchestrationService:
             if condition == 'workflow_builder':
                 graph_builder = WorkflowBuilderGraph(
                     self.state_manager, 
-                    self.websocket_manager
+                    self.ws_manager
                 )
                 graph = graph_builder.build_graph(task_data['workflow'])
             else:  # ai_assistant
                 graph_builder = AIAssistantGraph(
                     self.state_manager,
-                    self.websocket_manager
+                    self.ws_manager
                 )
                 graph = graph_builder.build_graph()
             
@@ -121,6 +97,21 @@ class OrchestrationService:
                 checkpoint_type='execution_start',
                 state=initial_state,
                 metadata={'condition': condition}
+            )
+            
+            # Subscribe session to execution channel for real-time updates
+            self.ws_manager.subscribe(session_id, 'execution')
+            
+            # Send execution started event
+            await self.ws_manager.send_execution_progress(
+                session_id,
+                execution.id,
+                'execution_started',
+                {
+                    'condition': condition,
+                    'step': 0,
+                    'total_steps': len(task_data.get('workflow', {}).get('nodes', [])) if condition == 'workflow_builder' else None
+                }
             )
             
             # Update execution status
@@ -146,6 +137,18 @@ class OrchestrationService:
             if final_state.get('errors'):
                 execution.error_message = f"{len(final_state['errors'])} errors occurred"
             
+            # Send completion event
+            await self.ws_manager.send_execution_progress(
+                session_id,
+                execution.id,
+                'execution_completed',
+                {
+                    'steps_completed': execution.steps_completed,
+                    'execution_time_ms': execution.execution_time_ms,
+                    'final_result': execution.final_result
+                }
+            )
+            
             logger.info(f"Execution {execution.id} completed successfully")
             
         except Exception as e:
@@ -156,6 +159,17 @@ class OrchestrationService:
             execution.completed_at = datetime.utcnow()
             execution.error_message = str(e)
             execution.error_traceback = traceback.format_exc()
+            
+            # Send error event
+            await self.ws_manager.send_execution_progress(
+                session_id,
+                execution.id,
+                'execution_failed',
+                {
+                    'error': str(e),
+                    'step': execution.steps_completed
+                }
+            )
             
             # Checkpoint: error
             try:
@@ -187,6 +201,9 @@ class OrchestrationService:
                 state={'status': execution.status},
                 metadata={'total_time_ms': execution.execution_time_ms}
             )
+            
+            # Unsubscribe from execution channel
+            self.ws_manager.unsubscribe(session_id, 'execution')
             
             db.commit()
         
@@ -231,9 +248,9 @@ class OrchestrationService:
         
         # Condition-specific initialization
         if execution.condition == 'workflow_builder':
-            state['workflow_definition'] = execution.workflow_definition
-        else:  # ai_assistant
-            state['task_description'] = execution.task_description
+            state['workflow_definition'] = task_data.get('workflow')
+        else:
+            state['task_description'] = task_data.get('task_description')
             state['agent_plan'] = []
             state['agent_memory'] = []
         
@@ -261,47 +278,42 @@ class OrchestrationService:
         if not execution:
             return {'error': 'Execution not found'}
         
-        # Try to get current state from Redis
-        current_state = self.state_manager.get_state_from_memory(execution_id)
+        # Try to get live state from Redis
+        state = self.state_manager.get_state_from_memory(execution_id)
         
-        status = {
-            'execution_id': execution.id,
+        return {
+            'execution_id': execution_id,
             'status': execution.status,
+            'progress_percentage': self._calculate_progress(execution, state),
+            'current_step': state.get('step_number') if state else execution.steps_completed,
+            'current_node': state.get('current_node') if state else None,
+            'error_message': execution.error_message,
             'started_at': execution.started_at.isoformat() if execution.started_at else None,
-            'completed_at': execution.completed_at.isoformat() if execution.completed_at else None,
-            'steps_completed': execution.steps_completed,
-            'execution_time_ms': execution.execution_time_ms,
-            'error_message': execution.error_message
+            'completed_at': execution.completed_at.isoformat() if execution.completed_at else None
         }
-        
-        # Add live progress if running
-        if current_state:
-            status['current_step'] = current_state.get('step_number')
-            status['current_node'] = current_state.get('current_node')
-            status['progress_percentage'] = self._calculate_progress(current_state, execution)
-        
-        return status
-    
+
     def _calculate_progress(
-        self, 
-        state: Dict[str, Any], 
-        execution: WorkflowExecution
+        self,
+        execution: WorkflowExecution,
+        state: Optional[Dict[str, Any]]
     ) -> int:
-        """Calculate progress percentage"""
-        if execution.condition == 'workflow_builder':
-            # For workflow builder: based on nodes completed
-            workflow = execution.workflow_definition
-            if workflow and 'nodes' in workflow:
-                total_nodes = len(workflow['nodes'])
-                completed = len(state.get('results', {}))
-                return int((completed / total_nodes) * 100) if total_nodes > 0 else 0
-        else:
-            # For AI assistant: estimate based on steps (max 10)
-            max_steps = 10
-            current_step = state.get('step_number', 0)
-            return min(int((current_step / max_steps) * 100), 95)  # Cap at 95% until complete
+        """Calculate execution progress percentage"""
+        if execution.status == 'completed':
+            return 100
         
-        return 0
+        if not state:
+            return 0
+        
+        current_step = state.get('step_number', 0)
+        
+        if execution.condition == 'workflow_builder':
+            # For workflow builder: count total nodes
+            total_nodes = len(execution.workflow_definition.get('nodes', [])) if execution.workflow_definition else 1
+            return min(int((current_step / total_nodes) * 100), 99)
+        else:
+            # For AI assistant: use max_steps
+            max_steps = 10
+            return min(int((current_step / max_steps) * 100), 99)
     
     async def cancel_execution(
         self,
@@ -325,30 +337,36 @@ class OrchestrationService:
         if not execution or execution.status != 'running':
             return False
         
-        # Update execution status
+        # Update status
         execution.status = 'cancelled'
         execution.completed_at = datetime.utcnow()
         
-        # Checkpoint cancellation
-        current_state = self.state_manager.get_state_from_memory(execution_id)
-        if current_state:
-            current_state['status'] = 'cancelled'
+        # Checkpoint cancellation (user intervention)
+        state = self.state_manager.get_state_from_memory(execution_id)
+        if state:
             self.state_manager.checkpoint_to_db(
                 db=db,
                 execution_id=execution_id,
-                step_number=current_state.get('step_number', 0),
+                step_number=state.get('step_number', 0),
                 checkpoint_type='cancelled',
-                state=current_state,
-                user_interaction=True
+                state=state,
+                user_interaction=True,
+                metadata={'cancelled_by': 'user'}
             )
         
-        # Cleanup
+        # Clear Redis state
         self.state_manager.clear_memory_state(execution_id)
-        db.commit()
         
-        logger.info(f"Execution {execution_id} cancelled")
+        # Send cancellation event
+        await self.ws_manager.send_execution_progress(
+            execution.session_id,
+            execution_id,
+            'execution_cancelled',
+            {'step': execution.steps_completed}
+        )
+        
+        db.commit()
         return True
 
-
-# Global instance
+# Create singleton instance
 orchestrator = OrchestrationService()

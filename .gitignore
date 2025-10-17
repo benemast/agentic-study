@@ -1,10 +1,46 @@
 # ============================================
 # PROJECT-SPECIFIC
 # ============================================
-# Migration files
+# Deprecated/Migration files
 backend/app/migrate/
 frontend/src/components/WorkflowBuilder_oneFile.jsx
 frontend/src/components/SessionManager_deprecated.jsx
+
+# Study data & results (IMPORTANT: Don't commit participant data!)
+study_data/
+study_results/
+participant_data/
+analytics_exports/
+experimental_data/
+*.participant.json
+*.study.csv
+
+# User uploads & temporary session data
+uploads/
+temp_uploads/
+session_files/
+temp_sessions/
+
+# Exported workflows & results
+exported_workflows/
+workflow_exports/
+execution_results/
+*.workflow.json
+*.execution.json
+
+# Analysis & reports
+reports/
+analysis/
+study_analysis/
+*.analysis.csv
+*.report.pdf
+
+# Backup files
+backups/
+*.backup
+*.bak.*
+database_backups/
+state_backups/
 
 # ============================================
 # ENVIRONMENT & SECRETS
@@ -13,9 +49,13 @@ frontend/src/components/SessionManager_deprecated.jsx
 .env.*
 !.env.example
 *.local
+.secrets
+secrets.json
 
 # Backend
 backend/.env
+backend/.env.*
+!backend/.env.example
 backend/venv/
 backend/__pycache__/
 backend/**/__pycache__/
@@ -24,6 +64,8 @@ backend/**/*.pyo
 
 # Frontend
 frontend/.env
+frontend/.env.*
+!frontend/.env.example
 frontend/.env.local
 frontend/node_modules/
 frontend/dist/
@@ -45,6 +87,7 @@ env/
 ENV/
 .venv/
 .virtualenv/
+pythonenv*/
 
 # Distribution / packaging
 .Python
@@ -60,6 +103,8 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -80,31 +125,42 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+*.py,cover
 .hypothesis/
+pytestdebug.log
 
 # Translations
 *.mo
 *.pot
 
-# Django/Flask
+# Django/Flask/FastAPI
 *.db
 *.sqlite3
 *.sqlite
 db.sqlite3
 instance/
 .webassets-cache
+.python_history
+
+# Alembic (keep migrations, ignore temp files)
+backend/alembic/versions/*.pyc
+backend/alembic/__pycache__/
+alembic.log
 
 # Scrapy
 .scrapy
 
 # Sphinx documentation
 docs/_build/
+docs/_static/
+docs/_templates/
 
 # PyBuilder
 target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
 
 # IPython
 profile_default/
@@ -112,6 +168,12 @@ ipython_config.py
 
 # pyenv
 .python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
 
 # celery
 celerybeat-schedule
@@ -138,15 +200,24 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
 # ============================================
 # NODE.JS / JAVASCRIPT
 # ============================================
 # Dependencies
 node_modules/
 jspm_packages/
+package-lock.json
+pnpm-lock.yaml
 
 # Testing
 coverage/
+.nyc_output
 
 # Production
 build/
@@ -155,6 +226,7 @@ dist/
 out/
 .nuxt/
 .cache/
+.parcel-cache/
 
 # Logs
 npm-debug.log*
@@ -175,9 +247,6 @@ pids
 # Directory for instrumented libs
 lib-cov
 
-# nyc test coverage
-.nyc_output
-
 # Grunt intermediate storage
 .grunt
 
@@ -190,9 +259,6 @@ bower_components
 # Compiled binary addons
 build/Release
 
-# Dependency directories
-node_modules/
-
 # TypeScript cache
 *.tsbuildinfo
 
@@ -202,6 +268,15 @@ node_modules/
 # Optional eslint cache
 .eslintcache
 
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
 # Optional REPL history
 .node_repl_history
 
@@ -210,13 +285,9 @@ node_modules/
 
 # Yarn
 yarn-error.log*
-yarn.lock
 .yarn-integrity
 .pnp.*
 .yarn/
-
-# parcel-bundler cache
-.parcel-cache
 
 # Serverless directories
 .serverless/
@@ -236,6 +307,51 @@ yarn.lock
 # Webpack
 .webpack/
 
+# SvelteKit
+.svelte-kit
+
+# Turbo
+.turbo
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# ============================================
+# AI/ML & LLM-SPECIFIC
+# ============================================
+# OpenAI/LLM cache
+.openai_cache/
+llm_cache/
+*.llm.cache
+
+# Model files (if downloading models locally)
+models/
+*.model
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# Training data
+training_data/
+train/
+test/
+validation/
+
+# LangChain/LangGraph temp files
+.langchain/
+.langgraph/
+langchain.db
+
+# Vector stores
+vectorstore/
+*.faiss
+*.index
+
+# Embeddings cache
+embeddings_cache/
+
 # ============================================
 # IDE & EDITORS
 # ============================================
@@ -245,7 +361,13 @@ yarn.lock
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+!.vscode/*.code-snippets
 *.code-workspace
+.history/
+
+# Local History for Visual Studio Code
+.history/
+.ionide/
 
 # IntelliJ IDEA
 .idea/
@@ -253,6 +375,15 @@ yarn.lock
 *.iws
 *.ipr
 out/
+.idea_modules/
+
+# PyCharm
+.idea/
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
 
 # Sublime Text
 *.sublime-project
@@ -265,16 +396,24 @@ out/
 .*.sw[a-z]
 *.un~
 Session.vim
+.netrwhist
 
 # Emacs
 *~
 \#*\#
 .\#*
+.emacs.desktop
+.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.*.swp
 
 # Eclipse
 .project
 .classpath
 .settings/
+.metadata/
 
 # NetBeans
 nbproject/private/
@@ -301,6 +440,9 @@ nbdist/
 Network Trash Folder
 Temporary Items
 .apdisk
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
 
 # Windows
 Thumbs.db
@@ -316,6 +458,7 @@ $RECYCLE.BIN/
 *.msm
 *.msp
 *.lnk
+*.exe
 
 # Linux
 *~
@@ -332,6 +475,15 @@ $RECYCLE.BIN/
 logs/
 *.log.*
 log/
+*.out
+
+# Application-specific logs
+backend/logs/
+frontend/logs/
+orchestrator.log
+execution.log
+websocket.log
+llm.log
 
 # Temporary files
 *.tmp
@@ -342,37 +494,134 @@ log/
 *.swo
 tmp/
 temp/
+.tmp/
 
 # ============================================
 # DATABASE & DATA FILES
 # ============================================
+# SQLite
 *.db
 *.sqlite
 *.sqlite3
 *.db-shm
 *.db-wal
+*.db-journal
+
+# PostgreSQL
+*.sql.gz
+pg_dump_*
+*.pgdump
+
+# Database backups
+db_backup_*
+database_*.backup
+
+# Data directories
 data/
+
+# CSV/Excel (project-specific, may contain participant data)
 *.csv
 *.xlsx
 *.xls
+*.tsv
+
+# Redis
+dump.rdb
+*.rdb
+appendonly.aof
+*.aof
+redis.log
+nodes.conf
+*.node.conf
+
+# Redis config (environment-specific)
+redis.conf
+redis-*.conf
+
+# ============================================
+# DOCKER & CONTAINERS
+# ============================================
+# Docker override files (local dev config)
+docker-compose.override.yml
+docker-compose.local.yml
+.dockerignore
+
+# Docker volumes (if any local mounts)
+.docker/
+docker-data/
+
+# Container logs
+containers/
+
+# ============================================
+# MONITORING & OBSERVABILITY
+# ============================================
+# Sentry
+.sentryclirc
+
+# Prometheus data
+prometheus_data/
+
+# Grafana
+grafana_data/
+
+# Application Performance Monitoring
+apm/
+*.apm
 
 # ============================================
 # SECURITY & KEYS
 # ============================================
+# Private keys
 *.pem
 *.key
 *.cert
 *.crt
 *.p12
 *.pfx
+*.keystore
+*.jks
+
+# Secrets directories
 secrets/
 .secret
+.secrets/
+
+# SSH keys
+id_rsa
+id_rsa.pub
+known_hosts
+
+# API keys file
+api_keys.json
+api_keys.txt
 
 # ============================================
-# DOCKER
+# TESTING & CI/CD
 # ============================================
-docker-compose.override.yml
-.dockerignore
+# Test outputs
+test-results/
+test_results/
+.pytest_cache/
+junit.xml
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage/
+*.cover
+
+# Playwright
+playwright-report/
+test-results/
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+
+# CI/CD artifacts
+.gitlab-ci-local/
+.github/workflows/secrets/
 
 # ============================================
 # MISC
@@ -381,8 +630,11 @@ docker-compose.override.yml
 *.zip
 *.tar
 *.tar.gz
+*.tgz
 *.rar
 *.7z
+*.gz
+*.bz2
 
 # Package files
 *.dmg
@@ -397,11 +649,40 @@ docker-compose.override.yml
 # Thumbnails
 ._*
 
-# Files that might appear in the root
-.DocumentRevisions-V100
-.fseventsd
-.TemporaryItems
-.VolumeIcon.icns
-
 # Git files to ignore
 *.orig
+*.rej
+
+# Lock files (consider committing these in production)
+# Uncomment if you want to ignore lock files:
+# package-lock.json
+# yarn.lock
+# poetry.lock
+# Pipfile.lock
+
+# Generated files
+generated/
+auto_generated/
+
+# Benchmarks
+benchmarks/
+*.benchmark
+
+# Profiling
+*.prof
+*.pstats
+profile_*.txt
+
+# Claude artifacts (if any local artifacts)
+.claude/
+claude_artifacts/
+
+# ============================================
+# PROJECT-SPECIFIC NOTES
+# ============================================
+# IMPORTANT REMINDERS:
+# 1. Never commit .env files with real secrets
+# 2. Never commit participant/study data (GDPR/IRB compliance)
+# 3. Keep migrations tracked (backend/alembic/versions/*.py)
+# 4. Backup important data before major changes
+# 5. Use .env.example to document required env vars

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { orchestratorAPI } from '../config/api';
 import { useTracking } from './useTracking';
+import { useWebSocket } from './useWebSocket';
 import { serializeWorkflow } from '../utils/workflowSerializer';
 
 /**
@@ -20,107 +21,140 @@ export const useWorkflowExecution = (sessionId, condition) => {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   
-  const wsRef = useRef(null);
   const pollingIntervalRef = useRef(null);
   const { trackWorkflowExecuted, trackError } = useTracking();
+  
+  // Use existing WebSocket connection instead of creating a new one
+  const { on: wsOn, off: wsOff, isConnected } = useWebSocket({ autoConnect: true });
 
   /**
-   * Connect WebSocket for real-time updates
+   * Handle execution progress messages from WebSocket
    */
-  const connectWebSocket = useCallback(() => {
-    if (wsRef.current) return; // Already connected
-
-    wsRef.current = orchestratorAPI.connectWebSocket(
-      sessionId,
-      (message) => {
-        console.log('WebSocket message:', message);
+  useEffect(() => {
+    if (!isConnected) return;
+    
+    const handleExecutionProgress = (message) => {
+      console.log('Execution progress:', message);
+      
+      // Only handle messages for current execution
+      if (message.execution_id !== executionId) return;
+      
+      const { event_type, ...data } = message;
+      
+      switch (event_type) {
+        case 'execution_started':
+          setStatus('running');
+          break;
         
-        // Handle different message types
-        switch (message.type) {
-          case 'node_start':
-            setProgress(prev => [...prev, {
-              type: 'node_start',
-              nodeId: message.node_id,
-              nodeLabel: message.node_label,
-              step: message.step,
-              timestamp: new Date().toISOString()
-            }]);
-            setCurrentStep({
-              nodeId: message.node_id,
-              label: message.node_label,
-              step: message.step
-            });
-            break;
-
-          case 'node_complete':
-            setProgress(prev => [...prev, {
-              type: 'node_complete',
-              nodeId: message.node_id,
-              success: message.success,
-              step: message.step,
-              timestamp: new Date().toISOString()
-            }]);
-            break;
-
-          case 'agent_decision':
-            setProgress(prev => [...prev, {
-              type: 'agent_decision',
-              action: message.action,
-              reasoning: message.reasoning,
-              step: message.step,
-              timestamp: new Date().toISOString()
-            }]);
-            setCurrentStep({
-              action: message.action,
-              step: message.step
-            });
-            break;
-
-          case 'tool_execution':
-            setProgress(prev => [...prev, {
-              type: 'tool_execution',
-              tool: message.tool,
-              step: message.step,
-              timestamp: new Date().toISOString()
-            }]);
-            break;
-
-          case 'error':
-            setError(message.error);
-            setStatus('failed');
-            break;
-
-          case 'complete':
-            setStatus('completed');
-            break;
-
-          default:
-            console.log('Unknown message type:', message.type);
-        }
-      },
-      (error) => {
-        console.error('WebSocket error:', error);
-        // Fall back to polling if WebSocket fails
-        startPolling();
+        case 'node_started':
+        case 'node_start':
+          setProgress(prev => [...prev, {
+            type: 'node_start',
+            nodeId: data.node_id,
+            nodeLabel: data.node_label,
+            step: data.step,
+            timestamp: new Date().toISOString()
+          }]);
+          setCurrentStep({
+            nodeId: data.node_id,
+            label: data.node_label,
+            step: data.step
+          });
+          break;
+        
+        case 'node_completed':
+        case 'node_end':
+          setProgress(prev => [...prev, {
+            type: 'node_complete',
+            nodeId: data.node_id,
+            result: data.result,
+            step: data.step,
+            timestamp: new Date().toISOString()
+          }]);
+          break;
+        
+        case 'agent_decision':
+          setProgress(prev => [...prev, {
+            type: 'agent_decision',
+            action: data.action,
+            reasoning: data.reasoning,
+            confidence: data.confidence,
+            step: data.step,
+            timestamp: new Date().toISOString()
+          }]);
+          setCurrentStep({
+            action: data.action,
+            step: data.step
+          });
+          break;
+        
+        case 'tool_execution_start':
+          setProgress(prev => [...prev, {
+            type: 'tool_start',
+            tool: data.tool_name,
+            step: data.step,
+            timestamp: new Date().toISOString()
+          }]);
+          break;
+        
+        case 'tool_execution_completed':
+          setProgress(prev => [...prev, {
+            type: 'tool_complete',
+            tool: data.tool_name,
+            result: data.result_summary,
+            step: data.step,
+            timestamp: new Date().toISOString()
+          }]);
+          break;
+        
+        case 'execution_completed':
+          setStatus('completed');
+          setResult(data.final_result);
+          setProgressPercentage(100);
+          stopPolling();
+          break;
+        
+        case 'execution_failed':
+        case 'execution_error':
+          setStatus('failed');
+          setError(data.error);
+          stopPolling();
+          break;
+        
+        case 'execution_cancelled':
+          setStatus('cancelled');
+          stopPolling();
+          break;
       }
-    );
-  }, [sessionId]);
+    };
+    
+    // Subscribe to execution_progress messages
+    wsOn('execution_progress', handleExecutionProgress);
+    
+    // Cleanup
+    return () => {
+      wsOff('execution_progress', handleExecutionProgress);
+    };
+  }, [executionId, isConnected, wsOn, wsOff]);
 
   /**
-   * Disconnect WebSocket
+   * Calculate progress percentage based on steps
    */
-  const disconnectWebSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  useEffect(() => {
+    if (status === 'completed') {
+      setProgressPercentage(100);
+    } else if (progress.length > 0 && currentStep) {
+      // Estimate progress based on steps
+      const percentage = Math.min((currentStep.step / 10) * 100, 99);
+      setProgressPercentage(percentage);
     }
-  }, []);
+  }, [progress, currentStep, status]);
 
   /**
-   * Start polling for status updates (fallback for WebSocket)
+   * Start polling as fallback (in case WebSocket fails)
    */
   const startPolling = useCallback(() => {
-    if (pollingIntervalRef.current) return; // Already polling
+    if (pollingIntervalRef.current) return;
 
     pollingIntervalRef.current = setInterval(async () => {
       if (!executionId) return;
@@ -181,13 +215,12 @@ export const useWorkflowExecution = (sessionId, condition) => {
 
       if (workflow.nodes && workflow.edges) {
         cleanWorkflow = serializeWorkflow(workflow.nodes, workflow.edges);
-        console.log('Serialized workflow:', cleanWorkflow);
+        //console.log('Serialized workflow:', cleanWorkflow);
       } else if (Array.isArray(workflow)) {
         cleanWorkflow = serializeWorkflow(workflow[0], workflow[1]);
       } else {
         cleanWorkflow = workflow;
       }
-
 
       // Track execution start
       trackWorkflowExecuted('WORKFLOW_EXECUTION_STARTED', {
@@ -195,9 +228,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
         node_count: workflow?.nodes?.length || 0,
         edge_count: workflow?.edges?.length || 0
       });
-
-      // Connect WebSocket before starting
-      connectWebSocket();
 
       // Start execution
       const response = await orchestratorAPI.executeWorkflow(
@@ -209,12 +239,18 @@ export const useWorkflowExecution = (sessionId, condition) => {
       setExecutionId(response.execution_id);
       setStatus('running');
 
-      // Start polling as fallback
-      setTimeout(() => {
-        if (status === 'running') {
-          startPolling();
-        }
-      }, 5000); // Start polling after 5 seconds if still running
+      // Start polling as fallback if WebSocket isn't connected
+      if (!isConnected) {
+        console.warn('WebSocket not connected, using polling fallback');
+        startPolling();
+      } else {
+        // Still start polling after 5 seconds as safety fallback
+        setTimeout(() => {
+          if (status === 'running') {
+            startPolling();
+          }
+        }, 5000);
+      }
 
       return response;
     } catch (err) {
@@ -229,7 +265,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
       
       throw err;
     }
-  }, [sessionId, connectWebSocket, startPolling, trackWorkflowExecuted, trackError]);
+  }, [sessionId, isConnected, startPolling, trackWorkflowExecuted, trackError]);
 
   /**
    * Execute AI Assistant task
@@ -248,9 +284,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
         task_length: taskDescription.length
       });
 
-      // Connect WebSocket
-      connectWebSocket();
-
       // Start execution
       const response = await orchestratorAPI.executeAgentTask(
         sessionId,
@@ -262,11 +295,16 @@ export const useWorkflowExecution = (sessionId, condition) => {
       setStatus('running');
 
       // Start polling as fallback
-      setTimeout(() => {
-        if (status === 'running') {
-          startPolling();
-        }
-      }, 5000);
+      if (!isConnected) {
+        console.warn('WebSocket not connected, using polling fallback');
+        startPolling();
+      } else {
+        setTimeout(() => {
+          if (status === 'running') {
+            startPolling();
+          }
+        }, 5000);
+      }
 
       return response;
     } catch (err) {
@@ -281,7 +319,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
       
       throw err;
     }
-  }, [sessionId, connectWebSocket, startPolling, trackWorkflowExecuted, trackError]);
+  }, [sessionId, isConnected, startPolling, trackWorkflowExecuted, trackError]);
 
   /**
    * Cancel execution
@@ -299,11 +337,10 @@ export const useWorkflowExecution = (sessionId, condition) => {
       });
       
       stopPolling();
-      disconnectWebSocket();
     } catch (err) {
       console.error('Failed to cancel execution:', err);
     }
-  }, [executionId, condition, stopPolling, disconnectWebSocket, trackError]);
+  }, [executionId, condition, stopPolling, trackError]);
 
   /**
    * Get execution checkpoints
@@ -325,9 +362,8 @@ export const useWorkflowExecution = (sessionId, condition) => {
   useEffect(() => {
     return () => {
       stopPolling();
-      disconnectWebSocket();
     };
-  }, [stopPolling, disconnectWebSocket]);
+  }, [stopPolling]);
 
   return {
     // State
@@ -338,16 +374,13 @@ export const useWorkflowExecution = (sessionId, condition) => {
     currentStep,
     result,
     error,
+    isConnected,
     
     // Actions
     executeWorkflow,
     executeAgentTask,
     cancelExecution,
     getCheckpoints,
-    
-    // WebSocket control
-    connectWebSocket,
-    disconnectWebSocket
   };
 };
 

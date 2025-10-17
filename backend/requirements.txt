@@ -38,3 +38,4 @@ langchain-core==0.3.21
 
 # Additional AI/ML tools
 openai==1.55.3
+tenacity==9.0.0

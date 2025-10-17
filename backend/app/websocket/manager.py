@@ -352,6 +352,149 @@ class WebSocketManager:
             'unhealthy_connections': unhealthy,
             'timestamp': datetime.utcnow().isoformat()
         }
+    
+    # ============================================================
+    # EXECUTION PROGRESS METHODS (for Orchestrator integration)
+    # ============================================================
+    
+    async def send_execution_progress(
+        self,
+        session_id: str,
+        execution_id: int,
+        event_type: str,
+        data: dict
+    ):
+        """
+        Send execution progress update to all connections in a session
+        
+        This is the unified method for orchestrator progress updates.
+        Replaces the old send_progress() method from the local WebSocketManager.
+        
+        Args:
+            session_id: Session ID to send to
+            event_type: Type of execution event (e.g., 'node_start', 'agent_decision', 'execution_completed')
+            execution_id: Execution ID
+            data: Event-specific data
+            
+        Usage:
+            await ws_manager.send_execution_progress(
+                session_id,
+                execution_id,
+                'node_start',
+                {'node_id': 'gather-data', 'step': 1}
+            )
+        """
+        message = {
+            'type': 'execution_progress',
+            'event_type': event_type,
+            'execution_id': execution_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            **data
+        }
+        
+        await self.broadcast_to_session(session_id, message)
+        
+        logger.debug(f"Sent execution progress: session={session_id}, event={event_type}, execution={execution_id}")
+    
+    async def send_node_progress(
+        self,
+        session_id: str,
+        execution_id: int,
+        node_id: str,
+        step_number: int,
+        status: str,
+        result: dict = None
+    ):
+        """
+        Convenience method for sending node execution progress (Workflow Builder)
+        
+        Args:
+            session_id: Session ID
+            execution_id: Execution ID
+            node_id: Node identifier
+            step_number: Current step number
+            status: 'started', 'completed', 'failed'
+            result: Node execution result (optional)
+        """
+        data = {
+            'node_id': node_id,
+            'step': step_number,
+            'status': status
+        }
+        
+        if result:
+            data['result'] = result
+        
+        event_type = f'node_{status}'
+        await self.send_execution_progress(session_id, execution_id, event_type, data)
+    
+    async def send_agent_decision(
+        self,
+        session_id: str,
+        execution_id: int,
+        step_number: int,
+        decision: dict
+    ):
+        """
+        Convenience method for sending agent decision (AI Assistant)
+        
+        Args:
+            session_id: Session ID
+            execution_id: Execution ID
+            step_number: Current step number
+            decision: Agent decision dictionary (action, reasoning, confidence, etc.)
+        """
+        data = {
+            'step': step_number,
+            'action': decision.get('action'),
+            'reasoning': decision.get('reasoning'),
+            'tool_name': decision.get('tool_name'),
+            'confidence': decision.get('confidence', 0.0)
+        }
+        
+        await self.send_execution_progress(session_id, execution_id, 'agent_decision', data)
+    
+    async def send_execution_error(
+        self,
+        session_id: str,
+        execution_id: int,
+        error: str,
+        step_number: int = None
+    ):
+        """
+        Send execution error notification
+        
+        Args:
+            session_id: Session ID
+            execution_id: Execution ID
+            error: Error message
+            step_number: Step where error occurred (optional)
+        """
+        data = {
+            'error': error,
+            'step': step_number
+        }
+        
+        await self.send_execution_progress(session_id, execution_id, 'execution_error', data)
+    
+    # Backward compatibility: alias for old method name
+    async def send_progress(self, session_id: str, message: dict):
+        """
+        Legacy method for backward compatibility
+        
+        DEPRECATED: Use send_execution_progress() instead
+        """
+        logger.warning("send_progress() is deprecated, use send_execution_progress()")
+        
+        # Try to extract execution_id if present
+        execution_id = message.get('execution_id')
+        event_type = message.get('type', 'unknown')
+        
+        if execution_id:
+            await self.send_execution_progress(session_id, execution_id, event_type, message)
+        else:
+            # Fallback to broadcast
+            await self.broadcast_to_session(session_id, message)
 
 
 # Create singleton instance

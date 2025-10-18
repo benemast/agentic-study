@@ -1,6 +1,7 @@
 # backend/app/routers/websocket.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
 import logging
 import json
 import asyncio
@@ -58,10 +59,10 @@ async def websocket_endpoint(
             
             # Session handlers
             ws_manager.register_handler('session_update', handle_session_update)
+            ws_manager.register_handler('session_quicksave', handle_session_update)  # Alias
+            ws_manager.register_handler('session_sync', handle_session_sync)
             ws_manager.register_handler('session_get', handle_session_get)
             ws_manager.register_handler('session_end', handle_session_end)
-            ws_manager.register_handler('session_sync', handle_session_sync)
-            ws_manager.register_handler('session_quicksave', handle_session_update)  # Alias
             
             # Heartbeat
             ws_manager.register_handler('heartbeat', handle_session_heartbeat)
@@ -94,7 +95,7 @@ async def websocket_endpoint(
                 # Receive message with timeout to prevent hanging
                 data = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=300.0  # 5 minute timeout
+                    timeout=600.0  # 10 minute timeout for long-running workflows
                 )
                 
                 # Parse and handle message
@@ -104,6 +105,13 @@ async def websocket_endpoint(
                     # Log the message type for debugging
                     logger.debug(f"Received message type: {message.get('type')}, request_id: {message.get('request_id')}")
                     
+                    # Send pong response for heartbeat
+                    if message.get('type') == 'heartbeat':
+                        await websocket.send_json({
+                            'type': 'pong',
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
+                        continue
                     # Handle message
                     await ws_manager.handle_message(session_id, message, websocket)
                     
@@ -143,7 +151,7 @@ async def websocket_endpoint(
             
             # Handle timeout gracefully        
             except asyncio.TimeoutError:
-                logger.info(f"WebSocket timeout for session {session_id}, checking if still alive")
+                logger.debug(f"WebSocket timeout for session {session_id}, checking if still alive")
                 if websocket.client_state.value != 1:
                     logger.info(f"WebSocket disconnected during timeout: {connection_id}")
                     break

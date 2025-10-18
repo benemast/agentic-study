@@ -28,6 +28,97 @@ export const useWorkflowExecution = (sessionId, condition) => {
   const { on: wsOn, off: wsOff, isConnected } = useWebSocket({ autoConnect: true });
 
   /**
+   * Stop polling
+   */
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      console.log('🛑 Stopping execution status polling');
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Start polling as fallback (in case WebSocket fails)
+   */
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      console.log('⏭️ Polling already active, skipping');
+      return;
+    }
+
+    console.log('🔄 Starting execution status polling');
+
+    pollingIntervalRef.current = setInterval(async () => {
+      if (!executionId) {
+        console.warn('⚠️ No execution ID, stopping polling');
+        stopPolling();
+        return;
+      }
+
+      try {
+        const statusData = await orchestratorAPI.getExecutionStatus(executionId);
+      
+        console.log('📊 Poll status:', statusData.status, 
+                    'Progress:', statusData.progress_percentage + '%');
+        
+        setStatus(statusData.status);
+        setProgressPercentage(statusData.progress_percentage || 0);
+        
+        if (statusData.current_step) {
+          setCurrentStep({
+            step: statusData.current_step,
+            nodeId: statusData.current_node
+          });
+        }
+
+        // Stop polling if execution is complete
+        if (['completed', 'failed', 'cancelled'].includes(statusData.status)) {
+          console.log('✅ Execution finished:', statusData.status);
+          stopPolling();
+          
+          // Fetch final result
+          try {
+            const detail = await orchestratorAPI.getExecutionDetail(executionId);
+            setResult(detail.final_result);
+          
+            
+            if (statusData.status === 'completed') {
+              console.log('✅ Final result:', detail.final_result);
+              setProgressPercentage(100);
+            } else if (statusData.status === 'failed') {
+              console.error('❌ Execution failed:', detail.error_message);
+              setError(detail.error_message || statusData.error_message);
+            }
+          } catch (detailErr) {
+            console.error('Failed to fetch execution detail:', detailErr);
+            // Set error from status if detail fetch fails
+            if (statusData.status === 'failed') {
+              setError(statusData.error_message || 'Execution failed');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+        
+        // If execution not found, it might be deleted or never created
+        if (err.response?.status === 404) {
+          console.error('❌ Execution not found:', executionId);
+          setError('Execution not found');
+          setStatus('failed');
+          stopPolling();
+        }
+        
+        // Don't stop polling on other errors - might be temporary
+        // Let it retry on next interval
+      }
+    }, 2000); // Poll every 2 seconds
+
+    console.log('✅ Polling started (interval: 2s)');
+  }, [executionId, stopPolling]);
+
+
+  /**
    * Handle execution progress messages from WebSocket
    */
   useEffect(() => {
@@ -130,12 +221,61 @@ export const useWorkflowExecution = (sessionId, condition) => {
     
     // Subscribe to execution_progress messages
     wsOn('execution_progress', handleExecutionProgress);
-    
+
+    // Check execution status after reconnection
+    // If we have a running execution and reconnect, check its current status
+    if (executionId && status === 'running') {
+      console.log('✅ Reconnected - checking execution status:', executionId);
+      
+      // Check status immediately
+      orchestratorAPI.getExecutionStatus(executionId)
+        .then(statusData => {
+          console.log('📊 Current execution status:', statusData);
+          
+          setStatus(statusData.status);
+          setProgressPercentage(statusData.progress_percentage || 0);
+          
+          if (statusData.current_step) {
+            setCurrentStep({
+              step: statusData.current_step,
+              nodeId: statusData.current_node
+            });
+          }
+          
+          // If execution completed while disconnected, fetch results
+          if (['completed', 'failed', 'cancelled'].includes(statusData.status)) {
+            orchestratorAPI.getExecutionDetail(executionId)
+              .then(detail => {
+                setResult(detail.final_result);
+                if (statusData.status === 'failed') {
+                  setError(statusData.error_message);
+                }
+              })
+              .catch(err => console.error('Failed to fetch execution detail:', err));
+            
+            stopPolling();
+          } else {
+            // Still running - ensure polling is active
+            if (!pollingIntervalRef.current) {
+              console.log('✅ Restarting polling after reconnect');
+              startPolling();
+            }
+          }
+        })
+        .catch(err => {
+          console.error('Failed to check execution status after reconnect:', err);
+          // Start polling as fallback
+          if (!pollingIntervalRef.current) {
+            startPolling();
+          }
+        });
+    }
+
     // Cleanup
     return () => {
       wsOff('execution_progress', handleExecutionProgress);
     };
-  }, [executionId, isConnected, wsOn, wsOff]);
+  }, [executionId, isConnected, wsOn, wsOff, startPolling, stopPolling]);
 
   /**
    * Calculate progress percentage based on steps
@@ -150,56 +290,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
     }
   }, [progress, currentStep, status]);
 
-  /**
-   * Start polling as fallback (in case WebSocket fails)
-   */
-  const startPolling = useCallback(() => {
-    if (pollingIntervalRef.current) return;
-
-    pollingIntervalRef.current = setInterval(async () => {
-      if (!executionId) return;
-
-      try {
-        const statusData = await orchestratorAPI.getExecutionStatus(executionId);
-        
-        setStatus(statusData.status);
-        setProgressPercentage(statusData.progress_percentage || 0);
-        
-        if (statusData.current_step) {
-          setCurrentStep({
-            step: statusData.current_step,
-            nodeId: statusData.current_node
-          });
-        }
-
-        // Stop polling if execution is complete
-        if (['completed', 'failed', 'cancelled'].includes(statusData.status)) {
-          stopPolling();
-          
-          // Fetch final result
-          const detail = await orchestratorAPI.getExecutionDetail(executionId);
-          setResult(detail.final_result);
-          
-          if (statusData.status === 'failed') {
-            setError(statusData.error_message);
-          }
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    }, 2000); // Poll every 2 seconds
-  }, [executionId]);
-
-  /**
-   * Stop polling
-   */
-  const stopPolling = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-  }, []);
-
+  
   /**
    * Execute workflow (Workflow Builder condition)
    */

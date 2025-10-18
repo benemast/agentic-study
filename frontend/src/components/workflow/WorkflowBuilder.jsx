@@ -1,5 +1,5 @@
 // frontend/src/components/workflow/WorkflowBuilder.jsx
-import * as Sentry from "@sentry/react";
+import { captureException } from '../../config/sentry';
 
 import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import ReactFlow, {
@@ -518,17 +518,15 @@ const WorkflowBuilder = () => {
     } catch (error) {
       console.error('Failed to start workflow:', error);
       
-      Sentry.captureException(error, {
+      captureException(error, {
         tags: {
           error_type: 'workflow_execution_failed',
           component: 'WorkflowBuilder'
         },
         contexts: {
-          workflow: {
-            node_count: nodes.length,
-            edge_count: edges.length,
+            node_count: workflow?.nodes?.length,
+            edge_count: workflow?.edges?.length, 
             session_id: sessionId,
-          }
         }
       });
       
@@ -564,17 +562,15 @@ const WorkflowBuilder = () => {
     } catch (error) {
       console.error('Failed to save workflow:', error);
 
-      Sentry.captureException(error, {
+      captureException(error, {
         tags: {
           error_type: 'workflow_save_failed',
           component: 'WorkflowBuilder'
         },
         contexts: {
-          workflow: {
-            node_count: nodes.length,
-            edge_count: edges.length,
+            node_count: workflow?.nodes?.length,
+            edge_count: workflow?.edges?.length, 
             session_id: sessionId,
-          }
         }
       });
       

@@ -120,7 +120,8 @@ class WebSocketManager:
             'messages_sent': 0,
             'messages_received': 0,
             'connections_total': 0,
-            'errors_total': 0
+            'errors_total': 0,
+            'rate_limit_hits': 0
         }
         
         logger.info(
@@ -254,6 +255,20 @@ class WebSocketManager:
             self.queue_message(session_id, message)
             return
         
+        message_type = message.get('type')
+        has_request_id = 'request_id' in message
+        
+        is_response = (
+            message_type == 'response' or 
+            has_request_id or
+            message_type == 'batch_response' or
+            message_type == 'error'
+        )
+        
+        if is_response:
+            # Force immediate for responses
+            immediate = True
+            logger.debug(f"Response message detected, bypassing batch: {message_type}")
         # Use batching if enabled and not immediate
         if self.enable_batching and self.batch_manager and not immediate:
             await self.batch_manager.add_message(
@@ -321,22 +336,94 @@ class WebSocketManager:
             if not success:
                 self.pool.remove_connection(session_id, ws)
     
-    async def send_to_sessions(
-        self,
-        session_ids: List[str],
-        message: Dict[str, Any],
-        priority: str = 'normal'
-    ):
-        """Send same message to multiple sessions efficiently"""
-        tasks = []
-        for session_id in session_ids:
-            if self.is_connected(session_id):
-                tasks.append(
-                    self.send_to_session(session_id, message, priority)
-                )
+    # ==================== HANDLER ROUTING ====================
+    
+    def register_handler(self, message_type: str, handler: Callable):
+        """
+       Register a message handler
         
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        This is called by YOUR handlers.py: register_handlers()
+        """
+        self.handlers[message_type] = handler
+        logger.debug(f"Registered handler: {message_type}")
+    
+    def _check_rate_limit(self, session_id: str, max_requests: int = 100) -> bool:
+        """Check rate limits"""
+        now = time.time()
+        limits = self.rate_limits[session_id]
+        
+        if now > limits['reset_at']:
+            limits['count'] = 0
+            limits['reset_at'] = now + 60
+        
+        if limits['count'] >= max_requests:
+            return False
+        
+        limits['count'] += 1
+        return True
+    
+    async def handle_message(
+        self, 
+        session_id: str, 
+        message: dict, 
+        websocket: Optional[WebSocket] = None
+    ):
+        """
+       Route message to handler
+        
+        This is called by YOUR websocket.py router
+        """
+        # Check rate limit
+        if not self._check_rate_limit(session_id):
+            await self.send_to_session(session_id, {
+                'type': 'error',
+                'error': 'Rate limit exceeded',
+                'retry_after': 60
+            }, immediate=True)
+            return
+        
+        message_type = message.get('type')
+        
+        if not message_type:
+            await self.send_to_session(session_id, {
+                'type': 'error',
+                'error': 'Message type required'
+            }, immediate=True)
+            return
+        
+        handler = self.handlers.get(message_type)
+        
+        if not handler:
+            logger.warning(f"No handler for: {message_type}")
+            
+            # Send error if request_id present
+            request_id = message.get('request_id')
+            if request_id:
+                await self.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'error',
+                    'error': f'No handler for: {message_type}'
+                }, immediate=True)
+            return
+        
+        # Execute handler
+        try:
+            self.metrics['messages_received'] += 1
+            await handler(session_id, message)
+        except Exception as e:
+            logger.error(f"Handler error ({message_type}): {e}", exc_info=True)
+            self.metrics['errors_total'] += 1
+            
+            # Send error response if request_id present
+            request_id = message.get('request_id')
+            if request_id:
+                await self.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'error',
+                    'error': str(e)
+                }, immediate=True)
     
     # ==================== MESSAGE QUEUING ====================
     
@@ -360,26 +447,7 @@ class WebSocketManager:
         for message in messages:
             await self.send_to_session(session_id, message)
     
-    # ==================== RATE LIMITING ====================
-    
-    def _check_rate_limit(self, session_id: str) -> bool:
-        """Check if session has exceeded rate limit"""
-        now = time.time()
-        limit_info = self.rate_limits[session_id]
-        
-        # Reset counter if time window expired
-        if now > limit_info['reset_at']:
-            limit_info['count'] = 0
-            limit_info['reset_at'] = now + 60
-        
-        # Check limit
-        if limit_info['count'] >= self.rate_limit_max:
-            return False
-        
-        limit_info['count'] += 1
-        return True
-    
-    # ==================== CHANNEL SUBSCRIPTIONS ====================
+    # ==================== SUBSCRIPTIONS ====================
     
     def subscribe(self, session_id: str, channel: str):
         """Subscribe session to a channel"""
@@ -405,10 +473,14 @@ class WebSocketManager:
         ]
         
         if subscribers:
-            logger.debug(f"Broadcasting to {len(subscribers)} subscribers of {channel}")
-            await self.send_to_sessions(subscribers, message, priority)
+            tasks = [
+                self.send_to_session(sid, message, priority)
+                for sid in subscribers
+            ]
+            await asyncio.gather(*tasks, return_exceptions=True)
     
-    # ==================== HEALTH CHECKS ====================
+    # ==================== HEALTH & MONITORING ====================
+
     async def health_check(self) -> Dict[str, Any]:
         """Perform health check on all connections"""
         healthy = 0
@@ -535,7 +607,7 @@ class WebSocketManager:
             return await self.batch_manager.flush_all()
         return 0
     
-    # ==================== METRICS & MONITORING ====================
+    # ==================== METRICS  ====================
     
     def get_connection_count(self) -> int:
         """Get number of active connections"""

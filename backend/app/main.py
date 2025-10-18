@@ -9,8 +9,13 @@ from slowapi.errors import RateLimitExceeded
 import logging
 import traceback
 import sentry_sdk
+
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.openai import OpenAIIntegration
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
+from sentry_sdk.integrations.langchain import LangchainIntegration
+
 
 from app.config import settings
 from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket
@@ -31,10 +36,13 @@ if settings.sentry_dsn:
         dsn=settings.sentry_dsn,
         environment=settings.sentry_environment,
         traces_sample_rate=settings.sentry_traces_sample_rate,
-        profiles_sample_rate=0.1,
+        profiles_sample_rate=settings.sentry_profiles_sample_rate,
         integrations=[
             FastApiIntegration(),
             SqlalchemyIntegration(),
+            OpenAIIntegration(),
+            AsyncioIntegration(),
+            LangchainIntegration(),
         ],
         # Add user context automatically
         send_default_pii=False,  # Don't send PII by default (GDPR)

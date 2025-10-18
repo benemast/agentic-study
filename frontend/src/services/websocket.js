@@ -1,5 +1,5 @@
 // frontend/src/services/websocket.js
-import { API_CONFIG } from '../config/constants';
+import { API_CONFIG, SESSION_CONFIG } from '../config/constants';
 
 /**
  * Enhanced WebSocket Client with custom event system
@@ -346,6 +346,19 @@ class WebSocketClient {
   handleMessage(message) {
     const { type, request_id } = message;
     
+    // Clear heartbeat timeout when receiving ANY message
+    // This prevents timeout during active communication
+    if (this.heartbeatTimeout) {
+      clearTimeout(this.heartbeatTimeout);
+      this.heartbeatTimeout = null;
+    }
+
+    // Handle heartbeat response
+    if (type === 'heartbeat' ||type === 'heartbeat_ack' || type === 'pong') {
+      this.metrics.lastPongAt = Date.now();
+      return;
+    }
+
     // Handle request-response pattern
     if (type === 'response' && request_id) {
       const pending = this.pendingRequests.get(request_id);
@@ -368,16 +381,6 @@ class WebSocketClient {
         this.pendingRequests.delete(message.batch_id);
         return;
       }
-    }
-    
-    // Handle heartbeat
-    if (type === 'heartbeat_ack' || type === 'pong') {
-      this.lastPongTime = Date.now();
-      if (this.heartbeatTimeout) {
-        clearTimeout(this.heartbeatTimeout);
-        this.heartbeatTimeout = null;
-      }
-      return;
     }
     
     // Handle broadcasts for multi-tab sync
@@ -722,15 +725,21 @@ class WebSocketClient {
       if (this.isConnected) {
         this.send({ type: 'heartbeat' }).catch(console.error);
         
+        //  Clear any existing timeout first
+        if (this.heartbeatTimeout) {
+          clearTimeout(this.heartbeatTimeout);
+          this.heartbeatTimeout = null;
+        }
+                
         // Check for pong timeout
         this.heartbeatTimeout = setTimeout(() => {
-          console.warn('Heartbeat timeout, reconnecting...');
+          console.warn('Heartbeat timeout after {SESSION_CONFIG.HEARTBEAT_TIMEOUT / 1000 }s, reconnecting...');
           if (this.ws) {
             this.ws.close(4000, 'Heartbeat timeout');
           }
-        }, 5000);
+        }, SESSION_CONFIG.HEARTBEAT_TIMEOUT);
       }
-    }, this.pingInterval);
+    }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
   }
 
   /**

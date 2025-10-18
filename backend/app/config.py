@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-3.5-turbo"
     max_context_messages: int = 10
     default_max_tokens: int = 500
+    default_temperature: float = 0.7
     
     # Redis (Optional)
     redis_url: str = "redis://localhost:6379"
@@ -61,6 +62,7 @@ class Settings(BaseSettings):
     sentry_dsn: Optional[str] = None
     sentry_environment: str = "development"
     sentry_traces_sample_rate: float = 0.1  # 10% of transactions - can be between 0 and 1
+    sentry_profiles_sample_rate: float = 0.1
     
     class Config:
         env_file = ".env"

@@ -3,7 +3,7 @@
  * Hybrid API Client - Seamlessly uses WebSocket or REST
  * Provides transparent fallback and optimal performance
  */
-import * as Sentry from "@sentry/react";
+import { captureException, scrubData } from './sentry';
 import { API_CONFIG, ERROR_MESSAGES } from './constants';
 import wsClient from '../services/websocket';
 
@@ -44,7 +44,7 @@ class HttpClient {
           await response.json().catch(() => null)
         );
         
-        Sentry.captureException(error, {
+        captureException(error, {
           tags: {
             api_endpoint: endpoint,
             http_status: response.status,

@@ -1,5 +1,5 @@
 // frontend/src/components/AIChat.jsx
-import * as Sentry from "@sentry/react";
+import { captureException } from '../config/sentry';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Trash2, Loader2, Bot, User, Lock, Edit2, Check, X, Zap, MessageSquare } from 'lucide-react';
@@ -296,18 +296,18 @@ const AIChat = () => {
     } catch (err) {
       console.error('Chat error:', err);
       
-      Sentry.captureException(err, {
+      captureException(err, {
         tags: {
           error_type: 'chat_message_failed',
           component: 'AIChat',
           method: isWebSocketConnected ? 'websocket' : 'rest'
         },
         contexts: {
-          chat: {
-            message_length: userMessage.content.length,
-            session_id: sessionId,
-            model: AI_CONFIG.MODEL,
-          }
+          message_length: userMessage?.length,
+          history_count: messages?.length,
+          is_streaming: isStreaming,
+          session_id: sessionId,
+          condition: 'ai_assistant',
         }
       });
 
@@ -407,14 +407,18 @@ const AIChat = () => {
     } catch (err) {
       console.error('REST API error:', err);
 
-      Sentry.captureException(err, {
-        tags: { error_type: 'chat_message_failed', component: 'AIChat' },
+      captureException(err, {
+        tags: { 
+          error_type: 'chat_message_failed', 
+          component: 'AIChat' 
+        },
         contexts: {
-          chat: {
-            message_length: userMessage.content.length,
-            session_id: sessionId,
-            model: AI_CONFIG.MODEL,
-          }
+          message_length: userMessage?.length,
+          history_count: messages?.length,
+          is_streaming: isStreaming,
+          session_id: sessionId,
+          model: AI_CONFIG.MODEL,
+          condition: 'ai_assistant',
         }
       });
       
@@ -458,16 +462,17 @@ const AIChat = () => {
 
     } catch (error) {
       console.error('Failed to execute task:', error);
-      Sentry.captureException(error, {
+      captureException(error, {
         tags: {
           error_type: 'task_execution_failed',
           component: 'AIChat'
         },
         contexts: {
-          task: {
-            message_length: userMessage.content.length,
-            session_id: sessionId,
-          }
+          message_length: userMessage?.length,
+          history_count: messages?.length,
+          is_streaming: isStreaming,
+          session_id: sessionId,
+          condition: 'ai_assistant',
         }
       });
       

@@ -29,7 +29,8 @@ export const AI_CONFIG = {
 // Session Configuration
 export const SESSION_CONFIG = {
   AUTO_SAVE_INTERVAL: 30000, // 30 seconds
-  HEARTBEAT_INTERVAL: 60000, // 1 minute
+  HEARTBEAT_INTERVAL: 15000, // 15 seconds
+  HEARTBEAT_TIMEOUT: 60000, // 60 seconds
   INACTIVITY_WARNING: 300000, // 5 minutes
   SESSION_TIMEOUT: 3600000, // 1 hour
   SYNC_DEBOUNCE: 1000, // 1 second

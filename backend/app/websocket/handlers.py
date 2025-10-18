@@ -278,13 +278,54 @@ async def handle_chat_message(session_id: str, message: dict):
                 db.add(conversation)
                 db.flush()
             
+            """
+            class ChatMessage(Base):
+            
+            __tablename__ = "chat_messages"
+            
+            id = Column(Integer, primary_key=True, index=True)
+            session_id = Column(String, ForeignKey("sessions.session_id"), nullable=False, index=True)
+            
+            # Message content
+            role = Column(String(20), nullable=False)  # 'user', 'assistant', 'system'
+            content = Column(Text, nullable=False)
+            timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+            
+            # Message metadata
+            message_index = Column(Integer)  # Position in conversation
+            token_count = Column(Integer, nullable=True)
+            model_used = Column(String(50), nullable=True)  # e.g., 'gpt-4o-mini'
+            
+            # Performance metrics
+            response_time_ms = Column(Integer, nullable=True)  # For assistant messages
+            
+            # Additional context
+            message_metadata = Column(JSON, nullable=True)  # For future extensions (renamed from 'metadata')
+            
+            __table_args__ = (
+                {'mysql_engine': 'InnoDB'},
+            )
+            """
+
+
             # Save user message
             user_message = ChatMessage(
                 session_id=session_id,
-                conversation_id=conversation.id,
                 role='user',
                 content=message.get('content', ''),
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
+                message_index=conversation.message_count,
+                model_used=message.get('model_used', settings.llm_model),
+                message_metadata={
+                    'source': 'websocket',
+                    'request_id': message.get('request_id'),
+                    'context_length': len(message.get('messages', [])),
+                    'finish_reason': 'stop',
+                    'temperature': message.get('temperature', settings.default_temperature),
+                    'max_tokens': message.get('max_tokens', settings.default_max_tokens),
+                    'stream': message.get('stream', True),
+                    'estimated_tokens': max(1, int(len(message.get('content', '').split()) / 0.75))  # Rough token estimate
+                }
             )
             db.add(user_message)
             

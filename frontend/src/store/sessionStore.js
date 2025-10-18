@@ -4,7 +4,7 @@
  * Consolidates all state management in one place 
  * Automatically syncs with the backend via WebSocket when available
  */
-import * as Sentry from "@sentry/react";
+import { captureException } from '../config/sentry';
 
 import { create } from 'zustand';
 import { devtools, persist, subscribeWithSelector } from 'zustand/middleware';
@@ -185,11 +185,6 @@ const useSessionStore = create(
               sessionMetadata: await getSessionMetadata()
             });
 
-            Sentry.setUser({
-              id: sessionIdToUse,
-              participant_id: get().participantId || 'unknown',
-            });
-            
             // Connect WebSocket after session initialization
             const wsStore = useWebSocketStore.getState();
             if (!wsStore.isConnected() && !wsStore.connection.sessionId) {
@@ -247,10 +242,15 @@ const useSessionStore = create(
               wsStore.disconnect();
             } catch (error) {
               console.error('Failed to end session:', error);
-              Sentry.captureException(error);
+              captureException(error, {
+                  tags: {
+                    error_type: 'end_session_failed'
+                  },
+                  contexts: {
+                    session_id: sessionId
+                  }
+                });
             }
-
-            Sentry.setUser(null);
 
             // Cleanup
             set({
@@ -356,16 +356,14 @@ const useSessionStore = create(
                 console.error('Failed to track interaction:', error);
         
                 // Log interaction tracking failures
-                Sentry.captureException(error, {
+                captureException(error, {
                   tags: {
                     error_type: 'interaction_tracking_failed',
                     event_type: eventType
                   },
                   contexts: {
-                    session: {
-                      session_id: sessionId,
-                      event_type: eventType,
-                    }
+                    session_id: sessionId,
+                    event_type: eventType,
                   }
                 });
               }
@@ -701,7 +699,7 @@ const useSessionStore = create(
             console.error(`Session error (${context}):`, error);
             
             // Send to Sentry with context
-            Sentry.captureException(error, {
+            captureException(error, {
               tags: {
                 error_context: context,
                 session_id: get().sessionId,

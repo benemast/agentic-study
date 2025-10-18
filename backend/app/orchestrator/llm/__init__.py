@@ -11,12 +11,11 @@ Provides intelligent decision making for autonomous agent execution:
 
 from .client import LLMClient, llm_client
 from .tool_schemas import (
-    ToolName,
     ActionType,
     AgentDecision,
     ToolValidator,
     tool_validator,
-    TOOL_SCHEMAS
+    PARAMETER_SCHEMAS
 )
 from .decision_maker import DecisionMaker, decision_maker
 
@@ -26,12 +25,11 @@ __all__ = [
     'llm_client',
     
     # Schemas
-    'ToolName',
     'ActionType',
     'AgentDecision',
     'ToolValidator',
     'tool_validator',
-    'TOOL_SCHEMAS',
+    'PARAMETER_SCHEMAS',
     
     # Decision Maker
     'DecisionMaker',

@@ -7,23 +7,25 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
-import traceback
-import sentry_sdk
-
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-from sentry_sdk.integrations.openai import OpenAIIntegration
-from sentry_sdk.integrations.asyncio import AsyncioIntegration
-from sentry_sdk.integrations.langchain import LangchainIntegration
-
 
 from app.config import settings
+from app.logging_config import setup_logging
 from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket
 from app.database import create_tables, check_database_connection, get_database_info
+from app.websocket.handlers import register_handlers
 
+# Import Sentry configuration
+from app.sentry_config import (
+    init_sentry,
+    sentry_context_middleware,
+    sentry_exception_handler,
+    sentry_http_exception_handler,
+)
+
+setup_logging(debug=settings.debug)
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO if settings.debug else logging.WARNING,
+    level=logging.DEBUG if settings.debug else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
@@ -31,26 +33,8 @@ logger = logging.getLogger(__name__)
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address) if settings.rate_limit_enabled else None
 
-if settings.sentry_dsn:
-    sentry_sdk.init(
-        dsn=settings.sentry_dsn,
-        environment=settings.sentry_environment,
-        traces_sample_rate=settings.sentry_traces_sample_rate,
-        profiles_sample_rate=settings.sentry_profiles_sample_rate,
-        integrations=[
-            FastApiIntegration(),
-            SqlalchemyIntegration(),
-            OpenAIIntegration(),
-            AsyncioIntegration(),
-            LangchainIntegration(),
-        ],
-        # Add user context automatically
-        send_default_pii=False,  # Don't send PII by default (GDPR)
-        before_send=lambda event, hint: event,  # Can add custom filtering here
-    )
-    logger.info(f"✅ Sentry initialized for {settings.sentry_environment} environment")
-else:
-    logger.warning("⚠️  Sentry DSN not configured - error tracking disabled")
+# Initialize Sentry
+sentry_enabled = init_sentry(settings)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,6 +56,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database initialization failed: {e}")
         raise
 
+    # Register WebSocket handlers ONCE at startup
+    register_handlers()
+
     logger.info("Agentic Study API started successfully")
     yield
     
@@ -92,6 +79,10 @@ if limiter:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Add Sentry middleware (if enabled)
+if sentry_enabled:
+    app.middleware("http")(sentry_context_middleware)
+
 # CORS Configuration - MUST be added before routes
 app.add_middleware(
     CORSMiddleware,
@@ -104,7 +95,26 @@ app.add_middleware(
     max_age=3600,  # Cache preflight requests for 1 hour
 )
 
-# Add OPTIONS handler for all routes
+# ============================================================
+# ENHANCED EXCEPTION HANDLERS
+# ============================================================
+
+# Add Sentry exception handlers (only if enabled)
+if sentry_enabled:
+    app.add_exception_handler(Exception, sentry_exception_handler)
+    app.add_exception_handler(HTTPException, sentry_http_exception_handler)
+else:
+    # Fallback exception handlers without Sentry
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal server error"},
+        )
+
+
+# OPTIONS handler for CORS
 @app.options("/{rest_of_path:path}")
 async def preflight_handler(rest_of_path: str, request: Request):
     """Handle CORS preflight requests"""
@@ -118,38 +128,23 @@ async def preflight_handler(rest_of_path: str, request: Request):
         }
     )
 
-# Make sure exception handlers include CORS headers
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Catch-all exception handler with CORS - ensures headers are always present"""
-    logger.error(f"Unhandled exception: {exc}")
-    logger.error(traceback.format_exc())
-    
-    # Get origin from request or default to *
-    origin = request.headers.get("origin", "*")
-    
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "An error occurred",
-            "detail": str(exc) if settings.debug else "Please try again later"
-        },
-        headers={
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Expose-Headers": "*",
-        }
-    )
 
-# Register routers
+# Include routers
 app.include_router(sessions.router)
 app.include_router(demographics.router)
 app.include_router(ai_chat.router)
-app.include_router(sentry.router)
 app.include_router(orchestrator.router)
 app.include_router(websocket.router)
+app.include_router(sentry.router)
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "Agentic Study API",
+        "version": "2.0.0",
+        "status": "running"
+    }
 
 # Health check endpoint
 @app.get("/health")
@@ -161,6 +156,7 @@ async def health_check():
         "status": "healthy" if db_info.get("connected") else "unhealthy",
         "version": "2.0.0",
         "database": db_info,
+        "sentry_enabled": settings.sentry_dsn is not None,
         "cors_configured": True,
         "cors_origins": settings.get_cors_origins(),
         "rate_limiting": settings.rate_limit_enabled,

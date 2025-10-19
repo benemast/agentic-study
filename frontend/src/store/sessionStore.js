@@ -12,6 +12,8 @@ import { immer } from 'zustand/middleware/immer';
 
 import useWebSocketStore from './websocketStore';
 import wsClient from '../services/websocket';
+import { useChat } from '../hooks/useChat';
+
 import { sessionAPI, chatAPI, interactionAPI } from '../config/api';
 
 import { SESSION_CONFIG, TRACKING_EVENTS } from '../config/constants';
@@ -107,6 +109,14 @@ const useSessionStore = create(
           syncError: null,
           pendingChanges: [],
           _syncDebounceTimer: null,
+
+          // App lifecycle
+          appLifecycle: {
+            isVisible: true,
+            isOnline: true,
+            lastVisibilityChange: Date.now(),
+            lastOnlineChange: Date.now(),
+          },
                   
           // ========================================
           // INITIALIZATION
@@ -208,6 +218,41 @@ const useSessionStore = create(
           // ========================================
           // SESSION LIFECYCLE
           // ========================================
+          /**
+          * Update app visibility state
+          * Called by SessionInitializer on visibility change
+          * Other systems subscribe to this
+          */
+          setAppVisible: (isVisible) => {
+            set((state) => {
+              state.appLifecycle.isVisible = isVisible;
+              state.appLifecycle.lastVisibilityChange = Date.now();
+              if (isVisible) {
+                get().startAutoSync();
+              } else {
+                get().stopAutoSync();
+              }
+            });
+          },
+
+          /**
+          * Update app online state
+          * Could be called by connectionMonitor
+          */
+          setAppOnline: (isOnline) => {
+            set((state) => {
+              state.appLifecycle.isOnline = isOnline;
+              state.appLifecycle.lastOnlineChange = Date.now();
+            });
+          },
+        
+          /**
+           * Get app lifecycle state
+           * Useful for debugging
+           */
+          getAppLifecycle: () => {
+            return get().appLifecycle;
+          },
           
           endSession: async (reason = 'user_ended') => {
             const { sessionId } = get();
@@ -567,18 +612,36 @@ const useSessionStore = create(
           // ========================================
           
           syncSessionData: async (force = false) => {
-            const { sessionId, sessionData, pendingChanges, sessionMetadata } = get();
-            
-            if (!sessionId) return;
-            if (!force && pendingChanges.length === 0) return;
-            if (!force && get().syncStatus === 'syncing') return;
+            const { sessionId, sessionData, pendingChanges, sessionMetadata, connectionStatus } = get();
 
-            set((state) => {
-              state.syncStatus = 'syncing';
-            });
-
-            try {
+             try {
               const wsStore = useWebSocketStore.getState();
+
+              if (!sessionId) {
+                console.log('Sync skipped due to missing session ID');
+                return;
+              }
+              if (!(connectionStatus === 'online')) {
+                console.log('Sync skipped due to offline status');
+                return;
+              }
+              if (!force && pendingChanges.length === 0) {
+                console.log('Sync skipped due to no pending changes');
+                return;
+              }
+              if (!force && get().syncStatus === 'syncing') {
+                console.log('Sync skipped due to already syncing');
+                return;
+              }
+              if (wsStore.chat.isStreaming) {
+                console.log('Sync skipped due to active streaming');
+                return;
+              }
+                 
+
+              set((state) => {
+                state.syncStatus = 'syncing';
+              });          
               
               // Try WebSocket first, queue if not connected
               if (wsStore.isConnected()) {
@@ -720,11 +783,7 @@ const useSessionStore = create(
               connectionStatus: 'error'
             });
           },
-          
-          clearSessionError: () => {
-            set({ sessionError: null, connectionStatus: 'online' });
-          },
-          
+
           // ========================================
           // UTILITIES
           // ========================================
@@ -848,23 +907,6 @@ wsClient.on('session_synced', (data) => {
     });
   }
 });
-
-// Update connection status based on WebSocket
-let lastConnectionStatus = null;
-useWebSocketStore.subscribe(
-  (state) => state.connection.status,
-  (status) => {
-    const connectionStatus = 
-      status === 'connected' ? 'online' :
-      status === 'error' ? 'error' : 'offline';
-    
-    // Only update if actually changed
-    if (connectionStatus !== lastConnectionStatus) {
-      lastConnectionStatus = connectionStatus;
-      useSessionStore.setState({ connectionStatus });
-    }
-  }
-);
 
 export { useSessionStore };
 export default useSessionStore;

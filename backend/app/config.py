@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = False
-    
+
+    # WebSocket
+    heartbeat_timeout: int = 90  # seconds - consider connection dead after
+    session_timeout: int = 300   # 5 minutes - mark session inactive
+
     # CORS
     frontend_url: str = "http://localhost:5173"
     cors_origins: List[str] = [

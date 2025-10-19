@@ -146,27 +146,6 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
     </div>
   );
 };
-
-// Connection Status Component
-const ConnectionStatus = () => {
-  const { isHealthy, connectionStatus, syncStatus } = useSession();
-  
-  if (!connectionStatus || connectionStatus === 'online') return null;
-  
-  return (
-    <div className={`fixed top-0 left-0 right-0 z-50 px-4 py-2 text-center text-sm ${
-      connectionStatus === 'offline' ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'
-    }`}>
-      {connectionStatus === 'offline' ? (
-        <>⚠️ Working offline - Changes will sync when reconnected</>
-      ) : (
-        <>❌ Connection error - Please refresh the page</>
-      )}
-      {syncStatus === 'pending' && <span className="ml-2">(pending sync)</span>}
-    </div>
-  );
-};
-
 // Dashboard Component
 const Dashboard = () => {
   const { sessionId, participantId, isHealthy } = useSession();
@@ -368,10 +347,7 @@ const AppContent = () => {
   }
 
   return (
-    <>
-      {/* Connection Status Bar */}
-      <ConnectionStatus />
-      
+    <>      
       {/* Main Layout */}
       <div className="flex h-screen bg-gray-50">
         <Sidebar
@@ -392,11 +368,9 @@ const AppContent = () => {
 // Root App Component with Error Boundary and Session Initializer
 function App() {
   return (
-    <ErrorBoundary>
-      <SessionInitializer>
-        <AppContent />
-      </SessionInitializer>
-    </ErrorBoundary>
+    <SessionInitializer>
+      <AppContent />
+    </SessionInitializer>
   );
 }
 

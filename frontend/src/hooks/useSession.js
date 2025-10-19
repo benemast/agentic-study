@@ -55,19 +55,12 @@ export const useSession = () => {
     wsStatus === 'connected' &&
     wsIsHealthy;
   
-  // Connection status priority: websocket > session
-  const effectiveConnectionStatus = 
-    wsStatus === 'error' ? 'error' :
-    wsStatus === 'disconnected' ? 'offline' :
-    wsStatus === 'reconnecting' ? 'reconnecting' :
-    connectionStatus;
-  
   // Unified health object
   const sessionHealth = getSessionHealth();
   const health = {
     // Session health
     isActive,
-    connectionStatus: effectiveConnectionStatus,
+    connectionStatus: connectionStatus,
     hasError: !!(sessionError || wsError),
     error: sessionError || (wsError ? { message: wsError, context: 'websocket' } : null),
     
@@ -108,7 +101,7 @@ export const useSession = () => {
     lastActivity,
     
     // Status (unified view)
-    connectionStatus: effectiveConnectionStatus,
+    connectionStatus: connectionStatus,
     error: sessionError || (wsError ? { message: wsError, context: 'websocket' } : null),
     isHealthy: isFullyHealthy,
     

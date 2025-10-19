@@ -241,7 +241,10 @@ class WebSocketManager:
         
         With batching support for performance
         """
-        # Check rate limit
+        # Disable batching for streaming events
+        message_type = message.get('type', '')
+
+        # Only rate limit non-streaming messages
         if not self._check_rate_limit(session_id):
             logger.warning(f"Rate limit exceeded for session: {session_id}")
             self.metrics['rate_limit_hits'] += 1
@@ -260,15 +263,23 @@ class WebSocketManager:
         
         is_response = (
             message_type == 'response' or 
-            has_request_id or
             message_type == 'batch_response' or
-            message_type == 'error'
+            message_type == 'error' or
+            message_type == 'batch_error' or
+            has_request_id
         )
         
         if is_response:
             # Force immediate for responses
             immediate = True
             logger.debug(f"Response message detected, bypassing batch: {message_type}")
+
+
+        is_streaming = message_type in ['chat_stream', 'chat_complete', 'chat_error']
+        
+        if is_streaming:
+            immediate = True
+
         # Use batching if enabled and not immediate
         if self.enable_batching and self.batch_manager and not immediate:
             await self.batch_manager.add_message(
@@ -279,9 +290,16 @@ class WebSocketManager:
             )
         else:
             # Send immediately to first connection
+            connections = self.pool.get_connections(session_id)
+            
+            if not connections:
+                logger.warning(f"No connections for {session_id} when sending immediate")
+                return
+            
+            # Send to first connection
             websocket = connections[0]
             success = await self._send_direct(websocket, message)
-            
+                        
             if not success:
                 # Try other connections
                 for ws in connections[1:]:

@@ -29,11 +29,30 @@ export const AI_CONFIG = {
 // Session Configuration
 export const SESSION_CONFIG = {
   AUTO_SAVE_INTERVAL: 30000, // 30 seconds
-  HEARTBEAT_INTERVAL: 15000, // 15 seconds
+  HEARTBEAT_INTERVAL: 30000, // 15 seconds
   HEARTBEAT_TIMEOUT: 60000, // 60 seconds
   INACTIVITY_WARNING: 300000, // 5 minutes
   SESSION_TIMEOUT: 3600000, // 1 hour
   SYNC_DEBOUNCE: 1000, // 1 second
+};
+
+// WebSocket Configuration
+export const WEBSOCKET_CONFIG = {
+  HEARTBEAT_INTERVAL: 30000, // 30 seconds
+  HEARTBEAT_TIMEOUT: 10000, // 10 seconds
+  CONNECTION_TIMEOUT: 90000,  // Dead after 90s (3 missed beats)
+  HEALTH_CHECK_INTERVAL: 10000, // 10 seconds
+  HEALTH_CHECK_INITIAL_TIMEOUT: 5000, // 5 seconds
+  RECONNECT_DELAY: 1000, // Start with 1s
+  RECONNECT_MAX_DELAY: 30000, // Max 30s between attempts
+  MAX_RECONNECT_ATTEMPTS: 5,
+  RATE_LIMIT_WINDOW: 60000, // 1 minute
+  MAX_REQUESTS_PER_WINDOW: 100,
+  CACHE_EXPIRY: 5 * 60 * 1000, // 5 minutes
+  REQUEST_TIMEOUT: 30000, // 30 seconds
+  MAX_QUEUE_SIZE: 100,
+  BATCH_DELAY: 50, // 50ms batching window
+  MAX_BATCH_SIZE: 10,
 };
 
 // Workflow Builder Configuration

@@ -1,5 +1,5 @@
 // frontend/src/services/websocket.js
-import { API_CONFIG, SESSION_CONFIG } from '../config/constants';
+import { API_CONFIG, WEBSOCKET_CONFIG } from '../config/constants';
 
 /**
  * Enhanced WebSocket Client with custom event system
@@ -23,45 +23,32 @@ class WebSocketClient {
     this.isConnected = false;
     this.connectionPromise = null;
     
-    // Reconnection
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
-    this.reconnectDelay = 1000;
-    this.maxReconnectDelay = 30000;
-    this.reconnectTimer = null;
-    
     // Event handling
     this.eventHandlers = new Map();
     
     // Request tracking
     this.pendingRequests = new Map();
     this.requestCounter = 0;
-    this.requestTimeout = 10000; // 10 seconds default
+    this.requestTimeout = WEBSOCKET_CONFIG.REQUEST_TIMEOUT;
     
     // Message queue
     this.messageQueue = [];
-    this.maxQueueSize = 100;
-    
+    this.maxQueueSize = WEBSOCKET_CONFIG.MAX_QUEUE_SIZE;
+
     // Batch support
     this.batchQueue = [];
     this.batchTimer = null;
-    this.batchDelay = 50; // 50ms batching window
-    this.maxBatchSize = 10;
+    this.batchDelay = WEBSOCKET_CONFIG.BATCH_DELAY;
+    this.maxBatchSize = WEBSOCKET_CONFIG.MAX_BATCH_SIZE;
     
     // Rate limiting
-    this.rateLimitWindow = 60000; // 1 minute
-    this.maxRequestsPerWindow = 100;
+    this.rateLimitWindow = WEBSOCKET_CONFIG.RATE_LIMIT_WINDOW;
+    this.maxRequestsPerWindow = WEBSOCKET_CONFIG.MAX_REQUESTS_PER_WINDOW;
     this.requestTimestamps = [];
     
     // Caching
     this.cache = new Map();
-    this.cacheExpiry = 5 * 60 * 1000; // 5 minutes
-    
-    // Heartbeat
-    this.heartbeatInterval = null;
-    this.heartbeatTimeout = null;
-    this.lastPongTime = Date.now();
-    this.pingInterval = 30000; // 30 seconds
+    this.cacheExpiry = WEBSOCKET_CONFIG.CACHE_EXPIRY;
     
     // Metrics
     this.metrics = {
@@ -69,14 +56,11 @@ class WebSocketClient {
       messagesReceived: 0,
       errorsCount: 0,
       reconnectsCount: 0
-    };
-    
-    // Initialize
-    this.setupEventHandlers();
+    };    
   }
 
   // ============================================================
-  // CUSTOM EVENT SYSTEM (React-friendly)
+  // CUSTOM EVENT SYSTEM
   // ============================================================
   
   /**
@@ -90,62 +74,42 @@ class WebSocketClient {
       this.eventHandlers.set(eventType, []);
     }
     
-    this.eventHandlers.get(eventType).push(handler);
+    const handlers = this.eventHandlers.get(eventType);
+    handlers.push(handler);
     
-    // Return unsubscribe function (React useEffect cleanup pattern)
-    return () => this.off(eventType, handler);
+    // Return unsubscribe function
+    return () => {
+      const index = handlers.indexOf(handler);
+      if (index > -1) {
+        handlers.splice(index, 1);
+      }
+    };
   }
   
   /**
    * Unsubscribe from event
-   * @param {string} eventType - Event type to unsubscribe from
-   * @param {Function} handler - Event handler function to remove
+   * @param {string} eventType - Event type
+   * @param {Function} handler - Handler to remove
    */
   off(eventType, handler) {
-    if (!this.eventHandlers.has(eventType)) return;
-    
     const handlers = this.eventHandlers.get(eventType);
-    const index = handlers.indexOf(handler);
+    if (!handlers) return;
     
+    const index = handlers.indexOf(handler);
     if (index > -1) {
       handlers.splice(index, 1);
     }
-    
-    // Clean up empty arrays
-    if (handlers.length === 0) {
-      this.eventHandlers.delete(eventType);
-    }
   }
-  
-  /**
-   * Subscribe to event (fires once then unsubscribes)
-   * @param {string} eventType - Event type to subscribe to
-   * @param {Function} handler - Event handler function
-   * @returns {Function} Unsubscribe function
-   */
-  once(eventType, handler) {
-    const wrappedHandler = (data) => {
-      handler(data);
-      this.off(eventType, wrappedHandler);
-    };
-    
-    return this.on(eventType, wrappedHandler);
-  }
-  
-  /**
-   * Emit event to all registered handlers
+    /**
+   * Emit event to all subscribers
    * @param {string} eventType - Event type to emit
-   * @param {*} data - Data to pass to handlers
+   * @param {*} data - Event data
    */
   emit(eventType, data) {
-    if (!this.eventHandlers.has(eventType)) return;
-    
     const handlers = this.eventHandlers.get(eventType);
-    
-    // Create a copy to avoid issues if handlers modify the array
-    const handlersCopy = [...handlers];
-    
-    handlersCopy.forEach(handler => {
+    if (!handlers) return;
+
+    handlers.forEach(handler => {
       try {
         handler(data);
       } catch (err) {
@@ -177,54 +141,15 @@ class WebSocketClient {
   }
 
   // ============================================================
-  // LIFECYCLE SETUP
-  // ============================================================
-  
-  /**
-   * Setup internal event handlers
-   */
-  setupEventHandlers() {
-    // Clean up on page unload
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', () => {
-        this.disconnect();
-      });
-      
-      // Handle visibility changes
-      if (typeof document !== 'undefined') {
-        document.addEventListener('visibilitychange', () => {
-          if (document.hidden) {
-            this.stopHeartbeat();
-          } else if (this.isConnected) {
-            this.startHeartbeat();
-          }
-        });
-      }
-      
-      // Multi-tab synchronization via localStorage
-      window.addEventListener('storage', (e) => {
-        if (e.key === 'ws_broadcast') {
-          try {
-            const data = JSON.parse(e.newValue || '{}');
-            if (data.sessionId === this.sessionId && data.connectionId !== this.connectionId) {
-              this.emit('external_update', data);
-            }
-          } catch (err) {
-            console.error('Failed to parse storage event:', err);
-          }
-        }
-      });
-    }
-  }
-
-  // ============================================================
   // CONNECTION MANAGEMENT
   // ============================================================
   
   /**
    * Connect to WebSocket server
+   * @param {string} sessionId - Session ID to connect to
+   * @returns {Promise} Connection promise
    */
-  async connect(sessionId, options = {}) {
+  async connect(sessionId) {
     if (this.isConnected && this.sessionId === sessionId) {
       console.log('Already connected to session:', sessionId);
       return Promise.resolve();
@@ -248,14 +173,9 @@ class WebSocketClient {
         this.ws.onopen = () => {
           console.log('✅ WebSocket connected');
           this.isConnected = true;
-          this.reconnectAttempts = 0;
-          this.reconnectDelay = 1000;
           
           // Process queued messages
           this.processQueue();
-          
-          // Start heartbeat
-          this.startHeartbeat();
           
           // Emit connection event
           this.emit('connected', { sessionId, connectionId: this.connectionId });
@@ -284,7 +204,6 @@ class WebSocketClient {
         this.ws.onclose = (event) => {
           console.log('WebSocket closed:', event.code, event.reason);
           this.isConnected = false;
-          this.stopHeartbeat();
           
           // Clear pending requests
           this.pendingRequests.forEach(({ reject }) => {
@@ -293,11 +212,6 @@ class WebSocketClient {
           this.pendingRequests.clear();
           
           this.emit('disconnected', { code: event.code, reason: event.reason });
-          
-          // Auto-reconnect if not intentionally closed
-          if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.scheduleReconnect();
-          }
           
           this.connectionPromise = null;
           if (event.code !== 1000) {
@@ -320,15 +234,9 @@ class WebSocketClient {
    */
   disconnect() {
     console.log('Disconnecting WebSocket...');
-    
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    
+
     if (this.ws) {
       this.isConnected = false;
-      this.stopHeartbeat();
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
@@ -342,22 +250,10 @@ class WebSocketClient {
   
   /**
    * Handle incoming message
+   * @param {Object} message - Parsed message object
    */
   handleMessage(message) {
     const { type, request_id } = message;
-    
-    // Clear heartbeat timeout when receiving ANY message
-    // This prevents timeout during active communication
-    if (this.heartbeatTimeout) {
-      clearTimeout(this.heartbeatTimeout);
-      this.heartbeatTimeout = null;
-    }
-
-    // Handle heartbeat response
-    if (type === 'heartbeat' ||type === 'heartbeat_ack' || type === 'pong') {
-      this.metrics.lastPongAt = Date.now();
-      return;
-    }
 
     // Handle request-response pattern
     if (type === 'response' && request_id) {
@@ -383,11 +279,6 @@ class WebSocketClient {
       }
     }
     
-    // Handle broadcasts for multi-tab sync
-    if (type === 'chat_message_updated' || type === 'chat_cleared' || type === 'session_synced') {
-      this.broadcastToOtherTabs(message);
-    }
-    
     // Emit specific event type
     this.emit(type, message);
     
@@ -397,6 +288,9 @@ class WebSocketClient {
 
   /**
    * Send a message
+   * @param {Object} message - Message to send
+   * @param {Object} options - Send options
+   * @returns {Promise} Send promise
    */
   async send(message, options = {}) {
     // Check rate limit
@@ -404,47 +298,46 @@ class WebSocketClient {
       throw new Error('Rate limit exceeded. Please slow down.');
     }
     
-    // Queue if not connected
     if (!this.isConnected) {
-      if (options.queue !== false) {
-        this.queueMessage(message);
-        return;
-      }
-      throw new Error('WebSocket is not connected');
+      // Queue message for later
+      this.queueMessage(message);
+      return Promise.resolve({ queued: true });
     }
     
     try {
       this.ws.send(JSON.stringify(message));
       this.metrics.messagesSent++;
-    } catch (err) {
-      console.error('Failed to send message:', err);
+      return Promise.resolve({ sent: true });
+    } catch (error) {
+      console.error('Failed to send message:', error);
       this.metrics.errorsCount++;
-      
-      if (options.queue !== false) {
-        this.queueMessage(message);
-      }
-      throw err;
+      throw error;
     }
   }
 
   /**
-   * Make a request and wait for response
+   * Send request and wait for response
+   * @param {string} type - Request type
+   * @param {Object} data - Request data
+   * @param {Object} options - Request options (timeout, cache)
+   * @returns {Promise} Response promise
    */
   async request(type, data = {}, options = {}) {
-    const requestId = `req_${++this.requestCounter}_${Date.now()}`;
-    const timeout = options.timeout || this.requestTimeout;
+    const { timeout = this.requestTimeout, cache = false } = options;
     
-    // Check cache first
-    const cacheKey = `${type}:${JSON.stringify(data)}`;
-    if (options.cache !== false) {
-      const cached = this.getFromCache(cacheKey);
-      if (cached) {
-        return cached;
+    // Check cache
+    if (cache) {
+      const cacheKey = `${type}:${JSON.stringify(data)}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+        return cached.data;
       }
     }
     
+    const requestId = `req_${++this.requestCounter}_${Date.now()}`;
+    
     return new Promise((resolve, reject) => {
-      // Set timeout
+      // Setup timeout
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         reject(new Error(`Request timeout: ${type}`));
@@ -452,15 +345,13 @@ class WebSocketClient {
       
       // Store pending request
       this.pendingRequests.set(requestId, {
-        resolve: (result) => {
+        resolve: (data) => {
           clearTimeout(timer);
-          
-          // Cache result
-          if (options.cache !== false) {
-            this.setCache(cacheKey, result);
+          if (cache) {
+            const cacheKey = `${type}:${JSON.stringify(data)}`;
+            this.cache.set(cacheKey, { data, timestamp: Date.now() });
           }
-          
-          resolve(result);
+          resolve(data);
         },
         reject: (error) => {
           clearTimeout(timer);
@@ -477,185 +368,101 @@ class WebSocketClient {
     });
   }
 
-  /**
-   * Batch multiple requests
-   */
-  async batchRequest(requests, options = {}) {
-    if (!Array.isArray(requests) || requests.length === 0) {
-      throw new Error('Invalid batch request');
-    }
-    
-    const batchId = `batch_${++this.requestCounter}_${Date.now()}`;
-    const timeout = options.timeout || this.requestTimeout * 2;
-    
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(batchId);
-        reject(new Error('Batch request timeout'));
-      }, timeout);
-      
-      this.pendingRequests.set(batchId, {
-        resolve: (results) => {
-          clearTimeout(timer);
-          resolve(results);
-        },
-        reject: (error) => {
-          clearTimeout(timer);
-          reject(error);
-        }
-      });
-      
-      // Send batch request
-      this.send({
-        type: 'batch',
-        batch_id: batchId,
-        requests: requests.map(req => ({
-          ...req,
-          request_id: `${batchId}_${req.type}_${Date.now()}`
-        }))
-      }).catch(reject);
-    });
-  }
-
-  /**
-   * Queue a request for batching
-   */
-  queueForBatch(type, data = {}, options = {}) {
-    return new Promise((resolve, reject) => {
-      this.batchQueue.push({
-        type,
-        data,
-        options,
-        resolve,
-        reject
-      });
-      
-      // Process batch after delay
-      if (this.batchTimer) {
-        clearTimeout(this.batchTimer);
-      }
-      
-      this.batchTimer = setTimeout(() => {
-        this.processBatchQueue();
-      }, this.batchDelay);
-      
-      // Process immediately if batch is full
-      if (this.batchQueue.length >= this.maxBatchSize) {
-        clearTimeout(this.batchTimer);
-        this.processBatchQueue();
-      }
-    });
-  }
-
-  /**
-   * Process batch queue
-   */
-  async processBatchQueue() {
-    if (this.batchQueue.length === 0) return;
-    
-    const batch = this.batchQueue.splice(0, this.maxBatchSize);
-    
-    try {
-      const results = await this.batchRequest(
-        batch.map(item => ({
-          type: item.type,
-          ...item.data
-        }))
-      );
-      
-      // Resolve individual promises
-      batch.forEach((item, index) => {
-        if (results[index]) {
-          if (results[index].status === 'success') {
-            item.resolve(results[index].data);
-          } else {
-            item.reject(new Error(results[index].error));
-          }
-        }
-      });
-    } catch (err) {
-      // Reject all promises in batch
-      batch.forEach(item => item.reject(err));
-    }
-  }
-
   // ============================================================
-  // CACHE MANAGEMENT
+  // MESSAGE QUEUE
   // ============================================================
   
   /**
-   * Get from cache
-   */
-  getFromCache(key) {
-    const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
-      return cached.data;
-    }
-    this.cache.delete(key);
-    return null;
-  }
-
-  /**
-   * Set cache
-   */
-  setCache(key, data) {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
-    
-    // Limit cache size
-    if (this.cache.size > 100) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-  }
-
-  /**
-   * Clear cache
-   */
-  clearCache() {
-    this.cache.clear();
-  }
-
-  // ============================================================
-  // QUEUE MANAGEMENT
-  // ============================================================
-  
-  /**
-   * Queue message
+   * Queue message for later sending
+   * @param {Object} message - Message to queue
    */
   queueMessage(message) {
-    this.messageQueue.push({
-      ...message,
-      queued_at: Date.now()
-    });
-    
-    // Limit queue size
-    if (this.messageQueue.length > this.maxQueueSize) {
+    if (this.messageQueue.length >= this.maxQueueSize) {
+      console.warn('Message queue full, dropping oldest message');
       this.messageQueue.shift();
     }
+    
+    this.messageQueue.push({
+      ...message,
+      queuedAt: Date.now()
+    });
   }
-
+  
   /**
-   * Process message queue
+   * Process queued messages
+   * @returns {Promise} Process promise
    */
   async processQueue() {
-    if (this.messageQueue.length === 0) return;
+    if (!this.isConnected || this.messageQueue.length === 0) {
+      return;
+    }
     
     console.log(`Processing ${this.messageQueue.length} queued messages`);
     
-    while (this.messageQueue.length > 0) {
-      const message = this.messageQueue.shift();
+    const messages = [...this.messageQueue];
+    this.messageQueue = [];
+    
+    for (const message of messages) {
       try {
-        await this.send(message, { queue: false });
-      } catch (err) {
-        console.error('Failed to send queued message:', err);
-        // Re-queue on failure
-        this.messageQueue.unshift(message);
-        break;
+        await this.send(message);
+      } catch (error) {
+        console.error('Failed to send queued message:', error);
+        // Re-queue if failed
+        this.queueMessage(message);
       }
     }
+  }
+
+  // ============================================================
+  // BATCHING
+  // ============================================================
+  
+  /**
+   * Queue for batch sending
+   * @param {string} type - Message type
+   * @param {Object} data - Message data
+   * @returns {Promise} Batch promise
+   */
+  queueForBatch(type, data) {
+    this.batchQueue.push({ type, data, timestamp: Date.now() });
+    
+    // Auto-send if batch is full
+    if (this.batchQueue.length >= this.maxBatchSize) {
+      return this.flushBatch();
+    }
+    
+    // Schedule batch send
+    if (!this.batchTimer) {
+      this.batchTimer = setTimeout(() => {
+        this.flushBatch();
+      }, this.batchDelay);
+    }
+    
+    return Promise.resolve({ batched: true });
+  }
+  
+  /**
+   * Flush batch queue
+   * @returns {Promise} Flush promise
+   */
+  async flushBatch() {
+    if (this.batchTimer) {
+      clearTimeout(this.batchTimer);
+      this.batchTimer = null;
+    }
+    
+    if (this.batchQueue.length === 0) {
+      return;
+    }
+    
+    const batch = [...this.batchQueue];
+    this.batchQueue = [];
+    
+    return this.send({
+      type: 'batch',
+      batch_id: `batch_${Date.now()}`,
+      items: batch
+    });
   }
 
   // ============================================================
@@ -664,6 +471,7 @@ class WebSocketClient {
   
   /**
    * Check rate limit
+   * @returns {boolean} True if under limit
    */
   checkRateLimit() {
     const now = Date.now();
@@ -683,104 +491,24 @@ class WebSocketClient {
   }
 
   // ============================================================
-  // RECONNECTION
+  // CACHING
   // ============================================================
   
   /**
-   * Schedule reconnection
+   * Clear cache
+   * @param {string} pattern - Pattern to match (optional)
    */
-  scheduleReconnect() {
-    if (this.reconnectTimer) return;
-    
-    this.reconnectAttempts++;
-    this.metrics.reconnectsCount++;
-    
-    // Exponential backoff
-    this.reconnectDelay = Math.min(
-      this.reconnectDelay * 1.5,
-      this.maxReconnectDelay
-    );
-    
-    console.log(`Reconnecting in ${this.reconnectDelay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-    
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.sessionId) {
-        this.connect(this.sessionId);
-      }
-    }, this.reconnectDelay);
-  }
-
-  // ============================================================
-  // HEARTBEAT
-  // ============================================================
-  
-  /**
-   * Start heartbeat
-   */
-  startHeartbeat() {
-    this.stopHeartbeat();
-    
-    this.heartbeatInterval = setInterval(() => {
-      if (this.isConnected) {
-        this.send({ type: 'heartbeat' }).catch(console.error);
-        
-        //  Clear any existing timeout first
-        if (this.heartbeatTimeout) {
-          clearTimeout(this.heartbeatTimeout);
-          this.heartbeatTimeout = null;
+  clearCache(pattern) {
+    if (pattern) {
+      // Clear specific pattern
+      for (const key of this.cache.keys()) {
+        if (key.startsWith(pattern)) {
+          this.cache.delete(key);
         }
-                
-        // Check for pong timeout
-        this.heartbeatTimeout = setTimeout(() => {
-          console.warn('Heartbeat timeout after {SESSION_CONFIG.HEARTBEAT_TIMEOUT / 1000 }s, reconnecting...');
-          if (this.ws) {
-            this.ws.close(4000, 'Heartbeat timeout');
-          }
-        }, SESSION_CONFIG.HEARTBEAT_TIMEOUT);
       }
-    }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
-  }
-
-  /**
-   * Stop heartbeat
-   */
-  stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-    
-    if (this.heartbeatTimeout) {
-      clearTimeout(this.heartbeatTimeout);
-      this.heartbeatTimeout = null;
-    }
-  }
-
-  // ============================================================
-  // MULTI-TAB SYNCHRONIZATION
-  // ============================================================
-  
-  /**
-   * Broadcast to other tabs
-   */
-  broadcastToOtherTabs(data) {
-    if (typeof localStorage === 'undefined') return;
-    
-    try {
-      localStorage.setItem('ws_broadcast', JSON.stringify({
-        ...data,
-        sessionId: this.sessionId,
-        connectionId: this.connectionId,
-        timestamp: Date.now()
-      }));
-      
-      // Clean up after broadcast
-      setTimeout(() => {
-        localStorage.removeItem('ws_broadcast');
-      }, 100);
-    } catch (err) {
-      console.error('Failed to broadcast to other tabs:', err);
+    } else {
+      // Clear all
+      this.cache.clear();
     }
   }
 
@@ -790,6 +518,7 @@ class WebSocketClient {
   
   /**
    * Get client metrics
+   * @returns {Object} Metrics object
    */
   getMetrics() {
     return {
@@ -798,7 +527,6 @@ class WebSocketClient {
       queuedMessages: this.messageQueue.length,
       pendingRequests: this.pendingRequests.size,
       cacheSize: this.cache.size,
-      reconnectAttempts: this.reconnectAttempts,
       activeListeners: Array.from(this.eventHandlers.entries()).map(([event, handlers]) => ({
         event,
         count: handlers.length
@@ -842,7 +570,7 @@ class WebSocketClient {
   }
   
   async clearChat() {
-    this.clearCache(); // Clear cached history
+    this.clearCache('chat');
     return this.request('chat_clear');
   }
   

@@ -2,12 +2,18 @@
 /**
  * Handles session initialization and lifecycle management
  * Separated from SessionManager for better organization
+ * - Initialize session on mount
+ * - Detect lifecycle events (visibility, unload)
+ * - Update lifecycle state → Other systems react
+ * - Auto-save and sync management
+ * - Activity tracking
  */
 import React, { useEffect, useState, useRef } from 'react';
 import { useSession } from '../../hooks/useSession';
 import { useSessionStore } from '../../store/sessionStore';
 import { SESSION_CONFIG } from '../../config/constants';
 import { getSessionIdFromUrl } from '../../utils/sessionHelpers';
+import connectionMonitor from '../../services/connectionMonitor';
 
 import SessionStatusBar from './SessionStatusBar';
 
@@ -16,7 +22,7 @@ const SessionInitializer = ({ children }) => {
   const [initError, setInitError] = useState(null);
   const initRef = useRef(false);
   
-  const { initialize } = useSession();
+  const { initialize, connectionStatus } = useSession();
   
   // Store functions in refs to avoid re-running effects
   const quickSaveRef = useRef(useSessionStore.getState().quickSave);
@@ -30,7 +36,17 @@ const SessionInitializer = ({ children }) => {
     updateLastActivityRef.current = useSessionStore.getState().updateLastActivity;
   });
 
-  // Initialize session once on mount
+  // ========================================
+  // CONNECTION MONITOR INITIALIZATION
+  // ========================================
+  useEffect(() => {
+    connectionMonitor.start();
+    return () => connectionMonitor.stop();
+  }, []);
+
+  // ========================================
+  // SESSION INITIALIZATION
+  // ========================================
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -49,51 +65,27 @@ const SessionInitializer = ({ children }) => {
     initSession();
   }, [initialize]);
 
-  // Auto-save on page unload
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      quickSaveRef.current();
-    };
-
-    const handleUnload = () => {
-      quickSaveRef.current();
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('unload', handleUnload);
-    };
-  }, []);
-
-  // Periodic sync
-  useEffect(() => {
-    const syncInterval = setInterval(() => {
-      syncSessionDataRef.current();
-    }, SESSION_CONFIG.AUTO_SAVE_INTERVAL);
-
-    return () => clearInterval(syncInterval);
-  }, []);
-
-  // Heartbeat to update activity
-  useEffect(() => {
-    const heartbeatInterval = setInterval(() => {
-      updateLastActivityRef.current();
-    }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
-
-    return () => clearInterval(heartbeatInterval);
-  }, []);
-
-  // Page visibility tracking
+  // ========================================
+  // LIFECYCLE: Visibility Changes
+  // Detect event → Update state → Systems react
+  // ========================================
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        console.log('Page visible again');
+      const isVisible = !document.hidden;
+      
+      console.log(`📱 App ${isVisible ? 'visible' : 'hidden'}`);
+      
+      // Update application lifecycle state
+      // websocketStore and other systems subscribe to this
+      useSessionStore.getState().setAppVisible(isVisible);
+      
+      if (isVisible) {
+        // App became visible - update activity and force connection check
         updateLastActivityRef.current();
+        connectionMonitor.forceUpdate();
       } else {
-        console.log('Page hidden, quick saving...');
+        // App hidden - save session data
+        console.log('💾 App hidden - quick saving');
         quickSaveRef.current();
       }
     };
@@ -102,30 +94,41 @@ const SessionInitializer = ({ children }) => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // Online/offline handling
+  // ========================================
+  // LIFECYCLE: Page Unload
+  // ========================================
   useEffect(() => {
-    const handleOnline = () => {
-      console.log('Back online');
-      updateLastActivityRef.current();
-      useSessionStore.setState({ connectionStatus: 'online' });
-    };
-
-    const handleOffline = () => {
-      console.log('Gone offline');
+    const handleBeforeUnload = () => {
+      console.log('💾 Page unloading - final save');
       quickSaveRef.current();
-      useSessionStore.setState({ connectionStatus: 'offline' });
+      // Note: WebSocket cleanup happens automatically in websocketStore
     };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Loading state
+  // ========================================
+  // HEARTBEAT (Session activity tracking)
+  // Note: This is different from WebSocket heartbeat
+  // This tracks user activity for session timeout
+  // ========================================
+  useEffect(() => {
+    const heartbeatInterval = setInterval(() => {
+      updateLastActivityRef.current();
+      
+      // Optional: Log connection context for debugging
+      if (connectionStatus !== 'online') {
+        console.log('💓 User active but offline - changes queued for sync');
+      }
+    }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
+
+    return () => clearInterval(heartbeatInterval);
+  }, [connectionStatus]);
+
+  // ========================================
+  // LOADING STATE
+  // ========================================
   if (!isInitialized) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -144,7 +147,9 @@ const SessionInitializer = ({ children }) => {
     );
   }
 
-  // Error state
+  // ========================================
+  // ERROR STATE
+  // ========================================
   if (initError) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -169,7 +174,9 @@ const SessionInitializer = ({ children }) => {
     );
   }
 
-  // Success - render app with status bar
+  // ========================================
+  // SUCCESS - Render app with status bar
+  // ========================================
   return (
     <>
       <SessionStatusBar />

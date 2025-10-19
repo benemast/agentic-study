@@ -29,6 +29,8 @@ async def execute_workflow(
     Start workflow or agent execution
     
     Execution runs in background, use /execution/{id}/status to track progress
+    
+    Note: Real-time progress updates are sent via the main WebSocket endpoint at /ws/{session_id}
     """
     try:
         # Validate session exists
@@ -57,6 +59,8 @@ async def execute_workflow(
                     status_code=400,
                     detail="task_description is required for ai_assistant condition"
                 )
+        
+        # Create execution record
         execution = WorkflowExecution(
             session_id=request.session_id,
             condition=request.condition,
@@ -287,34 +291,3 @@ async def get_session_executions(
     except Exception as e:
         logger.exception(f"Error getting session executions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==================== WEBSOCKET ====================
-
-@router.websocket("/ws/execution/{session_id}")
-async def execution_websocket(websocket: WebSocket, session_id: str):
-    """
-    WebSocket for real-time execution progress updates
-    
-    Connect before starting execution to receive live updates
-    """
-    await orchestrator.websocket_manager.connect(session_id, websocket)
-    
-    try:
-        while True:
-            # Keep connection alive, handle client messages
-            data = await websocket.receive_text()
-            
-            # Handle client commands (pause, resume, etc.)
-            # For now, just echo
-            await websocket.send_json({
-                'type': 'echo',
-                'message': f'Received: {data}'
-            })
-            
-    except WebSocketDisconnect:
-        orchestrator.websocket_manager.disconnect(session_id)
-        logger.info(f"WebSocket disconnected: {session_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        orchestrator.websocket_manager.disconnect(session_id)

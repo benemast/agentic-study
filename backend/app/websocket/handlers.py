@@ -525,7 +525,7 @@ async def handle_chat_message(session_id: str, message: dict):
             # Flush to get ID before context closes
             db.flush()
             user_message_id = user_message.id
-            user_timestamp = parse_timestamp(user_message.timestamp)
+            user_timestamp = parse_timestamp(user_message.timestamp).isoformat()
             
         # Database context closed - user message committed ✅
         

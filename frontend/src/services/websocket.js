@@ -540,7 +540,15 @@ class WebSocketClient {
   
   // Session operations
   async updateSession(data) {
-    return this.request('session_update', { data });
+    return this.request('session_update', data);
+  }
+
+  async quickSaveSession(data) {
+    return this.request('session_quicksave', data);
+  }
+
+  async syncSession(data) {
+    return this.request('session_sync', data);
   }
   
   async getSession() {
@@ -548,7 +556,7 @@ class WebSocketClient {
   }
   
   async endSession(data = {}) {
-    return this.request('session_end', { data });
+    return this.request('session_end', data);
   }
   
   // Chat operations

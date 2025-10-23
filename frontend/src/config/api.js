@@ -252,9 +252,9 @@ export const API_ENDPOINTS = {
     get: (sessionId) => `/api/sessions/${sessionId}`,
     validate: (sessionId) => `/api/sessions/${sessionId}/validate`,
     update: (sessionId) => `/api/sessions/${sessionId}`,
-    end: (sessionId) => `/api/sessions/${sessionId}/end`,
     quickSave: (sessionId) => `/api/sessions/${sessionId}/quick-save`,
     sync: (sessionId) => `/api/sessions/${sessionId}/sync`,
+    end: (sessionId) => `/api/sessions/${sessionId}/end`,
   },
   interactions: {
     create: (sessionId) => `/api/sessions/${sessionId}/interactions`,
@@ -319,7 +319,7 @@ export const sessionAPI = {
   
   // Quick save uses WebSocket for speed
   quickSave: (sessionId, data) => hybridClient.request(
-    'session_sync',
+    'session_quicksave',
     () => wsClient.updateSession(data),
     () => hybridClient.http.post(API_ENDPOINTS.sessions.quickSave(sessionId), data)
   ),

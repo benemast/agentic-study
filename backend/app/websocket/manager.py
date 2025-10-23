@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from collections import defaultdict
 
+from app.config import settings
 from .batch_manager import ws_batch_manager, WebSocketBatchManager
 
 logger = logging.getLogger(__name__)
@@ -90,12 +91,14 @@ class WebSocketManager:
         
         # Message handlers for request-response pattern
         self.handlers: Dict[str, Callable] = {}
-        
+                
         # Message queue for offline sessions
         self.message_queue: Dict[str, List[dict]] = defaultdict(list)
         self.max_queue_size = 100
         
-        # Rate limiting
+
+        # Rate limiting - respect settings
+        self.rate_limit_enabled = settings.rate_limit_enabled
         self.rate_limits: Dict[str, dict] = defaultdict(
             lambda: {'count': 0, 'reset_at': time.time() + 60}
         )
@@ -126,7 +129,9 @@ class WebSocketManager:
         
         logger.info(
             f"WebSocketManager initialized "
-            f"(batching: {enable_batching}, pooling: enabled)"
+            f"(batching: {enable_batching}, "
+            f"rate_limit: {self.rate_limit_enabled})"
+
         )
     
     # ==================== CONNECTION MANAGEMENT ====================
@@ -245,20 +250,11 @@ class WebSocketManager:
         message_type = message.get('type', '')
 
         # Only rate limit non-streaming messages
-        if not self._check_rate_limit(session_id):
-            logger.warning(f"Rate limit exceeded for session: {session_id}")
-            self.metrics['rate_limit_hits'] += 1
-            return
-        
-        connections = self.pool.get_connections(session_id)
-        
-        if not connections:
-            # Queue message if no connections
-            logger.debug(f"No connections for {session_id}, queueing message")
-            self.queue_message(session_id, message)
-            return
-        
-        message_type = message.get('type')
+        is_streaming = message_type in ['chat_stream', 'chat_complete', 'chat_error']
+               
+        if is_streaming:
+            immediate = True
+
         has_request_id = 'request_id' in message
         
         is_response = (
@@ -275,10 +271,22 @@ class WebSocketManager:
             logger.debug(f"Response message detected, bypassing batch: {message_type}")
 
 
-        is_streaming = message_type in ['chat_stream', 'chat_complete', 'chat_error']
+        # Only rate limit non immediate (non-streaming, non-response) messages
+        if not immediate and self.rate_limit_enabled:
+            if not self._check_rate_limit(session_id):
+                logger.warning(f"Rate limit exceeded for session: {session_id}")
+                self.metrics['rate_limit_hits'] += 1
+                return
         
-        if is_streaming:
-            immediate = True
+        connections = self.pool.get_connections(session_id)
+        
+        if not connections:
+            # Queue message if no connections
+            logger.debug(f"No connections for {session_id}, queueing message")
+            self.queue_message(session_id, message)
+            return
+        
+        
 
         # Use batching if enabled and not immediate
         if self.enable_batching and self.batch_manager and not immediate:
@@ -365,18 +373,37 @@ class WebSocketManager:
         self.handlers[message_type] = handler
         logger.debug(f"Registered handler: {message_type}")
     
-    def _check_rate_limit(self, session_id: str, max_requests: int = 100) -> bool:
-        """Check rate limits"""
+    def _check_rate_limit(self, session_id: str, max_requests: int = None) -> bool:
+        """
+        Check rate limits
+        
+        Args:
+            session_id: Session to check
+            max_requests: Override default limit (optional)
+        
+        Returns:
+            True if under limit, False if exceeded
+        """
+        # If rate limiting is disabled globally, always pass
+        if not self.rate_limit_enabled:
+            return True
+        
+        # Use provided limit or default
+        limit = max_requests if max_requests is not None else self.rate_limit_max
+        
         now = time.time()
         limits = self.rate_limits[session_id]
         
+        # Reset counter if window expired
         if now > limits['reset_at']:
             limits['count'] = 0
             limits['reset_at'] = now + 60
-        
-        if limits['count'] >= max_requests:
+
+        # Check if over limit
+        if limits['count'] >= limit:
             return False
         
+        # Increment counter
         limits['count'] += 1
         return True
     
@@ -392,13 +419,14 @@ class WebSocketManager:
         This is called by YOUR websocket.py router
         """
         # Check rate limit
-        if not self._check_rate_limit(session_id):
-            await self.send_to_session(session_id, {
-                'type': 'error',
-                'error': 'Rate limit exceeded',
-                'retry_after': 60
-            }, immediate=True)
-            return
+        if self.rate_limit_enabled:
+            if not self._check_rate_limit(session_id):
+                await self.send_to_session(session_id, {
+                    'type': 'error',
+                    'error': 'Rate limit exceeded',
+                    'retry_after': 60
+                }, immediate=True)
+                return
         
         message_type = message.get('type')
         

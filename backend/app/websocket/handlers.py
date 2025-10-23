@@ -1,9 +1,11 @@
 # backend/app/websocket/handlers.py
 from datetime import datetime, timezone
+import time
 import logging
 import traceback
 import json
 from typing import Dict, Any, List
+from sqlalchemy import null
 from sqlalchemy.orm import Session
 import asyncio
 import httpx
@@ -319,6 +321,9 @@ async def handle_session_sync(session_id: str, message: dict):
             # Sync always means online
             session.connection_status = 'online'
             
+            if not session.study_group:
+                session.study_group = message.get('studyConfig', {}).get('group')
+
             # Update metadata if provided
             if 'metadata' in message:
                 current_metadata = session.session_metadata or {}
@@ -511,7 +516,7 @@ async def handle_chat_message(session_id: str, message: dict):
                     'finish_reason': 'stop',
                     'temperature': float(message.get('temperature', settings.default_temperature)),
                     'max_tokens': int(message.get('max_tokens', settings.default_max_tokens)),
-                    'stream': bool(message.get('stream', True)),
+                    'stream': bool(message.get('stream', settings.use_stream)),
                     'estimated_tokens': int(max(1, len(message.get('content', '').split()) // 0.75))
                 }
             )
@@ -562,21 +567,40 @@ async def handle_chat_message(session_id: str, message: dict):
         # ============================================================
         full_content = ''
         chunk_count = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        model_used = None
+        start_time = time.time()
+        response_time_ms = 0
         
         async with httpx.AsyncClient() as client:
             try:
+                # Build payload and set model-specific token key before making the request
+                payload = {
+                    "model": settings.llm_model,
+                    "messages": cleaned_context + [{"role": "user", "content": message.get('content', '')}],
+                    "stream": settings.use_stream,
+                    "stream_options": {
+                        "include_usage": settings.include_usage,
+                        "include_obfuscation": settings.include_obfuscation
+                    }
+                }
+
+                # Choose appropriate token parameter name depending on model capabilities
+                if settings.llm_model.startswith('gpt-4') or settings.llm_model.startswith('gpt-5'):
+                    payload["max_completion_tokens"] = settings.default_max_tokens
+                else:
+                    payload["max_tokens"] = settings.default_max_tokens
+                    payload["temperature"] = settings.default_temperature
+
                 response = await client.post(
                     settings.openai_api_url,
                     headers={
                         "Authorization": f"Bearer {settings.openai_api_key}",
                         "Content-Type": "application/json"
                     },
-                    json={
-                        "model": settings.llm_model,
-                        "messages": cleaned_context + [{"role": "user", "content": message.get('content', '')}],
-                        "stream": True,
-                        "max_tokens": settings.default_max_tokens
-                    },
+                    json=payload,
                     timeout=60.0
                 )
                 
@@ -595,12 +619,29 @@ async def handle_chat_message(session_id: str, message: dict):
                     data = line[6:]  # Remove 'data: ' prefix
                     
                     if data.strip() == '[DONE]':
-                        logger.info(f"✅ OpenAI streaming completed: {chunk_count} chunks, {len(full_content)} chars")
+                        response_time_ms = int((time.time() - start_time) * 1000)
+
+                        logger.info(
+                            f"✅ OpenAI streaming completed: {model_used}, {chunk_count} chunks, {len(full_content)} chars, "
+                            f"{prompt_tokens} prompt tokens, {completion_tokens} completion tokens, {total_tokens} total tokens"
+                        )
                         break
                     
                     try:
                         parsed = json.loads(data)
                         
+                        # Extract model (available in every chunk)
+                        if 'model' in parsed and not model_used:
+                            model_used = parsed['model']
+                        
+                        # Extract usage tokens (appears in dedicated chunk before [DONE])
+                        if 'usage' in parsed:
+                            usage = parsed['usage']
+                            if usage and usage != null:
+                                prompt_tokens = usage.get('prompt_tokens', 0)
+                                completion_tokens = usage.get('completion_tokens', 0)
+                                total_tokens = usage.get('total_tokens', 0)
+
                         if parsed.get('choices'):
                             delta = parsed['choices'][0].get('delta', {})
                             content = delta.get('content', '')
@@ -654,25 +695,6 @@ async def handle_chat_message(session_id: str, message: dict):
                 ChatConversation.session_id == session_id
             ).first()
             
-            """
-            session_id=session_id,
-                role='user',
-                content=message.get('content', ''),
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                message_index=conversation.message_count,
-                model_used=str(message.get('model_used', settings.llm_model)),
-                message_metadata={
-                    'source': 'websocket',
-                    'request_id': str(message.get('request_id', '')),
-                    'context_length': int(len(message.get('messages', []))),
-                    'finish_reason': 'stop',
-                    'temperature': float(message.get('temperature', settings.default_temperature)),
-                    'max_tokens': int(message.get('max_tokens', settings.default_max_tokens)),
-                    'stream': bool(message.get('stream', True)),
-                    'estimated_tokens': int(max(1, len(message.get('content', '').split()) // 0.75))
-                }
-            """
-
             # Save assistant message
             assistant_message = ChatMessage(
                 session_id=session_id,
@@ -680,18 +702,30 @@ async def handle_chat_message(session_id: str, message: dict):
                 content=full_content,
                 timestamp=datetime.now(timezone.utc),
                 message_index=conversation.message_count,
-                token_count= int(max(1, len(message.get('content', '').split()) // 0.75)),
+                token_count= completion_tokens or int(max(1, len(full_content).split() // 0.75)),
+                model_used=model_used or settings.llm_model,
+                response_time_ms=response_time_ms,
                 message_metadata={
                     'source': 'openai',
-                    'streamed': True,
-                    'model': settings.llm_model,
+                    'streamed': settings.use_stream ,
                     'chunks_received': chunk_count,
                     'temperature': float(message.get('temperature', settings.default_temperature)),
                     'max_tokens': int(message.get('max_tokens', settings.default_max_tokens)),
                 }
             )
             db.add(assistant_message)
-            
+
+            #update user message with actual token count and model used
+            user_msg = db.query(ChatMessage).filter(
+                ChatMessage.id == user_message_id,
+                ChatMessage.session_id == session_id
+            ).first()
+            if user_msg:
+                user_msg.model_used = model_used or user_msg.model_used
+                user_msg.token_count = prompt_tokens or user_msg.token_count
+
+                db.add(user_msg)
+                
             # Update conversation stats
             if conversation:
                 conversation.message_count += 1
@@ -794,14 +828,15 @@ async def handle_chat_message_update(session_id: str, message: dict):
 async def handle_chat_history_request(session_id: str, message: dict):
     """Get chat history via WebSocket with caching"""
     request_id = message.get('request_id')
-    limit = message.get('limit', 50)
+    limit = message.get('limit', None)
     offset = message.get('offset', 0)
     
     try:
         with get_db_context() as db:
             # Get messages with pagination
             messages = db.query(ChatMessage).filter(
-                ChatMessage.session_id == session_id
+                ChatMessage.session_id == session_id,
+                ChatMessage.deleted == False
             ).order_by(
                 ChatMessage.timestamp.desc()
             ).offset(offset).limit(limit).all()
@@ -856,7 +891,7 @@ async def handle_chat_clear(session_id: str, message: dict):
             # Delete all messages for session
             deleted_count = db.query(ChatMessage).filter(
                 ChatMessage.session_id == session_id
-            ).delete()
+            ).update({"deleted": True})
             
             # Reset conversation metadata
             conversation = db.query(ChatConversation).filter(

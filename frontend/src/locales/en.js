@@ -1,16 +1,100 @@
 // frontend/src/locales/en.js
 export const en = {
   common: {
-    navigation: {
-      previous: "Previous",
-      next: "Next"
-    },
     form: {
-      pleaseSelect: "Please select..."
+      pleaseSelect: 'Please select...',
+      required: 'This field is required',
+      optional: '(optional)'
     },
+    
     validation: {
-      required: "This field is required"
+      required: 'This field is required',
+      pleaseFillRequired: 'Please fill in all required fields before continuing',
+      invalidEmail: 'Please enter a valid email address',
+      minLength: 'Must be at least {{min}} characters',
+      maxLength: 'Must be at most {{max}} characters',
+      numberOnly: 'Please enter numbers only'
+    },
+    
+    navigation: {
+      previous: 'Previous',
+      next: 'Next',
+      continue: 'Continue',
+      back: 'Back',
+      submit: 'Submit',
+      cancel: 'Cancel',
+      save: 'Save',
+      close: 'Close'
     }
+  },
+  base:{
+    university: {
+      name: "Technical University of Darmstadt",
+      chair: "Chair of Information Systems | Software & AI Business"
+    }
+  },
+  footer: {
+    legalNote: {
+      label: "Legal note",
+      url: "https://www.tu-darmstadt.de/impressum/index.en.jsp"
+    },
+    note:"The study takes approximately 45-60 minutes. Your progress is automatically saved.",
+    contact: "For study questions or issues, please contact [EMAIL]"
+  },
+  // ========================================
+  // WELCOME SCREEN (NEW)
+  // ========================================
+  welcome: {
+    title: "Welcome to the User Study",
+    subtitle: "Research on Agentic AI Workflow Design",
+    description: "Help us understand how people interact and collaborate with different AI systems.",
+    
+    whatYouWillDo: {
+      title: "What to expect:",
+      explore: "Explore two different AI-powered work environments",
+      create: "Create workflows or work with an AI Assistant",
+      test: "Test and iterate on your solutions",
+      complete: "Share your experiences through brief surveys"
+    },
+    
+    duration: {
+      label: "Duration",
+      value: "45-60 minutes"
+    },
+
+    legalNote: {
+      lable: "Legal note"
+
+    },
+    
+    privacy: {
+      label: "Privacy",
+      value: "Anonymous & GDPR-compliant",
+      url: "https://www.tu-darmstadt.de/datenschutzerklaerung.en.jsp"
+    },
+    
+    privacyNotice: {
+      title: "Data Privacy Notice",
+      intro: "Your participation in this study is completely voluntary and anonymous. We collect the following data:",
+      data1: "Demographic information (without personal identifiers)",
+      data2: "Interaction patterns and usage behavior",
+      data3: "Workflow designs and feedback",
+      gdpr: "All data is processed in accordance with GDPR and used solely for research purposes. You can withdraw from the study at any time without providing reasons.",
+      viewFull: "View full privacy policy"
+    },
+
+    privacyModal: {
+      title: "Privacy Policy",
+      content: "Detailed information about data protection can be found in our full privacy policy at: ",
+      close: "Close"
+    },
+    
+    consent: {
+      title: "I consent to participate",
+      text: "I have read and understood the study information and privacy notice. I voluntarily participate in this study and know that I can withdraw at any time without providing reasons."
+    },
+    
+    continue: "Continue to Study"
   },
   workflow: {
     builder: {
@@ -27,7 +111,7 @@ export const en = {
         output: "output"
       },
       nodes: {
-        gatherData: "Gather Data",
+        loadData: "Load Data",
         filterData: "Filter Data",
         cleanData: "Clean Data",
         sortData: "Sort Data",
@@ -111,43 +195,23 @@ export const en = {
     }
   },
   demographics: {
-    welcome: {
-      title: "Welcome to the Agentic AI Study",
-      subtitle: "Research on Agentic AI Workflow Design",
-      description: "Welcome! You're participating in a research study exploring how people design and interact with agentic AI workflows using visual tools.",
-      whatYouWillDo: {
-        title: "What you'll do:",
-        explore: "Explore our visual workflow builder interface",
-        create: "Create AI agent workflows for various scenarios",
-        test: "Test and iterate on your workflow designs",
-        complete: "Complete tasks and provide feedback"
-      },
-      studyDetails: {
-        title: "Study details:",
-        duration: {
-          label: "Duration:",
-          value: "30-60 minutes (work at your own pace)"
-        },
-        privacy: {
-          label: "Privacy:",
-          value: "Anonymous - no personal identifiers collected"
-        },
-        data: {
-          label: "Data:",
-          value: "Only interaction patterns and workflow designs"
-        },
-        resumable: {
-          label: "Resumable:",
-          value: "Save your progress and continue later"
-        }
-      },
-      beforeWeBegin: {
-        title: "Before we begin:",
-        description: "We'll ask a few quick questions about your background to help us understand our participants better. This helps us analyze how different experience levels approach agentic AI design."
-      }
+    progress: {
+      step: 'Step {{current}} of {{total}}',
+      complete: 'complete'
     },
+    
+    navigation: {
+      readyToStart: 'Ready to start?',
+      continueWhenReady: 'Continue when ready',
+      almostDone: 'Almost done!',
+      completeAndContinue: 'Complete & Continue'
+    },
+    
+    privacyNote: 'All responses are anonymous and will be used for research purposes only. You can skip any optional questions you prefer not to answer.',
+    
     basicInfo: {
       title: "Basic Information",
+      description: 'Tell us a bit about yourself',
       age: {
         label: "Age Range",
         preferNotToSay: "Prefer not to say"
@@ -176,91 +240,109 @@ export const en = {
       occupation: {
         label: "Current Occupation / Field",
         placeholder: "e.g., Software Engineer, Student, Researcher, etc."
+      },
+      country: {
+        label: 'Country/Region (optional)',
+        placeholder: 'e.g., Germany, United States, Brazil, etc.'
+      },
+      
+      firstLanguage: {
+        label: 'Native Language (optional)',
+        placeholder: 'e.g., German, English, Spanish, Mandarin, etc.'
       }
     },
     technicalBackground: {
-      title: "Technical Background",
+      title: 'Technical Background',
+      description: 'Help us understand your technical experience',
+      
       programming: {
-        label: "Programming Experience",
-        none: "No programming experience",
-        beginner: "Beginner (< 1 year)",
-        intermediate: "Intermediate (1-3 years)",
-        advanced: "Advanced (3-7 years)",
-        expert: "Expert (7+ years)"
+        label: 'Programming Experience',
+        none: 'No programming experience',
+        beginner: 'Beginner (< 1 year)',
+        intermediate: 'Intermediate (1-3 years)',
+        advanced: 'Advanced (3-7 years)',
+        expert: 'Expert (7+ years)'
       },
+      
       aiMl: {
-        label: "AI/ML Experience",
-        none: "No AI/ML experience",
-        beginner: "Beginner - some exposure/learning",
-        intermediate: "Intermediate - built some AI/ML projects",
-        advanced: "Advanced - professional AI/ML work",
-        expert: "Expert - AI/ML specialist/researcher"
+        label: 'AI/ML Experience',
+        none: 'No AI/ML experience',
+        beginner: 'Beginner - some exposure/learning',
+        intermediate: 'Intermediate - built some AI/ML projects',
+        advanced: 'Advanced - professional AI/ML work',
+        expert: 'Expert - AI/ML specialist/researcher'
       },
+      
       workflowTools: {
-        label: "Workflow/Automation Tools Used (select all that apply)",
-        none: "None of these",
-        other: "Other (please specify in comments)"
+        label: 'Workflow/Automation Tools Used (select all that apply)',
+        other: 'Other',
+        none: 'None of these'
       },
+      
       technicalRole: {
-        label: "Best Describes Your Technical Role",
+        label: 'Best Describes Your Technical Role',
+
         developer: "Software Developer/Engineer",
+        devopsEngineer: 'DevOps Engineer',
         dataScientist: "Data Scientist/Analyst",
         researcher: "Academic/Industry Researcher",
-        productManager: "Product Manager",
+        proManager: 'Product/Project Manager',
         designer: "UX/UI Designer",
-        student: "Student",
-        businessAnalyst: "Business Analyst",
-        consultant: "Consultant",
-        other: "Other",
-        nonTechnical: "Non-technical role"
-      }
-    },
-    studyContext: {
-      title: "Study Context",
-      motivation: {
-        label: "What motivated you to participate in this study?",
-        placeholder: "e.g., Interest in AI, research participation, learning about workflow tools..."
+        student: 'Student',
+        businessAnalyst: 'Business Analyst',
+        qaEngineer: 'QA/Test Engineer',
+        systemArchitect: 'System/Solution Architect',
+        consultant: 'Consultant',
+        entrepreneur: 'Entrepreneur/Founder',
+        otherTechnical: 'Other Technical Role',
+        nonTechnical: 'Non-technical Role'
       },
-      expectations: {
-        label: "What do you hope to learn or experience?",
-        placeholder: "Your expectations about the study and workflow builder..."
-      },
-      timeAvailability: {
-        label: "How much time do you have available today?",
-        short: "15-30 minutes",
-        medium: "30-45 minutes",
-        long: "45-60 minutes",
-        veryLong: "More than 60 minutes",
-        flexible: "Flexible - I can pause and resume"
-      }
-    },
-    optionalInfo: {
-      title: "Optional Information",
-      country: {
-        label: "Country/Region (optional)",
-        placeholder: "e.g., United States, Germany, etc."
-      },
-      firstLanguage: {
-        label: "First Language (optional)",
-        placeholder: "e.g., English, Spanish, Mandarin, etc."
-      },
+      
       comments: {
-        label: "Additional Comments (optional)",
-        placeholder: "Any other information you'd like to share or questions about the study..."
+        label: 'Additional Comments (optional)',
+        placeholder: 'Any other information you would like to share, or questions about the study...'
       }
     },
-    progress: {
-      step: "Step {{current}} of {{total}}",
-      complete: "complete"
+    opstudyContext: {
+      title: 'Study Context',
+      
+      motivation: {
+        label: 'What motivated you to participate in this study?',
+        placeholder: 'e.g., Interest in AI, research participation, learning about workflow tools...'
+      },
+      
+      expectations: {
+        label: 'What do you hope to learn or experience?',
+        placeholder: 'Your expectations about the study and workflow builder...'
+      },
+      
+      timeAvailability: {
+        label: 'How much time do you have available today?',
+        short: '15-30 minutes',
+        medium: '30-45 minutes',
+        long: '45-60 minutes',
+        veryLong: 'More than 60 minutes',
+        flexible: 'Flexible - I can pause and continue later'
+      }
     },
-    navigation: {
-      readyToStart: "Ready to get started?",
-      continueWhenReady: "Continue when ready",
-      almostDone: "Almost done!",
-      submitting: "Submitting...",
-      completeAndContinue: "Complete & Continue",
-      startQuestionnaire: "Start Questionnaire"
-    },
-    privacyNote: "All responses are anonymous and used solely for research purposes. You can skip any optional questions you prefer not to answer."
+    
+    optionalInfo: {
+      title: 'Optional Information',
+      
+      country: {
+        label: 'Country/Region (optional)',
+        placeholder: 'e.g., Germany, United States, etc.'
+      },
+      
+      firstLanguage: {
+        label: 'Native Language (optional)',
+        placeholder: 'e.g., German, English, Spanish, etc.'
+      },
+      
+      comments: {
+        label: 'Additional Comments (optional)',
+        placeholder: 'Any other information you would like to share, or questions about the study...'
+      }
+    }
   }
 };

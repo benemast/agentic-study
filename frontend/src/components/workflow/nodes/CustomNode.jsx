@@ -2,7 +2,7 @@
 import React, { memo, useCallback, useMemo } from 'react';
 import { Position } from 'reactflow';
 import NodeHandle from './NodeHandle';
-import { renderIcon, ICONS } from '../../constants/icons';
+import { renderIcon, ICONS } from '../../../constants/icons';
 
 const CustomNode = memo(({ data, selected, id, nodes }) => {
   const { 

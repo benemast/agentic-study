@@ -12,8 +12,8 @@ export const TAILWIND_COLORS = {
 // including id, label, type, icon, color, category, and connection limits
 export const NODE_TEMPLATES = [
   {
-    id: 'gather-data',
-    label: 'Gather Data',
+    id: 'load-data',
+    label: 'Load Data',
     type: 'Data Input',
     icon: 'Database',
     color: 'bg-blue-500',
@@ -22,30 +22,6 @@ export const NODE_TEMPLATES = [
     hasOutput: 1,
     maxInputConnections: 0,
     maxOutputConnections: 3
-  },
-  {
-    id: 'logic-if', 
-    label: 'Logic If',
-    type: 'Conditional',
-    icon: 'Split',
-    color: 'bg-yellow-500',
-    category: 'logic',
-    hasInput: 1,
-    hasOutput: 2,
-    maxInputConnections: 1,
-    maxOutputConnections: 1
-  },
-  {
-    id: 'combine-data', 
-    label: 'Combine Data',
-    type: 'Conditional',
-    icon: 'Merge',
-    color: 'bg-yellow-500',
-    category: 'logic',
-    hasInput: 2,
-    hasOutput: 1,
-    maxInputConnections: 1,
-    maxOutputConnections: 1
   },
   {
     id: 'sort-data',
@@ -86,7 +62,7 @@ export const NODE_TEMPLATES = [
   {
     id: 'sentiment-analysis',
     label: 'Sentiment Analysis',
-    type: 'Analysis', 
+    type: 'AI Operation', 
     icon: 'BarChart3',
     color: 'bg-purple-500',
     category: 'analysis',
@@ -118,5 +94,29 @@ export const NODE_TEMPLATES = [
     hasOutput: 0,
     maxInputConnections: 1,
     maxOutputConnections: 0
+  },
+  {
+    id: 'logic-if', 
+    label: 'Logic If',
+    type: 'Conditional',
+    icon: 'Split',
+    color: 'bg-yellow-500',
+    category: 'logic',
+    hasInput: 1,
+    hasOutput: 2,
+    maxInputConnections: 1,
+    maxOutputConnections: 1
+  },
+  {
+    id: 'combine-data', 
+    label: 'Combine Data',
+    type: 'Conditional',
+    icon: 'Merge',
+    color: 'bg-yellow-500',
+    category: 'logic',
+    hasInput: 2,
+    hasOutput: 1,
+    maxInputConnections: 1,
+    maxOutputConnections: 1
   }
 ];

@@ -1,14 +1,11 @@
-// frontend/src/App.jsx - COMPLETE Refactored Version
-import * as Sentry from "@sentry/react";
-
+// frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 
 // Components
-import SessionInitializer from './components/session/SessionInitializer';
-import DemographicsQuestionnaire from './components/DemographicsQuestionnaire';
+import DemographicsQuestionnaire from './components/study/DemographicsQuestionnaire.jsx';
 import WorkflowBuilder from './components/workflow/WorkflowBuilder';
-import AIChat from './components/AIChat';
+import AIChat from './components/assistant/AIChat';
 import LanguageSwitcher from './components/LanguageSwitcher';
 
 // Hooks
@@ -368,32 +365,8 @@ const AppContent = () => {
 // Root App Component with Error Boundary and Session Initializer
 function App() {
   return (
-    <SessionInitializer>
       <AppContent />
-    </SessionInitializer>
   );
 }
 
-const SentryApp = Sentry.withErrorBoundary(App, {
-  fallback: ({ error, componentStack, resetError }) => (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
-        <h2 className="text-xl font-bold text-red-600 mb-4">
-          Something went wrong
-        </h2>
-        <p className="text-gray-600 mb-4">
-          The application encountered an error. We've been notified and will fix it soon.
-        </p>
-        <button
-          onClick={resetError}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Try Again
-        </button>
-      </div>
-    </div>
-  ),
-  showDialog: false,
-});
-
-export default SentryApp;
+export default App;

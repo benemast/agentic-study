@@ -1,21 +1,22 @@
-// frontend/src/components/AIChat.jsx
-import { captureException } from '../config/sentry';
+// frontend/src/components/assistant/AIChat.jsx
+import { captureException } from '../../config/sentry';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Trash2, Loader2, Bot, User, Lock, Edit2, Check, X, Zap, MessageSquare } from 'lucide-react';
 
-import ExecutionProgress from './ExecutionProgress';
+import StreamingMessage from './StreamingMessage';
+import ExecutionProgress from '../ExecutionProgress';
 
 // Hooks
-import { useSession } from '../hooks/useSession';
-import { useChat } from '../hooks/useChat';
-import { useWebSocket } from '../hooks/useWebSocket';
-import { useTracking } from '../hooks/useTracking';
-import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
+import { useSession } from '../../hooks/useSession';
+import { useChat } from '../../hooks/useChat';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import { useTracking } from '../../hooks/useTracking';
+import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
 
 // Config
-import { chatAPI } from '../config/api';
-import { AI_CONFIG, ERROR_MESSAGES } from '../config/constants';
+import { chatAPI } from '../../config/api';
+import { AI_CONFIG, ERROR_MESSAGES } from '../../config/constants';
 
 const AIChat = () => {
   // ========================================
@@ -131,14 +132,9 @@ const AIChat = () => {
 
     // Listen for streaming chunks
     const unsubStream = currentWsOn('chat_stream', (data) => {
-      const fullContent = data.full_content || '';
-
-      if (streamingMessageIndexRef.current !== null) {
-        updateMessageRef.current(streamingMessageIndexRef.current, {
-          content: fullContent,
-          isStreaming: true
-        });
-      }
+      // The store handles this automatically now
+      // streamingContent gets updated by websocketStore.js
+      // No manual updates needed here!
     });
     
     // Listen for completion
@@ -166,10 +162,14 @@ const AIChat = () => {
     const unsubError = currentWsOn('chat_error', (data) => {
       console.error('Chat WebSocket error:', data.error);
       setError(data.error || 'Chat error occurred');
+      
+      // Reset streaming state
       setLocalIsStreaming(false);
       setLocalStreamingContent('');
-      setIsLoading(false);
       streamingMessageIndexRef.current = null;
+      setIsLoading(false);
+      
+      trackError('chat_websocket_error', data.error);
     });
     
     // Cleanup
@@ -267,6 +267,8 @@ const AIChat = () => {
     setInput('');
     setIsLoading(true);
     setError(null);
+    
+    // Reset streaming state
 
     trackMessageSent(userMessage.content.length);
 
@@ -762,14 +764,30 @@ const AIChat = () => {
                               : 'bg-white text-gray-900 border border-gray-200'
                           }`}
                         >
-                          <p className="whitespace-pre-wrap break-words">
-                            {message.content}
-                            {message.isStreaming && (
-                              <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-1 align-middle" />
-                            )}
-                          </p>
+                          {/* USE StreamingMessage for smooth display */}
+                          {message.role === 'assistant' ? (
+                            message.isStreaming ? (
+                              // DURING STREAMING: Use streamingContent from store, not message.content
+                              <StreamingMessage
+                                content={streamingContent}  // ← From WebSocket store (updates smoothly)
+                                isStreaming={true}
+                              />
+                            ) : (
+                              // AFTER STREAMING: Use actual message content
+                              <StreamingMessage
+                                content={message.content}   // ← From messages array (final content)
+                                isStreaming={false}
+                              />
+                            )
+                          ) : (
+                            // User messages - no streaming needed
+                            <p className="whitespace-pre-wrap break-words">
+                              {message.content}
+                            </p>
+                          )}
                         </div>
                         
+                        {/* Edit button for user messages */}                        
                         {message.role === 'user' && !isStreaming && !isLoading && !isExecuting && (
                           <button
                             onClick={() => startEdit(idx)}
@@ -783,7 +801,7 @@ const AIChat = () => {
                     )}
                     
                     {/* Edited indicator */}
-                    {message.edited && !message.isStreaming && (
+                    {message.role === 'user' && message.edited && !message.isStreaming && (
                       <span className="text-xs text-gray-400 italic px-1">
                         (edited)
                       </span>

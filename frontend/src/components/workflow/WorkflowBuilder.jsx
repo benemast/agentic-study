@@ -15,8 +15,8 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 // Components
-import CustomNode from '../nodes/CustomNode';
-import NodeEditor from '../nodes/NodeEditor';
+import CustomNode from './nodes/CustomNode';
+import NodeEditor from './nodes/NodeEditor';
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
 import LanguageSwitcher from '../LanguageSwitcher';
@@ -548,7 +548,7 @@ const WorkflowBuilder = () => {
       // Update via useSessionData hook
       updateWorkflow({ nodes, edges });
       
-      await sessionAPI.quickSave(sessionId, {
+      await sessionAPI.update(sessionId, {
         workflow: { nodes, edges },
         timestamp: new Date().toISOString()
       });

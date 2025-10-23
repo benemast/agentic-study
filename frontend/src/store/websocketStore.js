@@ -470,44 +470,27 @@ const useWebSocketStore = create(
           setStreamingContent: (content, isComplete = false) => {
             set((state) => {
               if (isComplete) {
-                // Find and update the existing streaming message
+                // Find the streaming message
                 const streamingMessageIndex = state.chat.messages.findIndex(
                   m => m.role === 'assistant' && m.isStreaming
                 );
                 
                 if (streamingMessageIndex !== -1) {
-                  // Update the existing message
+                  // FINAL UPDATE: Update the actual message
                   state.chat.messages[streamingMessageIndex] = {
                     ...state.chat.messages[streamingMessageIndex],
                     content,
                     isStreaming: false,
                     timestamp: Date.now(),
                   };
-                } else {
-                  // Fallback: add new message if no streaming message found
-                  state.chat.messages.push({
-                    id: Date.now(),
-                    role: 'assistant',
-                    content,
-                    timestamp: Date.now(),
-                  });
                 }
                 
                 state.chat.isStreaming = false;
                 state.chat.streamingContent = '';
               } else {
-                // During streaming: update both streamingContent AND the message
+                // DURING STREAMING: Only update streamingContent, NOT the message!
                 state.chat.isStreaming = true;
-                state.chat.streamingContent = content;
-                
-                // Also update the streaming message in real-time
-                const streamingMessageIndex = state.chat.messages.findIndex(
-                  m => m.role === 'assistant' && m.isStreaming
-                );
-                
-                if (streamingMessageIndex !== -1) {
-                  state.chat.messages[streamingMessageIndex].content = content;
-                }
+                state.chat.streamingContent = content;                
               }
             });
           },

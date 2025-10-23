@@ -12,11 +12,10 @@ import { immer } from 'zustand/middleware/immer';
 
 import useWebSocketStore from './websocketStore';
 import wsClient from '../services/websocket';
-import { useChat } from '../hooks/useChat';
 
 import { sessionAPI, chatAPI, interactionAPI } from '../config/api';
 
-import { SESSION_CONFIG, TRACKING_EVENTS } from '../config/constants';
+import { SESSION_CONFIG, TRACKING_EVENTS, STUDY_CONFIG } from '../config/constants';
 
 import { 
   generateSessionId, 
@@ -83,7 +82,43 @@ const useSessionStore = create(
             demographicsSubmissionError: null,
             tutorialCompleted: false,
             condition: null,
+            
+            //Study Config
+            studyConfig: null, // { group, task1, task2 }
+            currentStep: 'welcome', // 'welcome', 'demographics', 'task_1', 'survey_1', 'task_2', 'survey_2', 'completion'
+            studyStartedAt: null,
+            welcomeCompletedAt: null,
+            demographicsCompletedAt: null,
+            task1CompletedAt: null,
+            survey1Data: null,
+            survey1CompletedAt: null,
+            task2CompletedAt: null,
+            survey2Data: null,
+            survey2CompletedAt: null,
+            studyCompletedAt: null,
           },
+
+          demographicsData: {
+            age: '',
+            gender: '',
+            education: '',
+            field_of_study: '',
+            occupation: '',
+            programming_experience: '',
+            ai_ml_experience: '',
+            workflow_tools_used: [],
+            technical_role: '',
+            participation_motivation: '',
+            expectations: '',
+            time_availability: '',
+            country: '',
+            first_language: '',
+            comments: ''
+          },
+          demographicsStep: 0,
+          demographicsError: null,
+          demographicsCompleted: false,
+          demographicsCompletedAt: null,
           
           // Activity tracking
           lastActivity: Date.now(),
@@ -125,7 +160,7 @@ const useSessionStore = create(
           initializeSession: async () => {
             const urlSessionId = getSessionIdFromUrl();
             const existingSession = get().sessionId;
-            
+
             // Handle session mismatch
             if (urlSessionId && existingSession && urlSessionId !== existingSession) {
               console.log('Session mismatch detected, resetting...');
@@ -134,7 +169,7 @@ const useSessionStore = create(
             
             let sessionIdToUse = null;
             let sessionSource = 'new';
-            
+
             // Priority: URL > existing > new
             if (urlSessionId) {
               try {
@@ -175,6 +210,14 @@ const useSessionStore = create(
               console.log('✅ Created new session:', response);
               set({ participantId: response.participant_id });
             }
+            
+            const studyConfig = get().sessionData.studyConfig || (() => {
+              get().initializeStudyConfig();
+              return get().sessionData.studyConfig;
+            })();
+
+            
+            console.log(studyConfig)
           
             //initialize Clarity Analytics
             /*
@@ -194,7 +237,6 @@ const useSessionStore = create(
               connectionStatus: 'online',
               sessionMetadata: await getSessionMetadata()
             });
-
             // Connect WebSocket after session initialization
             const wsStore = useWebSocketStore.getState();
             if (!wsStore.isConnected() && !wsStore.connection.sessionId) {
@@ -509,6 +551,583 @@ const useSessionStore = create(
           },
           
           // ========================================
+          // STUDY CONFIG MANAGEMENT
+          // ========================================
+
+          /**
+           * Initialize study configuration with counterbalancing
+           */
+          initializeStudyConfig: () => {
+            const currentConfig = get().sessionData.studyConfig;
+            if (currentConfig) {
+              console.log('Study config already initialized:', currentConfig);
+              return currentConfig;
+            }
+            
+            const pID = get().participantId;
+            console.log(pID);
+            if(!pID){
+              console.error("No Participant ID available!")
+              return false;
+            }
+
+            // Counterbalancing: Group assignment based on participant ID
+            const group = get().participantId  % 4;
+            
+            let config;
+            switch(group) {
+              case 1: // Group 1: WB→Wireless, AI→Shoes
+                config = {
+                  group: 1,
+                  task1: { 
+                    condition: 'workflow_builder', 
+                    dataset: 'wireless', 
+                    ...STUDY_CONFIG.TASKS.wireless 
+                  },
+                  task2: { 
+                    condition: 'ai_assistant', 
+                    dataset: 'shoes', 
+                    ...STUDY_CONFIG.TASKS.shoes 
+                  }
+                };
+                break;
+                
+              case 2: // Group 2: WB→Shoes, AI→Wireless
+                config = {
+                  group: 2,
+                  task1: { 
+                    condition: 'workflow_builder', 
+                    dataset: 'shoes', 
+                    ...STUDY_CONFIG.TASKS.shoes 
+                  },
+                  task2: { 
+                    condition: 'ai_assistant', 
+                    dataset: 'wireless', 
+                    ...STUDY_CONFIG.TASKS.wireless 
+                  }
+                };
+                break;
+                
+              case 3: // Group 3: AI→Wireless, WB→Shoes
+                config = {
+                  group: 3,
+                  task1: { 
+                    condition: 'ai_assistant', 
+                    dataset: 'wireless', 
+                    ...STUDY_CONFIG.TASKS.wireless 
+                  },
+                  task2: { 
+                    condition: 'workflow_builder', 
+                    dataset: 'shoes', 
+                    ...STUDY_CONFIG.TASKS.shoes 
+                  }
+                };
+                break;
+                
+              case 0: // Group 4: AI→Shoes, WB→Wireless
+                config = {
+                  group: 4,
+                  task1: { 
+                    condition: 'ai_assistant', 
+                    dataset: 'shoes', 
+                    ...STUDY_CONFIG.TASKS.shoes 
+                  },
+                  task2: { 
+                    condition: 'workflow_builder', 
+                    dataset: 'wireless', 
+                    ...STUDY_CONFIG.TASKS.wireless 
+                  }
+                };
+                break;
+              default: 
+                config= null
+                console.log("Nothing could be set!!")
+                break;
+              
+            }
+
+            set((state) => {
+              state.sessionData.studyConfig = config;
+              state.sessionData.studyStartedAt = new Date().toISOString();
+            });
+
+            // Trigger sync
+            get().syncSessionData();
+            
+            console.log('Study config initialized:', config);
+            return config;
+          },
+
+          /**
+           * Get current study configuration
+           */
+          getStudyConfig: () => {
+            return get().sessionData.studyConfig;
+          },
+
+          /**
+           * Update current study step
+           */
+          setStudyStep: (step) => {
+            set((state) => {
+              state.sessionData.currentStep = step;
+            });
+            get().syncSessionData();
+          },
+
+          /**
+           * Get current study step
+           */
+          getStudyStep: () => {
+            return get().sessionData.currentStep;
+          },
+
+          /**
+           * Mark welcome completed
+           */
+          completeWelcome: () => {
+            console.log('📋 Completing welcome screen...');
+            
+            // Save current state before modification (for potential rollback)
+            const previousState = {
+              welcomeCompletedAt: get().sessionData.welcomeCompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+
+            try {
+              // Update state
+              set((state) => {
+                state.sessionData.welcomeCompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'demographics';
+              });
+              
+              // Sync to backend
+              get().syncSessionData();
+              
+              // Track completion
+              get().trackInteraction(TRACKING_EVENTS.WELCOME_COMPLETED);
+              
+              console.log('✅ Welcome completed successfully');
+            }catch (error) {
+              // Log error
+              console.error('❌ Failed to complete welcome:', error);
+              
+              // Reset state to previous values
+              set((state) => {
+                state.sessionData.welcomeCompletedAt = previousState.welcomeCompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+              
+              get().handleSessionError(error, 'welcome_completion');
+            
+              // Re-throw or handle gracefully
+              throw error;
+            };
+          },
+
+          /**
+           * Complete demographics (already exists but update to set step)
+           */
+          /*completeDemographics: (data) => {
+
+            console.log('📋 Completing demographics screen...');
+            
+            // Save current state before modification (for potential rollback)
+            const previousState = {
+              demographicsData: get().sessionData.demographicsData,
+              demographicsComplete: get().sessionData.demographicsComplete,
+              demographicsCompletedAt: get().sessionData.demographicsCompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+
+            try {
+              set((state) => {
+                state.sessionData.demographicsData = data;
+                state.sessionData.demographicsComplete = true;
+                state.sessionData.demographicsCompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'task_1';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.DEMOGRAPHICS_COMPLETED);
+                
+              console.log('Demographics completed');
+              
+            } catch (error) {
+              console.error('❌ Failed to complete Task 1:', error);
+              
+              set((state) => {
+                state.sessionData.demographicsData = previousState.demographicsData;
+                state.sessionData.demographicsComplete = previousState.demographicsComplete;
+                state.sessionData.demographicsCompletedAt = previousState.demographicsCompletedAt
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+              
+              get().handleSessionError(error, 'demographics_completion');
+              
+              throw error;
+            }
+          },
+          */
+
+          /**
+           * Complete task 1
+           */
+          completeTask1: () => {
+            const task1 = get().sessionData.study?.task1;
+            
+            console.log(`Completing Task 1 (Condition: ${task1?.condition}; Dataset: ${task1?.dataset})...`);
+            
+            const previousState = {
+              task1CompletedAt: get().sessionData.task1CompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.task1CompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'survey_1';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.TASK_COMPLETED, { task: 1, condition: task1?.condition, dataset: task1?.dataset });
+              
+              console.log(`Task 1 completed successfully`);
+              
+            } catch (error) {
+              console.error('❌ Failed to complete Task 1:', error);
+              
+              set((state) => {
+                state.sessionData.task1CompletedAt = previousState.task1CompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+              
+              get().handleSessionError(error, 'task1_completion');
+              
+              throw error;
+            }
+          },
+          /**
+           * Complete survey 1
+           */
+          completeSurvey1: (surveyData) => {
+            console.log('Completing Survey 1...');
+            
+            const previousState = {
+              survey1Data: get().sessionData.survey1Data,
+              survey1CompletedAt: get().sessionData.survey1CompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.survey1Data = surveyData;
+                state.sessionData.survey1CompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'task_2';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.SURVEY_COMPLETED, { survey: 1 });
+              
+              console.log('Survey 1 completed successfully');
+              
+            } catch (error) {
+              console.error('❌ Failed to complete Survey 1:', error);
+              set((state) => {
+                state.sessionData.survey1Data = previousState.survey1Data;
+                state.sessionData.survey1CompletedAt = previousState.survey1CompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+              
+              get().handleSessionError(error, 'survey1_completion');
+              
+              throw error;
+            }
+          },
+          /**
+           * Complete task 2
+           */
+          completeTask2: () => {
+            const task2 = get().sessionData.study?.task2;
+            
+            console.log(`Completing Task 2 (Condition: ${task2?.condition}; Dataset: ${task2?.dataset})...`);
+            
+            const previousState = {
+              task2CompletedAt: get().sessionData.task2CompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.task2CompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'survey_2';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.TASK_COMPLETED, { task: 2, condition: task2?.condition, dataset: task2?.dataset });
+              
+              console.log('Task 2 completed successfully');
+              
+            } catch (error) {
+              console.error('❌ Failed to complete Task 2:', error);
+              
+              set((state) => {
+                state.sessionData.task2CompletedAt = previousState.task2CompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+
+              get().handleSessionError(error, 'task2_completion');
+              
+              throw error;
+            }
+          },
+
+          /**
+           * Complete survey 2
+           */
+          completeSurvey2: (surveyData) => {
+            console.log('Completing Survey 2...');
+            
+            const previousState = {
+              survey2Data: get().sessionData.survey2Data,
+              survey2CompletedAt: get().sessionData.survey2CompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.survey2Data = surveyData;
+                state.sessionData.survey2CompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'completion';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.SURVEY_COMPLETED, { survey: 2 });
+              
+              console.log('Survey 2 completed successfully');
+              
+            } catch (error) {
+              console.error('❌ Failed to complete Survey 2:', error);
+              
+              set((state) => {
+                state.sessionData.survey2Data = previousState.survey2Data;
+                state.sessionData.survey2CompletedAt = previousState.survey2CompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+
+              get().handleSessionError(error, 'survey2_completion');
+              
+              throw error;
+            }
+          },
+
+          /**
+           * Complete entire study
+           */
+          completeStudy: () => {
+            console.log('Completing entire study...');
+            
+            const previousState = {
+              studyCompletedAt: get().sessionData.studyCompletedAt
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.studyCompletedAt = new Date().toISOString();
+              });
+              
+              // Force immediate sync on completion
+              get().syncSessionData(true);
+              get().trackInteraction(TRACKING_EVENTS.STUDY_COMPLETED);
+              
+              console.log('Study completed successfully! Thank you for participating.');
+
+              get()
+              
+            } catch (error) {
+              console.error('❌ Failed to complete study:', error);
+              
+              set((state) => {
+                state.sessionData.studyCompletedAt = previousState.studyCompletedAt;
+              });
+
+              get().handleSessionError(error, 'survey2_completion');
+              
+              throw error;
+            }
+          },
+          /**
+           * Get study progress summary
+           */
+          getStudyProgress: () => {
+            const data = get().sessionData;
+            return {
+              currentStep: data.currentStep,
+              config: data.studyConfig,
+              welcomeCompleted: !!data.welcomeCompletedAt,
+              demographicsCompleted: data.demographicsComplete,
+              task1Completed: !!data.task1CompletedAt,
+              survey1Completed: !!data.survey1CompletedAt,
+              task2Completed: !!data.task2CompletedAt,
+              survey2Completed: !!data.survey2CompletedAt,
+              studyCompleted: !!data.studyCompletedAt,
+              startedAt: data.studyStartedAt,
+              completedAt: data.studyCompletedAt,
+            };
+          },
+          
+
+          // ========================================
+          // DEMOGRAPHICS MANAGEMENT
+          // ========================================
+
+          /**
+           * Set a single demographics field
+           */
+          setDemographicsField: (field, value) => {
+            set((state) => {
+              state.demographicsData[field] = value;
+            });
+            
+            // Queue change for sync
+            get().queueChange({
+              type: 'demographics_field_updated',
+              field: field,
+              value: value
+            });
+          },
+
+          /**
+           * Set multiple demographics fields at once
+           */
+          setDemographicsFields: (fields) => {
+            set((state) => {
+              Object.entries(fields).forEach(([field, value]) => {
+                state.demographicsData[field] = value;
+              });
+            });
+            
+            // Queue change for sync
+            get().queueChange({
+              type: 'demographics_fields_updated',
+              fields: Object.keys(fields)
+            });
+          },
+
+          /**
+           * Set demographics step
+           */
+          setDemographicsStep: (step) => {
+            set((state) => {
+              state.demographicsStep = step;
+            });
+          },
+
+          /**
+           * Set demographics error
+           */
+          setDemographicsError: (error) => {
+            set((state) => {
+              state.demographicsError = error;
+            });
+          },
+
+          /**
+           * Clear demographics error
+           */
+          clearDemographicsError: () => {
+            set((state) => {
+              state.demographicsError = null;
+            });
+          },
+
+          /**
+           * Reset demographics data
+           */
+          resetDemographics: () => {
+            set((state) => {
+              state.demographicsData = {
+                age: '',
+                gender: '',
+                education: '',
+                field_of_study: '',
+                occupation: '',
+                programming_experience: '',
+                ai_ml_experience: '',
+                workflow_tools_used: [],
+                technical_role: '',
+                participation_motivation: '',
+                expectations: '',
+                time_availability: '',
+                country: '',
+                first_language: '',
+                comments: ''
+              };
+              state.demographicsStep = 0;
+              state.demographicsError = null;
+              state.demographicsCompleted = false;
+              state.demographicsCompletedAt = null;
+            });
+          },
+
+          /**
+           * Complete demographics
+           * Validates, saves to sessionData, and syncs to backend
+           */
+          completeDemographics: async (data) => {
+            console.log('Completing demographics...');
+            
+            const previousState = {
+              demographicsData: get().demographicsData,
+              demographicsCompleted: get().demographicsCompleted,
+              demographicsCompletedAt: get().demographicsCompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.demographicsData = data;
+                state.demographicsCompleted = true;
+                state.demographicsCompletedAt = new Date().toISOString();
+                state.demographicsError = null;
+                
+                // Update sessionData
+                state.sessionData.demographics = data;
+                state.sessionData.demographicsCompleted = true;
+                state.sessionData.demographicsCompletedAt = new Date().toISOString();
+              });
+              
+              // Sync to backend
+              await get().syncSessionData();
+              
+             
+              get().trackInteraction(TRACKING_EVENTS.DEMOGRAPHICS_COMPLETED, {
+                fieldsCompleted: Object.keys(data).filter(k => data[k]).length,
+                timestamp: new Date().toISOString()
+              });
+              
+              console.log('✅ Demographics completed successfully');
+              
+            } catch (error) {
+              console.error('❌ Failed to complete demographics:', error);
+                            
+              // Rollback state
+              set((state) => {
+                state.demographicsData = previousState.demographicsData;
+                state.demographicsCompleted = previousState.demographicsCompleted;
+                state.demographicsCompletedAt = previousState.demographicsCompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+                
+                state.demographicsError = 'Failed to complete demographics. Please try again.';
+              });
+              
+              get().handleSessionError(error, 'demographics_completion');
+              
+              throw error;
+            }
+          },
+
+          // ========================================
           // CHAT MESSAGES MANAGEMENT
           // ========================================
           
@@ -591,7 +1210,7 @@ const useSessionStore = create(
               let history;
               
               if (wsStore.isConnected()) {
-                history = await wsClient.getChatHistory(50, 0);
+                history = await wsClient.getChatHistory();
               } else {
                 const response = await chatAPI.getHistory(sessionId);
                 history = response;
@@ -645,17 +1264,19 @@ const useSessionStore = create(
               
               // Try WebSocket first, queue if not connected
               if (wsStore.isConnected()) {
-                await wsClient.updateSession({
+                await wsClient.syncSession({
                   session_data: sessionData,
-                  last_activity: Date.now(),
+                  sync_timestamp: Date.now(),
                   pending_changes: pendingChanges
                 });
               } else {
                 // Queue for later or use REST
                 if (!force) {
                   wsStore.queueMessage({
-                    type: 'session_update',
-                    data: { session_data: sessionData }
+                    type: 'session_sync',
+                    session_data: sessionData,
+                    sync_timestamp: Date.now(),
+                    pending_changes: pendingChanges
                   });
                 } else {
                   // Force REST sync
@@ -720,7 +1341,7 @@ const useSessionStore = create(
                 // Use WebSocket for quick save
                 await wsClient.request('session_quicksave', {
                   session_data: sessionData,
-                  timestamp: Date.now()
+                  timestamp: new Date().toISOString()
                 });
               } else {
                 // Fallback to REST
@@ -757,7 +1378,6 @@ const useSessionStore = create(
           // ========================================
           // ERROR HANDLING
           // ========================================
-          
           handleSessionError: (error, context) => {
             console.error(`Session error (${context}):`, error);
             
@@ -771,16 +1391,30 @@ const useSessionStore = create(
               extra: {
                 timestamp: new Date().toISOString(),
                 connectionStatus: get().connectionStatus,
+                currentStep: get().sessionData?.currentStep
               }
             });
+  
+            // Internal error tracking (same pattern as useTracking hook)
+            get().trackInteraction(TRACKING_EVENTS.ERROR_OCCURRED, {
+              errorType: context,
+              errorMessage: error.message || 'Unknown error',
+              sessionId: get().sessionId,
+              timestamp: new Date().toISOString(),
+              connectionStatus: get().connectionStatus
+            });
             
-            set({
-              sessionError: {
+            set((state) => {
+              state.sessionError = {
                 message: error.message || 'Unknown error',
                 context,
                 timestamp: new Date().toISOString()
-              },
-              connectionStatus: 'error'
+              };
+              
+              // Only set connection error for connection-related issues
+              if (context === 'connection' || context === 'sync' || context === 'websocket') {
+                state.connectionStatus = 'error';
+              }
             });
           },
 
@@ -839,7 +1473,12 @@ const useSessionStore = create(
             sessionData: state.sessionData,
             currentLanguage: state.currentLanguage,
             sessionStartTime: state.sessionStartTime,
-            condition: state.condition
+            condition: state.condition,
+
+            demographicsData: state.demographicsData,
+            demographicsStep: state.demographicsStep,
+            demographicsCompleted: state.demographicsCompleted,
+            demographicsCompletedAt: state.demographicsCompletedAt
           }),
           
           // Merge strategy for rehydration

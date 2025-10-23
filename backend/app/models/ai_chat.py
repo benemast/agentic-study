@@ -1,5 +1,5 @@
 # backend/app/models/ai_chat.py
-from sqlalchemy import Column, String, Text, DateTime, Integer, JSON, ForeignKey, Float
+from sqlalchemy import Column, String, Text, DateTime, Integer, JSON, ForeignKey, Float, Boolean
 from datetime import datetime
 from app.models.session import Base
 
@@ -25,7 +25,10 @@ class ChatMessage(Base):
     
     # Additional context
     message_metadata = Column(JSON, nullable=True)  # For future extensions (renamed from 'metadata')
-    
+
+    # Soft delete flag
+    deleted = Column(Boolean, default=False)
+
     __table_args__ = (
         {'mysql_engine': 'InnoDB'},
     )
@@ -57,6 +60,9 @@ class ChatConversation(Base):
     # Summary/tags for analysis
     conversation_tags = Column(JSON, nullable=True)  # e.g., ['technical', 'workflow']
     conversation_summary = Column(Text, nullable=True)  # AI-generated summary
+    
+    # Soft delete flag
+    deleted = Column(Boolean, default=False)
     
     __table_args__ = (
         {'mysql_engine': 'InnoDB'},

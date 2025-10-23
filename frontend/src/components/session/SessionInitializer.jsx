@@ -73,7 +73,7 @@ const SessionInitializer = ({ children }) => {
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
       
-      console.log(`📱 App ${isVisible ? 'visible' : 'hidden'}`);
+      console.log(`App ${isVisible ? 'visible' : 'hidden'}`);
       
       // Update application lifecycle state
       // websocketStore and other systems subscribe to this

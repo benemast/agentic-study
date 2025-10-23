@@ -1,5 +1,6 @@
 # backend/app/models/demographics.py
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Boolean, Integer
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -33,7 +34,7 @@ class Demographics(Base):
     
     # Simplified: Always use JSON for workflow_tools_used
     # Works across PostgreSQL, SQLite, MySQL
-    workflow_tools_used = Column(JSON, default=list)
+    workflow_tools_used = Column(ARRAY(String), nullable=True)
     
     technical_role = Column(String(100))
     

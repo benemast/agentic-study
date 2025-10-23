@@ -1,6 +1,6 @@
 // frontend/src/hooks/useSessionData.js
 /**
- * Hook for session data (workflows, views, metrics)
+ * Hook for session data (workflows, views, metrics, and study config)
  */
 import { useSessionStore } from '../store/sessionStore';
 
@@ -11,7 +11,12 @@ const DEFAULT_SESSION_DATA = {
   totalTimeSpent: 0,
   currentView: 'dashboard',
   currentWorkflow: { nodes: [], edges: [] },
-  interactions: []
+  interactions: [],
+  
+  // Study data
+  studyConfig: null,
+  currentStep: 'welcome',
+  studyStartedAt: null,
 };
 
 export const useSessionData = () => {
@@ -37,6 +42,42 @@ export const useSessionData = () => {
   // ============================================================
   const trackInteraction = useSessionStore(state => state.trackInteraction);
   
+  // ============================================================
+  // STUDY CONFIG METHODS
+  // ============================================================
+  const initializeStudyConfig = useSessionStore(state => state.initializeStudyConfig);
+  const getStudyConfig = useSessionStore(state => state.getStudyConfig);
+  const setStudyStep = useSessionStore(state => state.setStudyStep);
+  const getStudyStep = useSessionStore(state => state.getStudyStep);
+  const completeWelcome = useSessionStore(state => state.completeWelcome);
+  const completeTask1 = useSessionStore(state => state.completeTask1);
+  const completeSurvey1 = useSessionStore(state => state.completeSurvey1);
+  const completeTask2 = useSessionStore(state => state.completeTask2);
+  const completeSurvey2 = useSessionStore(state => state.completeSurvey2);
+  const completeStudy = useSessionStore(state => state.completeStudy);
+  const getStudyProgress = useSessionStore(state => state.getStudyProgress);
+  
+  // ========================================
+  // DEMOGRAPHICS STATE (Add to return object)
+  // ========================================
+
+  // Demographics data
+  const demographicsData = useSessionStore(state => state.demographicsData);
+  const demographicsStep = useSessionStore(state => state.demographicsStep);
+  const demographicsError = useSessionStore(state => state.demographicsError);
+  const demographicsCompleted = useSessionStore(state => state.demographicsCompleted);
+  const demographicsCompletedAt = useSessionStore(state => state.demographicsCompletedAt);
+
+  // Demographics actions
+  const setDemographicsField = useSessionStore(state => state.setDemographicsField);
+  const setDemographicsFields = useSessionStore(state => state.setDemographicsFields);
+  const setDemographicsStep = useSessionStore(state => state.setDemographicsStep);
+  const setDemographicsError = useSessionStore(state => state.setDemographicsError);
+  const clearDemographicsError = useSessionStore(state => state.clearDemographicsError);
+  const resetDemographics = useSessionStore(state => state.resetDemographics);
+  const completeDemographics = useSessionStore(state => state.completeDemographics);
+
+
   // ============================================================
   // RETURN INTERFACE
   // ============================================================
@@ -65,6 +106,46 @@ export const useSessionData = () => {
     // Computed values
     hasWorkflow: (sessionData?.currentWorkflow?.nodes?.length || 0) > 0,
     interactionCount: (sessionData?.interactions?.length || 0),
+    
+    // ============================================================
+    // STUDY CONFIG
+    // ============================================================
+    studyConfig: sessionData?.studyConfig || null,
+    currentStep: sessionData?.currentStep || 'welcome',
+    
+    // Study methods
+    initializeStudyConfig,
+    getStudyConfig,
+    setStudyStep,
+    getStudyStep,
+    completeWelcome,
+    completeTask1,
+    completeSurvey1,
+    completeTask2,
+    completeSurvey2,
+    completeStudy,
+    getStudyProgress,
+
+    // Demographics
+    demographicsData,
+    demographicsStep,
+    demographicsError,
+    demographicsCompleted,
+    demographicsCompletedAt,
+    setDemographicsField,
+    setDemographicsFields,
+    setDemographicsStep,
+    setDemographicsError,
+    clearDemographicsError,
+    resetDemographics,
+    completeDemographics,
+    
+    // Study computed values
+    isStudyInitialized: !!sessionData?.studyConfig,
+    demographicsCompleted: sessionData?.demographicsComplete || false,
+    task1Completed: !!sessionData?.task1CompletedAt,
+    task2Completed: !!sessionData?.task2CompletedAt,
+    studyCompleted: !!sessionData?.studyCompletedAt,
   };
 };
 

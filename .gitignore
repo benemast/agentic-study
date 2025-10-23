@@ -3,6 +3,9 @@
 # ============================================
 # Deprecated/Migration files
 backend/app/migrate/
+backend/scripts/
+backend/scripts/*
+
 frontend/src/components/WorkflowBuilder_oneFile.jsx
 frontend/src/components/SessionManager_deprecated.jsx
 

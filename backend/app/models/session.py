@@ -22,6 +22,7 @@ class Session(Base):
     is_active = Column(String, default="true")
     connection_status = Column(String, default="online", index=True)
     has_demographics = Column(Boolean, default=False, index=True)
+    study_group = Column(Integer, nullable=True)
     
     # Relationships
     interactions = relationship(

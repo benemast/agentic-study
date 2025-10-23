@@ -1,16 +1,100 @@
 // frontend/src/locales/de.js
 export const de = {
   common: {
-    navigation: {
-      previous: "Zurück",
-      next: "Weiter"
-    },
     form: {
-      pleaseSelect: "Bitte auswählen..."
+      pleaseSelect: 'Bitte auswählen...',
+      required: 'Dieses Feld ist erforderlich',
+      optional: '(optional)'
     },
+    
     validation: {
-      required: "Dieses Feld ist erforderlich"
+      required: 'Dieses Feld ist erforderlich',
+      invalidEmail: 'Bitte geben Sie eine gültige E-Mail-Adresse ein',
+      minLength: 'Muss mindestens {{min}} Zeichen lang sein',
+      maxLength: 'Darf maximal {{max}} Zeichen lang sein',
+      numberOnly: 'Bitte nur Zahlen eingeben'
+    },
+    
+    navigation: {
+      previous: 'Zurück',
+      next: 'Weiter',
+      continue: 'Fortfahren',
+      back: 'Zurück',
+      submit: 'Absenden',
+      cancel: 'Abbrechen',
+      save: 'Speichern',
+      close: 'Schließen'
     }
+  },
+  base:{
+    university: {
+      name: "Technical University of Darmstadt",
+      chair: "Lehrstuhl Wirtschaftsinformatik | Software & AI"
+    }
+  },
+  footer: {
+    legalNote: {
+      label: "Impressum",
+      url: "https://www.tu-darmstadt.de/impressum/index.de.jsp"
+    },
+    note:"The study takes approximately 45-60 minutes. Your progress is automatically saved.",
+    contact: "Bei Fragen zur Studie oder Problemen bitte an [EMAIL] wenden."
+  },
+  
+  // ========================================
+  // WELCOME SCREEN (NEW)
+  // ========================================
+  welcome: {
+    title: "Willkommen zur User Study",
+    subtitle: "Forschung zu Agentic AI Workflow Design",
+    description: "Helfen Sie uns zu verstehen, wie Menschen mit verschiedenen KI-Systemen interagieren und zusammenarbeiten.",
+    
+    whatYouWillDo: {
+      title: "Was Sie erwartet:",
+      explore: "Erkunden Sie zwei verschiedene KI-gestützte Arbeitsumgebungen",
+      create: "Erstellen Sie Workflows oder arbeiten Sie mit einem KI-Assistenten",
+      test: "Testen und iterieren Sie Ihre Lösungen",
+      complete: "Teilen Sie Ihre Erfahrungen durch kurze Umfragen"
+    },
+    
+    duration: {
+      label: "Dauer",
+      value: "45-60 Minuten"
+    },
+
+    legalNote: {
+      lable: "Legal note"
+
+    },
+    
+    privacy: {
+      label: "Datenschutz",
+      value: "Anonym & DSGVO-konform"
+    },
+    
+    privacyModal: {
+      title: "Datenschutzerklärung",
+      content: "Detaillierte Informationen zum Datenschutz findest du in unserer vollständigen Datenschutzerklärung unter: ",
+      url: "https://www.tu-darmstadt.de/datenschutzerklaerung.de.jsp",
+      close: "Schließen"
+    },
+    
+    privacyNotice: {
+      title: "Datenschutzhinweis",
+      intro: "Ihre Teilnahme an dieser Studie ist vollkommen freiwillig und anonym. Wir erheben folgende Daten:",
+      data1: "Demografische Informationen (ohne personenbezogene Identifikatoren)",
+      data2: "Interaktionsmuster und Nutzungsverhalten",
+      data3: "Workflow-Designs und Feedback",
+      gdpr: "Alle Daten werden in Übereinstimmung mit der DSGVO verarbeitet und ausschließlich für Forschungszwecke verwendet. Sie können jederzeit ohne Angabe von Gründen von der Studie zurücktreten.",
+      viewFull: "Vollständige Datenschutzerklärung anzeigen"
+    },
+    
+    consent: {
+      title: "Ich stimme der Teilnahme zu",
+      text: "Ich habe die Studieninformationen und den Datenschutzhinweis gelesen und verstanden. Ich nehme freiwillig an dieser Studie teil und weiß, dass ich jederzeit ohne Angabe von Gründen zurücktreten kann."
+    },
+    
+    continue: "Weiter zur Studie"    
   },
   workflow: {
     builder: {
@@ -27,7 +111,7 @@ export const de = {
         output: "AUSGABE"
       },
       nodes: {
-        gatherData: "Daten sammeln",
+        loadData: "Daten laden",
         filterData: "Daten filtern",
         cleanData: "Daten bereinigen", 
         sortData: "Daten sortieren",
@@ -111,43 +195,33 @@ export const de = {
     }
   },
   demographics: {
-    welcome: {
-      title: "Willkommen zur Agentic AI Studie",
-      subtitle: "Forschung zur Gestaltung agentischer KI-Workflows",
-      description: "Willkommen! Sie nehmen an einer Forschungsstudie teil, die untersucht, wie Menschen agentische KI-Workflows mit visuellen Tools entwerfen und damit interagieren.",
-      whatYouWillDo: {
-        title: "Was Sie tun werden:",
-        explore: "Erkunden Sie unsere visuelle Workflow-Builder-Oberfläche",
-        create: "Erstellen Sie KI-Agent-Workflows für verschiedene Szenarien",
-        test: "Testen und iterieren Sie Ihre Workflow-Designs",
-        complete: "Erledigen Sie Aufgaben und geben Sie Feedback"
-      },
-      studyDetails: {
-        title: "Details der Studie:",
-        duration: {
-          label: "Dauer:",
-          value: "30-60 Minuten (arbeiten Sie in Ihrem eigenen Tempo)"
-        },
-        privacy: {
-          label: "Datenschutz:",
-          value: "Anonym - keine persönlichen Daten werden erfasst"
-        },
-        data: {
-          label: "Daten:",
-          value: "Nur Interaktionsmuster und Workflow-Designs"
-        },
-        resumable: {
-          label: "Fortsetzbar:",
-          value: "Speichern Sie Ihren Fortschritt und setzen Sie später fort"
-        }
-      },
-      beforeWeBegin: {
-        title: "Bevor wir beginnen:",
-        description: "Wir stellen Ihnen einige kurze Fragen zu Ihrem Hintergrund, um unsere Teilnehmer besser zu verstehen. Dies hilft uns zu analysieren, wie verschiedene Erfahrungsniveaus an die Gestaltung agentischer KI herangehen."
-      }
+    progress: {
+      step: 'Schritt {{current}} von {{total}}',
+      complete: 'abgeschlossen'
     },
+    
+    navigation: {
+      readyToStart: 'Bereit anzufangen?',
+      continueWhenReady: 'Fortfahren, wenn Sie bereit sind',
+      almostDone: 'Fast fertig!',
+      completeAndContinue: 'Abschließen & Fortfahren'
+    },
+    
+    privacyNote: 'Alle Antworten sind anonym und werden ausschließlich für Forschungszwecke verwendet. Sie können alle optionalen Fragen überspringen, die Sie nicht beantworten möchten.',
+    
     basicInfo: {
-      title: "Grundlegende Informationen",
+      title: 'Grundlegende Informationen',
+      description: 'Erzählen Sie uns ein wenig über sich',
+      
+      country: {
+        label: 'Land/Region (optional)',
+        placeholder: 'z.B. Deutschland, Vereinigte Staaten, Brasilien, etc.'
+      },
+      
+      firstLanguage: {
+        label: 'Muttersprache (optional)',
+        placeholder: 'z.B. Deutsch, Englisch, Spanisch, Mandarin, etc.'
+      },
       age: {
         label: "Altersgruppe",
         preferNotToSay: "Keine Angabe"
@@ -179,88 +253,105 @@ export const de = {
       }
     },
     technicalBackground: {
-      title: "Technischer Hintergrund",
+      title: 'Technischer Hintergrund',
+      description: 'Helfen Sie uns, Ihre technische Erfahrung zu verstehen',
+      
       programming: {
-        label: "Programmiererfahrung",
-        none: "Keine Programmiererfahrung",
-        beginner: "Anfänger (< 1 Jahr)",
-        intermediate: "Fortgeschritten (1-3 Jahre)",
-        advanced: "Erfahren (3-7 Jahre)",
-        expert: "Experte (7+ Jahre)"
+        label: 'Programmiererfahrung',
+        none: 'Keine Programmiererfahrung',
+        beginner: 'Anfänger (< 1 Jahr)',
+        intermediate: 'Fortgeschritten (1-3 Jahre)',
+        advanced: 'Erfahren (3-7 Jahre)',
+        expert: 'Experte (7+ Jahre)'
       },
+      
       aiMl: {
-        label: "KI/ML Erfahrung",
-        none: "Keine KI/ML Erfahrung",
-        beginner: "Anfänger - etwas Kontakt/Lernen",
-        intermediate: "Fortgeschritten - einige KI/ML Projekte erstellt",
-        advanced: "Erfahren - professionelle KI/ML Arbeit",
-        expert: "Experte - KI/ML Spezialist/Forscher"
+        label: 'KI/ML-Erfahrung',
+        none: 'Keine KI/ML-Erfahrung',
+        beginner: 'Anfänger - etwas Kontakt/Lernen',
+        intermediate: 'Fortgeschritten - einige KI/ML-Projekte erstellt',
+        advanced: 'Erfahren - professionelle KI/ML-Arbeit',
+        expert: 'Experte - KI/ML-Spezialist/Forscher'
       },
+      
       workflowTools: {
-        label: "Verwendete Workflow-/Automatisierungstools (alle zutreffenden auswählen)",
-        none: "Keines davon",
-        other: "Anderes (bitte in Kommentaren angeben)"
+        label: 'Verwendete Workflow-/Automatisierungstools (alle zutreffenden auswählen)',
+        other: 'Andere',
+        none: 'Keine davon'
       },
+      
       technicalRole: {
-        label: "Beschreibt am besten Ihre technische Rolle",
-        developer: "Software-Entwickler/Ingenieur",
-        dataScientist: "Data Scientist/Analyst",
-        researcher: "Akademischer/Industrieller Forscher",
-        productManager: "Produktmanager",
-        designer: "UX/UI Designer",
-        student: "Student",
-        businessAnalyst: "Business-Analyst",
-        consultant: "Berater",
-        other: "Anderes",
-        nonTechnical: "Nicht-technische Rolle"
-      }
-    },
-    studyContext: {
-      title: "Studienkontext",
-      motivation: {
-        label: "Was hat Sie motiviert, an dieser Studie teilzunehmen?",
-        placeholder: "z.B. Interesse an KI, Forschungsteilnahme, Lernen über Workflow-Tools..."
+        label: 'Beschreibt Ihre technische Rolle am besten',
+        softwareEngineer: 'Software-Ingenieur',
+        frontendDeveloper: 'Frontend-Entwickler',
+        backendDeveloper: 'Backend-Entwickler',
+        fullstackDeveloper: 'Full-Stack-Entwickler',
+        devopsEngineer: 'DevOps-Ingenieur',
+        dataScientist: 'Data Scientist',
+        dataEngineer: 'Data Engineer',
+        mlEngineer: 'ML-Ingenieur',
+        aiResearcher: 'KI-Forscher',
+        academicResearcher: 'Akademischer Forscher',
+        productManager: 'Product Manager',
+        projectManager: 'Projektmanager',
+        uxDesigner: 'UX-Designer',
+        uiDesigner: 'UI-Designer',
+        student: 'Student',
+        businessAnalyst: 'Business Analyst',
+        qaEngineer: 'QA/Test-Ingenieur',
+        systemArchitect: 'System-/Lösungsarchitekt',
+        consultant: 'Berater',
+        entrepreneur: 'Unternehmer/Gründer',
+        otherTechnical: 'Andere technische Rolle',
+        nonTechnical: 'Nicht-technische Rolle'
       },
-      expectations: {
-        label: "Was hoffen Sie zu lernen oder zu erfahren?",
-        placeholder: "Ihre Erwartungen an die Studie und den Workflow-Builder..."
-      },
-      timeAvailability: {
-        label: "Wie viel Zeit haben Sie heute zur Verfügung?",
-        short: "15-30 Minuten",
-        medium: "30-45 Minuten",
-        long: "45-60 Minuten",
-        veryLong: "Mehr als 60 Minuten",
-        flexible: "Flexibel - ich kann pausieren und später fortsetzen"
-      }
-    },
-    optionalInfo: {
-      title: "Optionale Informationen",
-      country: {
-        label: "Land/Region (optional)",
-        placeholder: "z.B. Deutschland, Vereinigte Staaten, etc."
-      },
-      firstLanguage: {
-        label: "Muttersprache (optional)",
-        placeholder: "z.B. Deutsch, Englisch, Spanisch, etc."
-      },
+      
       comments: {
-        label: "Zusätzliche Kommentare (optional)",
-        placeholder: "Weitere Informationen, die Sie teilen möchten, oder Fragen zur Studie..."
+        label: 'Zusätzliche Kommentare (optional)',
+        placeholder: 'Weitere Informationen, die Sie teilen möchten, oder Fragen zur Studie...'
       }
     },
-    progress: {
-      step: "Schritt {{current}} von {{total}}",
-      complete: "abgeschlossen"
+    
+    studyContext: {
+      title: 'Studienkontext',
+      
+      motivation: {
+        label: 'Was hat Sie zur Teilnahme an dieser Studie motiviert?',
+        placeholder: 'z.B. Interesse an KI, Forschungsteilnahme, Lernen über Workflow-Tools...'
+      },
+      
+      expectations: {
+        label: 'Was erhoffen Sie sich zu lernen oder zu erfahren?',
+        placeholder: 'Ihre Erwartungen an die Studie und den Workflow-Builder...'
+      },
+      
+      timeAvailability: {
+        label: 'Wie viel Zeit haben Sie heute zur Verfügung?',
+        short: '15-30 Minuten',
+        medium: '30-45 Minuten',
+        long: '45-60 Minuten',
+        veryLong: 'Mehr als 60 Minuten',
+        flexible: 'Flexibel - Ich kann pausieren und später fortsetzen'
+      }
     },
-    navigation: {
-      readyToStart: "Bereit anzufangen?",
-      continueWhenReady: "Fortfahren, wenn Sie bereit sind",
-      almostDone: "Fast fertig!",
-      submitting: "Wird übermittelt...",
-      completeAndContinue: "Abschließen & Fortfahren",
-      startQuestionnaire: "Fragebogen starten"
-    },
-    privacyNote: "Alle Antworten sind anonym und werden ausschließlich für Forschungszwecke verwendet. Sie können alle optionalen Fragen überspringen, die Sie nicht beantworten möchten."
+    
+    optionalInfo: {
+      title: 'Optionale Informationen',
+      
+      country: {
+        label: 'Land/Region (optional)',
+        placeholder: 'z.B. Deutschland, Vereinigte Staaten, etc.'
+      },
+      
+      firstLanguage: {
+        label: 'Muttersprache (optional)',
+        placeholder: 'z.B. Deutsch, Englisch, Spanisch, etc.'
+      },
+      
+      comments: {
+        label: 'Zusätzliche Kommentare (optional)',
+        placeholder: 'Weitere Informationen, die Sie teilen möchten, oder Fragen zur Studie...'
+      }
+    }
   }
 };

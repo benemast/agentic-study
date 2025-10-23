@@ -127,7 +127,7 @@ async def create_demographics(
         logger.info(f"Demographics saved successfully with ID: {db_demographics.id}")
 
         return DemographicsResponse(
-
+            
         )
 
         return db_demographics

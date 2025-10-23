@@ -1,8 +1,4 @@
 // frontend/src/hooks/useChat.js
-/**
- * Hook for chat functionality
- * Combines websocketStore (real-time) + sessionStore (persistence)
- */
 import useWebSocketStore from '../store/websocketStore';
 import { useSessionStore } from '../store/sessionStore';
 
@@ -38,14 +34,15 @@ export const useChat = () => {
   const setChatHistorySession = useSessionStore(state => state.setChatMessages);
   const loadChatHistory = useSessionStore(state => state.loadChatHistory);
   
+  // Check if WebSocket store is active (has the functions available)
+  const isWebSocketActive = !!addMessageWS && !!updateMessageWS;
+  
   // ============================================================
   // COMPUTED VALUES
   // ============================================================
   
   // Use WebSocket messages if available and populated, else session messages
-  const messages = (wsMessages && wsMessages.length > 0) 
-    ? wsMessages 
-    : (sessionMessages || []);
+  const messages = isWebSocketActive ? wsMessages : (sessionMessages || []);
   
   // ============================================================
   // UNIFIED METHODS (handle both stores)
@@ -55,16 +52,13 @@ export const useChat = () => {
    * Add a message to both stores for persistence + real-time
    */
   const addMessage = (message) => {
-    // Always add to WebSocket store (if available)
-    if (addMessageWS) {
+    if (isWebSocketActive) {
+      // WebSocket is active - ONLY use WebSocket store
       addMessageWS(message);
-    }
-    
-    // ONLY add to session store if WebSocket messages are empty
-    // This prevents duplication when both stores are active
-    if (!wsMessages || wsMessages.length === 0) {
+    } else {
+      // WebSocket not available - use Session store as fallback
       addMessageSession(message);
-    } 
+    }
   };
   
   /**
@@ -76,9 +70,7 @@ export const useChat = () => {
     
     // If it's a number, treat as index
     if (typeof indexOrId === 'number') {
-      // CRITICAL FIX: Only update in the active store
-      // If using WebSocket messages, update there
-      if (wsMessages && wsMessages.length > 0) {
+      if (isWebSocketActive) {
         // Update in WebSocket store
         const message = messages[indexOrId];
         if (message?.id && updateMessageWS) {
@@ -93,18 +85,14 @@ export const useChat = () => {
       }
     } else {
       // It's an ID (WebSocket store)
-      if (updateMessageWS) {
+      if (isWebSocketActive && updateMessageWS) {
         updateMessageWS(indexOrId, updates);
-      }
-      
-      // ONLY sync to session if not using WebSocket messages
-      if (!wsMessages || wsMessages.length === 0) {
+      } else {
+        // Fallback to session store by finding index
         const index = messages.findIndex(m => m.id === indexOrId);
         if (index !== -1) {
           updateMessageSession(index, updates);
         }
-      } else {
-        console.log('[useChat] Skipped Session store sync (using WebSocket)');
       }
     }
   };
@@ -113,7 +101,10 @@ export const useChat = () => {
    * Clear chat in both stores
    */
   const clearChat = () => {
-    if (clearChatWS) clearChatWS();
+    if (isWebSocketActive && clearChatWS) {
+      clearChatWS();
+    }
+    // Always clear session store for consistency
     clearChatSession();
   };
   
@@ -121,7 +112,10 @@ export const useChat = () => {
    * Set chat history in both stores
    */
   const setChatHistory = (messages, hasMore = false) => {
-    if (setChatHistoryWS) setChatHistoryWS(messages, hasMore);
+    if (isWebSocketActive && setChatHistoryWS) {
+      setChatHistoryWS(messages, hasMore);
+    }
+    // Always set in session for persistence
     setChatHistorySession(messages);
   };
   
@@ -138,7 +132,7 @@ export const useChat = () => {
     hasMore,
     isLoadingHistory,
     
-    // Unified actions (updates both stores)
+    // Unified actions (updates appropriate store)
     addMessage,
     updateMessage,
     clearChat,

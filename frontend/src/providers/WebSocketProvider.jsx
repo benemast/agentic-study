@@ -1,4 +1,4 @@
-frontend/src/providers/WebSocketProvider.jsx
+//frontend/src/providers/WebSocketProvider.jsx
 
 import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';

@@ -45,6 +45,7 @@ class SessionUpdate(BaseModel):
     connection_status: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = {}
     has_demographics: Optional[bool] = None
+    study_group: Optional[int] = None
 
 class SessionSync(BaseModel):
     session_data: Dict[str, Any]

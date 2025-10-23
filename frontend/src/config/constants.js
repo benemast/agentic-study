@@ -4,6 +4,68 @@
  * All magic numbers and configuration values should live here
  */
 
+//Study Configuration
+export const STUDY_CONFIG = Object.freeze({
+  TASKS : {
+    wireless: {
+      product_id: 'B00V7N3V78',
+      product_title: 'Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones',
+      category: 'Wireless',
+      role: 'Product Manager',
+      goal: 'Identify TOP 3 customer problems and recommend product improvements',
+      focus: 'Analyze negative and neutral reviews to find actionable fixes',
+      expectedOutput: [
+        'Executive Summary with overall sentiment',
+        'Top 3 Negative Themes with percentages',
+        'Top 3 Positive Themes with percentages',
+        '3-5 Actionable Recommendations'
+      ]
+    },
+    shoes: {
+      product_id: 'B0041FI6O2',
+      product_title: "Kamik Women's Jennifer Rain Boot",
+      category: 'Shoes',
+      role: 'Marketing Manager',
+      goal: 'Identify TOP 3 things customers love and create marketing messages',
+      focus: 'Analyze positive reviews to highlight product strengths',
+      expectedOutput: [
+        'Executive Summary with overall sentiment',
+        'Top 3 Positive Themes with percentages',
+        'Top 3 Negative Themes with percentages',
+        '3-5 Marketing Messages or Key Selling Points'
+      ]
+    }
+  },
+
+  STEPS : {
+    WELCOME: 'welcome',
+    DEMOGRAPHICS: 'demographics',
+    TASK_1: 'task_1',
+    SURVEY_1: 'survey_1',
+    TASK_2: 'task_2',
+    SURVEY_2: 'survey_2',
+    COMPLETION: 'completion'
+  },
+
+  GROUPS : {
+    GROUP_1: 1, // WB→Wireless, AI→Shoes
+    GROUP_2: 2, // WB→Shoes, AI→Wireless
+    GROUP_3: 3, // AI→Wireless, WB→Shoes
+    GROUP_4: 4  // AI→Shoes, WB→Wireless
+  },
+
+  CONDITIONS : {
+    WORKFLOW_BUILDER: 'workflow_builder',
+    AI_ASSISTANT: 'ai_assistant'
+  },
+
+  FOOTER:{
+    DATA_PRIVACY_URL_EN: 'https://www.tu-darmstadt.de/datenschutzerklaerung.en.jsp',
+    DATA_PRIVACY_URL_DE: 'https://www.tu-darmstadt.de/datenschutzerklaerung.de.jsp',
+  }
+});
+
+
 // API Configuration
 export const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
@@ -102,7 +164,7 @@ export const TRACKING_EVENTS = {
   EDGE_DELETED: 'edge_deleted',
   WORKFLOW_SAVED: 'workflow_saved',
   WORKFLOW_EXECUTED: 'workflow_executed',
-  WORKFLOW_CLEARED: "workflow_cleared",
+  WORKFLOW_CLEARED: 'workflow_cleared',
   
   // Chat events
   MESSAGE_SENT: 'message_sent',
@@ -111,11 +173,68 @@ export const TRACKING_EVENTS = {
   
   // Demographics events
   DEMOGRAPHICS_STARTED: 'demographics_started',
-  DEMOGRAPHICS_COMPLETED: 'demographics_completed',
+  DEMOGRAPHICS_COMPLETED: 'demographics_completed',// Welcome events
+  // Welcome events
+  WELCOME_STARTED: 'welcome_started',
+  WELCOME_COMPLETED: 'welcome_completed',
+  
+  // Task events
+  TASK_STARTED: 'task_started',
+  TASK_COMPLETED: 'task_completed',
+  TASK_ABANDONED: 'task_abandoned',
+  
+  // Survey events
+  SURVEY_STARTED: 'survey_started',
+  SURVEY_COMPLETED: 'survey_completed',
+  SURVEY_QUESTION_ANSWERED: 'survey_question_answered',
+  
+  // Study completion events
+  STUDY_STARTED: 'study_started',
+  STUDY_COMPLETED: 'study_completed',
+  STUDY_ABANDONED: 'study_abandoned',
+  
+  // Navigation events
+  STEP_CHANGED: 'step_changed',
+  BACK_BUTTON_CLICKED: 'back_button_clicked',
+  NEXT_BUTTON_CLICKED: 'next_button_clicked',
   
   // Error events
   ERROR_OCCURRED: 'error_occurred',
   API_ERROR: 'api_error',
+  SYNC_ERROR: 'sync_error',
+  TASK_ERROR: 'task_error',
+  SURVEY_ERROR: 'survey_error',
+};
+
+export const EVENT_DESCRIPTIONS = {
+  // Welcome events
+  welcome_started: 'User viewed the welcome screen',
+  welcome_completed: 'User completed the welcome screen and proceeded to demographics',
+  
+  // Task events
+  task_started: 'User started a task (either Task 1 or Task 2)',
+  task_completed: 'User completed a task successfully',
+  task_abandoned: 'User left a task without completing it',
+  
+  // Survey events
+  survey_started: 'User opened a survey (Survey 1 or Survey 2)',
+  survey_completed: 'User submitted a survey successfully',
+  survey_question_answered: 'User answered a specific survey question',
+  
+  // Study completion
+  study_started: 'User initialized the study configuration',
+  study_completed: 'User completed the entire study (all tasks and surveys)',
+  study_abandoned: 'User left the study before completion',
+  
+  // Navigation
+  step_changed: 'User moved from one study step to another',
+  back_button_clicked: 'User clicked back button (if available)',
+  next_button_clicked: 'User clicked next/continue button',
+  
+  // Errors
+  sync_error: 'Failed to sync data to backend',
+  task_error: 'Error occurred during task completion',
+  survey_error: 'Error occurred during survey submission'
 };
 
 // View Names
@@ -200,4 +319,5 @@ export default {
   STORAGE_KEYS,
   FEATURES,
   DEV_CONFIG,
+  EVENT_DESCRIPTIONS
 };

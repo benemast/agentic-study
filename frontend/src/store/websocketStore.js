@@ -221,7 +221,7 @@ const useWebSocketStore = create(
                   state.health.lastHeartbeat = start;
                 });
                 
-                console.info('💓 Heartbeat sent');
+                //console.info('💓 Heartbeat sent');
 
               } catch (error) {
                 console.error('Failed to send heartbeat:', error);
@@ -253,11 +253,13 @@ const useWebSocketStore = create(
               const timeSinceLastHeartbeat = Date.now() - lastHeartbeat;
 
               // Debug logging
+              /*
               console.info('🔍 Health check:', {
                 timeSinceLastPong: Math.round(timeSinceLastPong / 1000) + 's',
                 timeSinceLastHeartbeat: Math.round(timeSinceLastHeartbeat / 1000) + 's',
                 missedPongs
               });
+              */
 
               // Dead if no pong for 90 seconds (3 missed heartbeats)
               if (timeSinceLastPong > WEBSOCKET_CONFIG.CONNECTION_TIMEOUT) {
@@ -281,7 +283,7 @@ const useWebSocketStore = create(
               }
               // Healthy
               else {
-                console.info('✅ Connection healthy');
+                //console.info('✅ Connection healthy');
                 
                 set((state) => {
                   state.health.isHealthy = true;
@@ -729,7 +731,7 @@ wsClient.on('pong', (message) => {
   // Calculate latency if we have lastHeartbeat
   const latency = lastHeartbeat ? now - lastHeartbeat : null;
   
-  console.info('💓 Pong received' + (latency ? ` (${latency}ms)` : ''));
+  //console.info('💓 Pong received' + (latency ? ` (${latency}ms)` : ''));
   
   useWebSocketStore.setState((state) => {
     state.health.lastPongReceived = now;

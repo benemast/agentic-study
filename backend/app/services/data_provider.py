@@ -1,6 +1,6 @@
 # backend/app/services/data_provider.py
 
-from backend.app.schemas.source_data import SourceReview
+from backend.app.models.source_data import SourceReview
 
 
 class DataProviderService:

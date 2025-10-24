@@ -4,15 +4,15 @@ import time
 import logging
 import traceback
 import json
-from typing import Dict, Any, List
-from sqlalchemy import null
-from sqlalchemy.orm import Session
+from typing import Any
+from sqlalchemy import null, update
 import asyncio
 import httpx
 
-from app.database import get_db_context
+from app.database import get_db_context, get_async_db_context
 from app.models.session import Session as SessionModel, Interaction
 from app.models.ai_chat import ChatMessage, ChatConversation
+from app.models.reviews import ShoesReview, WirelessReview
 from app.websocket.manager import ws_manager
 from app.config import settings
 
@@ -24,41 +24,60 @@ logger.setLevel(logging.INFO)
 # ============================================================
 
 
-def parse_timestamp(value: Any) -> datetime:
+def parse_timestamp(timestamp: Any) -> datetime:
     """
-    Parse timestamp from various formats
+    Parse various timestamp formats to timezone-aware datetime object
+    (for TIMESTAMP WITH TIME ZONE columns)
     
     Handles:
-    - ISO string with 'Z'
-    - ISO string with timezone
-    - datetime object
-    - None (returns current time)
+    - datetime objects (passthrough)
+    - ISO format strings (e.g., "2025-10-23T22:28:07.298785+00:00")
+    - Unix timestamps in seconds (int/float, e.g., 1634567890)
+    - Unix timestamps in milliseconds (int, e.g., 1634567890000)
+    
+    Args:
+        timestamp: Timestamp in various formats
     
     Returns:
-        datetime: Parsed timezone-aware datetime
+        Timezone-aware datetime object
     """
-    if value is None:
+
+    dt = datetime.now(timezone.utc)
+
+    if timestamp is None:
         return datetime.now(timezone.utc).isoformat()
     
-    if isinstance(value, datetime):
+    if isinstance(timestamp, datetime):
         # Already a datetime - ensure it has timezone
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-    
-    if isinstance(value, str):
-        # Parse ISO string
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+    # Integer/float: Unix timestamp
+    elif isinstance(timestamp, (int, float)):
+        # Milliseconds timestamp (13+ digits)
+        if timestamp > 10000000000:
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+        # Seconds timestamp
+        else:
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    # String: ISO format
+    elif isinstance(timestamp, str):
         try:
-            # Replace 'Z' with '+00:00' for ISO format
-            cleaned = value.replace('Z', '+00:00')
-            return datetime.fromisoformat(cleaned)
-        except ValueError as e:
-            logger.warning(f"Failed to parse timestamp '{value}': {e}")
-            return datetime.now(timezone.utc).isoformat()
+            # Handle timezone 'Z' notation
+            if timestamp.endswith('Z'):
+                timestamp = timestamp[:-1] + '+00:00'
+            dt = datetime.fromisoformat(timestamp)
+        except Exception:
+            logger.warning(f"Failed to parse timestamp string '{timestamp}', using current time")
+            dt = datetime.now(timezone.utc)
+    else:
+        logger.warning(f"Unexpected timestamp type: {type(timestamp)}, using current time")
+        dt = datetime.now(timezone.utc)
     
-    # Unknown type
-    logger.warning(f"Unexpected timestamp type: {type(value)}, using current time")
-    return datetime.now(timezone.utc).isoformat()
+    # Ensure timezone-aware (add UTC if naive)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    
+    return dt
 
 
 # ============================================================
@@ -285,10 +304,12 @@ async def handle_session_sync(session_id: str, message: dict):
     - Requires session_data and sync_timestamp
     """
     request_id = message.get('request_id')
-
+    
     try:
-        # Validate required fields
-        if 'session_data' not in message or 'sync_timestamp' not in message:
+        session_data = message.get('session_data')
+        sync_timestamp = message.get('sync_timestamp')
+        
+        if not session_data or not sync_timestamp:
             await ws_manager.send_to_session(session_id, {
                 'type': 'response',
                 'request_id': request_id,
@@ -296,13 +317,37 @@ async def handle_session_sync(session_id: str, message: dict):
                 'error': 'session_data and sync_timestamp are required'
             })
             return
-        
-        with get_db_context() as db:
-            session = db.query(SessionModel).filter(
-                SessionModel.session_id == session_id
-            ).first()
+
+        # state.sessionData.studyConfig.group
+        study_group_id = session_data.get('studyConfig', {}).get('group')
+
+        if not study_group_id:
+            await ws_manager.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'error',
+                    'error': 'Study Group id not found'
+                })
+
+        # Use async context manager
+        async with get_async_db_context() as db:            
+            # Direct UPDATE query
+            stmt = (
+                update(SessionModel)
+                .where(SessionModel.session_id == session_id)
+                .values(
+                    session_data=session_data,
+                    last_activity=parse_timestamp(sync_timestamp),
+                    connection_status='online',
+                    study_group=study_group_id
+                )
+                .returning(SessionModel.session_metadata)
+            )
             
-            if not session:
+            result = await db.execute(stmt)
+            row = result.first()
+            
+            if not row:
                 await ws_manager.send_to_session(session_id, {
                     'type': 'response',
                     'request_id': request_id,
@@ -311,42 +356,34 @@ async def handle_session_sync(session_id: str, message: dict):
                 })
                 return
             
-            # Update session data
-            session.session_data = message['session_data']
-            
-            # Update last activity from sync timestamp
-            timestamp = message['sync_timestamp']
-            session.last_activity = parse_timestamp(timestamp)
-            
-            # Sync always means online
-            session.connection_status = 'online'
-            
-            if not session.study_group:
-                session.study_group = message.get('studyConfig', {}).get('group')
-
-            # Update metadata if provided
+            # Handle metadata update if needed
             if 'metadata' in message:
-                current_metadata = session.session_metadata or {}
+                current_metadata = row.session_metadata or {}
                 current_metadata.update(message['metadata'])
-                session.session_metadata = current_metadata
-            
+                
+                update_stmt = (
+                    update(SessionModel)
+                    .where(SessionModel.session_id == session_id)
+                    .values(session_metadata=current_metadata)
+                )
+                await db.execute(update_stmt)
+        
         await ws_manager.send_to_session(session_id, {
             'type': 'response',
             'request_id': request_id,
             'status': 'success',
             'message': 'Session synced successfully',
-            'synced_at': timestamp
+            'synced_at': sync_timestamp
         })
     
     except Exception as e:
-        logger.error(f"Error syncing session: {e}", exc_info=True)
+        logger.error(f"Error syncing session {session_id}: {e}", exc_info=True)
         await ws_manager.send_to_session(session_id, {
             'type': 'response',
             'request_id': request_id,
             'status': 'error',
             'error': str(e)
         })
-
 
 async def handle_session_end(session_id: str, message: dict):
     """End session via WebSocket"""
@@ -930,7 +967,7 @@ async def handle_chat_clear(session_id: str, message: dict):
         })
 
 # ============================================================
-# PHASE 3: TRACKING/ANALYTICS
+# TRACKING/ANALYTICS
 # ============================================================
 
 async def handle_tracking_event(session_id: str, message: dict):
@@ -1197,6 +1234,281 @@ async def handle_execution_cancel(session_id: str, message: dict):
         })
 
 # ============================================================
+# REVIEWS OPERATIONS
+# ============================================================
+
+async def handle_get_reviews(session_id: str, message: dict):
+    """Handle getting reviews via WebSocket"""
+    request_id = message.get('request_id')
+    
+    try:
+        category = message.get('category')
+        product_id = message.get('product_id')
+        
+        # options
+        limit = message.get('limit', 500)
+        offset = message.get('offset', 0)
+        exclude_malformed = message.get('exclude_malformed', True)
+        min_rating = message.get('min_rating')
+        max_rating = message.get('max_rating')
+        verified_only = message.get('verified_only')
+        
+        if not category or not product_id:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'error',
+                'error': 'category and product_id are required'
+            })
+            return
+        
+        # Normalize category
+        category_normalized = category.capitalize()
+        if category_normalized not in ['Shoes', 'Wireless']:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'error',
+                'error': 'Invalid category'
+            })
+            return
+        
+        with get_db_context() as db:
+            from app.schemas.reviews import ReviewStudyBase
+            
+            # Build query
+            query = db.query(ReviewStudyBase).filter(
+                ReviewStudyBase.product_category == category_normalized,
+                ReviewStudyBase.product_id == product_id
+            )
+            
+            # Apply filters
+            if verified_only:
+                query = query.filter(ReviewStudyBase.verified_purchase == True)
+            
+            if min_rating is not None:
+                query = query.filter(ReviewStudyBase.star_rating >= min_rating)
+            
+            if max_rating is not None:
+                query = query.filter(ReviewStudyBase.star_rating <= max_rating)
+            
+            # Get total count
+            total = query.count()
+            
+            if total == 0:
+                logger.warning(f"No reviews found for {category}/{product_id}")
+                await ws_manager.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'success',
+                    'data': {
+                        'reviews': [],
+                        'total': 0,
+                        'limit': limit,
+                        'offset': offset,
+                        'category': category_normalized,
+                        'product_id': product_id
+                    }
+                })
+                return
+            
+            # Send initial response with metadata
+            await ws_manager.send_to_session(session_id, {
+                'type': 'reviews_loading',
+                'request_id': request_id,
+                'total': total,
+                'category': category_normalized,
+                'product_id': product_id
+            })
+            
+            # Get paginated results
+            reviews = query.offset(offset).limit(limit).all()
+            
+            # Convert to study-safe format
+            study_reviews = [
+                {
+                    'review_id': r.review_id,
+                    'product_id': r.product_id,
+                    'product_title': r.product_title,
+                    'product_category': r.product_category,
+                    'review_headline': r.review_headline or "",
+                    'review_body': r.review_body or "",
+                    'star_rating': r.star_rating,
+                    'verified_purchase': r.verified_purchase,
+                    'helpful_votes': r.helpful_votes or 0,
+                    'total_votes': r.total_votes or 0,
+                    'customer_id': int(r.customer_id) if r.customer_id else 0
+                }
+                for r in reviews
+            ]
+            
+            logger.info(f"Sending {len(study_reviews)} reviews for {category}/{product_id} via WebSocket")
+            
+            # Send final response
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'success',
+                'data': {
+                    'reviews': study_reviews,
+                    'total': total,
+                    'limit': limit,
+                    'offset': offset,
+                    'category': category_normalized,
+                    'product_id': product_id
+                }
+            })
+        
+    except Exception as e:
+        logger.error(f"Error getting reviews via WebSocket: {e}", exc_info=True)
+        await ws_manager.send_to_session(session_id, {
+            'type': 'response',
+            'request_id': request_id,
+            'status': 'error',
+            'error': str(e)
+        })
+
+
+async def handle_get_review_stats(session_id: str, message: dict):
+    """Handle getting review statistics via WebSocket"""
+    request_id = message.get('request_id')
+    
+    try:
+        category = message.get('category')
+        product_id = message.get('product_id')
+        
+        if not category or not product_id:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'error',
+                'error': 'category and product_id are required'
+            })
+            return
+        
+        category_normalized = category.capitalize()
+        
+        with get_db_context() as db:
+            from backend.app.models.source_data import SourceReview
+            
+            # Get all reviews for this product
+            reviews = db.query(SourceReview).filter(
+                SourceReview.product_category == category_normalized,
+                SourceReview.product_id == product_id
+            ).all()
+            
+            if not reviews:
+                await ws_manager.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'error',
+                    'error': f'No reviews found for {category}/{product_id}'
+                })
+                return
+            
+            # Calculate statistics
+            total_reviews = len(reviews)
+            avg_rating = sum(r.star_rating for r in reviews) / total_reviews
+            rating_distribution = {i: 0 for i in range(1, 6)}
+            
+            for review in reviews:
+                rating_distribution[review.star_rating] += 1
+            
+            verified_count = sum(1 for r in reviews if r.verified_purchase)
+            
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'success',
+                'data': {
+                    'product_id': product_id,
+                    'category': category_normalized,
+                    'total_reviews': total_reviews,
+                    'average_rating': round(avg_rating, 2),
+                    'rating_distribution': rating_distribution,
+                    'verified_purchases': verified_count,
+                    'verified_percentage': round((verified_count / total_reviews) * 100, 1)
+                }
+            })
+        
+    except Exception as e:
+        logger.error(f"Error getting review stats via WebSocket: {e}", exc_info=True)
+        await ws_manager.send_to_session(session_id, {
+            'type': 'response',
+            'request_id': request_id,
+            'status': 'error',
+            'error': str(e)
+        })
+
+
+async def handle_get_review_by_id(session_id: str, message: dict):
+    """Handle getting a single review by ID via WebSocket"""
+    request_id = message.get('request_id')
+    
+    try:
+        category = message.get('category')
+        review_id = message.get('review_id')
+        
+        if not category or not review_id:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'error',
+                'error': 'category and review_id are required'
+            })
+            return
+        
+        category_normalized = category.capitalize()
+        
+        with get_db_context() as db:
+            from backend.app.models.source_data import SourceReview
+            
+            review = db.query(SourceReview).filter(
+                SourceReview.product_category == category_normalized,
+                SourceReview.review_id == review_id
+            ).first()
+            
+            if not review:
+                await ws_manager.send_to_session(session_id, {
+                    'type': 'response',
+                    'request_id': request_id,
+                    'status': 'error',
+                    'error': f'Review {review_id} not found'
+                })
+                return
+            
+            # Return study-safe format
+            study_review = {
+                'review_id': review.review_id,
+                'product_id': review.product_id,
+                'product_title': review.product_title,
+                'product_category': review.product_category,
+                'review_headline': review.review_headline or "",
+                'review_body': review.review_body or "",
+                'star_rating': review.star_rating,
+                'verified_purchase': review.verified_purchase,
+                'helpful_votes': review.helpful_votes or 0,
+                'total_votes': review.total_votes or 0,
+                'customer_id': int(review.customer_id) if review.customer_id else 0
+            }
+            
+            await ws_manager.send_to_session(session_id, {
+                'type': 'response',
+                'request_id': request_id,
+                'status': 'success',
+                'data': study_review
+            })
+        
+    except Exception as e:
+        logger.error(f"Error getting review by ID via WebSocket: {e}", exc_info=True)
+        await ws_manager.send_to_session(session_id, {
+            'type': 'response',
+            'request_id': request_id,
+            'status': 'error',
+            'error': str(e)
+        })
+
+# ============================================================
 # HANDLER REGISTRATION
 # ============================================================
 
@@ -1231,6 +1543,11 @@ def register_handlers():
     ws_manager.register_handler('execute', handle_workflow_execute)
     ws_manager.register_handler('workflow_execute', handle_workflow_execute)
     ws_manager.register_handler('execution_cancel', handle_execution_cancel)
+
+    # Reviews Operations
+    ws_manager.register_handler('get_reviews', handle_get_reviews)
+    ws_manager.register_handler('get_review_stats', handle_get_review_stats)
+    ws_manager.register_handler('get_review_by_id', handle_get_review_by_id)
     
     # Batching
     ws_manager.register_handler('batch', handle_batch_request)

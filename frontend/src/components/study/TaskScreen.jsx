@@ -37,6 +37,11 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
    */
   const loadDataset = async () => {
     try {
+      console.log("Try loading dataset!")
+      if(loading){
+        console.log("Already loading dataset!");
+        return
+      }
       setLoading(true);
       setLoadError(null);
 
@@ -50,11 +55,11 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
         taskConfig.category.toLowerCase(),
         taskConfig.product_id,
         {
-          excludeMalformed: true, // Exclude spam and missing data
+          excludeMalformed: false, // Exclude spam and missing data
           limit: 500
         }
       );
-
+      
       setReviews(data.reviews || []);
       
       track('DATASET_LOADED', {
@@ -72,6 +77,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
         error: error.message
       });
     } finally {
+      console.log("Finished loading dataset!")
       setLoading(false);
     }
   };
@@ -135,7 +141,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
             </span>
             <span className="text-gray-300">•</span>
             <span className="text-sm text-gray-600">
-              {taskConfig.dataset === 'wireless' ? '🎧 Headphones' : '👢 Boots'}
+              {taskConfig.dataset === 'wireless' ? '🎧 Headphones' : '👢 Shoes'}
             </span>
           </div>
           

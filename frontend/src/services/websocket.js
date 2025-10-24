@@ -623,6 +623,34 @@ class WebSocketClient {
   async cancelExecution(executionId) {
     return this.request('execution_cancel', { execution_id: executionId });
   }
+
+  // Reviews operations (add after workflow operations)
+  async getReviews(category, productId, options = {}) {
+    return this.request('get_reviews', {
+      category,
+      product_id: productId,
+      limit: options.limit || 500,
+      offset: options.offset || 0,
+      exclude_malformed: options.excludeMalformed !== false,
+      min_rating: options.minRating,
+      max_rating: options.maxRating,
+      verified_only: options.verifiedOnly
+    }, { cache: true, cacheTTL: 300000 }); // Cache for 5 minutes
+  }
+
+  async getReviewStats(category, productId) {
+    return this.request('get_review_stats', {
+      category,
+      product_id: productId
+    }, { cache: true, cacheTTL: 600000 }); // Cache for 10 minutes
+  }
+
+  async getReviewById(category, reviewId) {
+    return this.request('get_review_by_id', {
+      category,
+      review_id: reviewId
+    }, { cache: true });
+  }
 }
 
 // Create and export singleton instance

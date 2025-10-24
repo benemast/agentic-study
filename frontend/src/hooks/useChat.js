@@ -130,7 +130,7 @@ export const useChat = () => {
     streamingContent,
     unreadCount,
     hasMore,
-    isLoadingHistory,
+    isLoadingHistory: isLoadingHistory ?? false,
     
     // Unified actions (updates appropriate store)
     addMessage,

@@ -2,26 +2,36 @@
 """
 Pydantic schemas for product reviews
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date
-from typing import Optional, List
+from typing import Optional, List, Generic, TypeVar
 from enum import Enum
 
 
+# ============================================================
+# ENUMS
+# ============================================================
+
 class MalformedType(str, Enum):
-    """Enum for malformed review types"""
+    """Types of malformed reviews"""
     SPAM = "spam"
     MISSING_DATA = "missing_data"
 
 
+class ReviewCategory(str, Enum):
+    """Supported review categories"""
+    SHOES = "Shoes"
+    WIRELESS = "Wireless"
+
+
 # ============================================================
-# STUDY SCHEMA (Participant-facing, reduced fields)
+# BASE SCHEMAS (DRY principle applied)
 # ============================================================
 
-class ReviewStudy(BaseModel):
+class ReviewStudyBase(BaseModel):
     """
-    Reduced schema for use during study
-    Only essential fields visible to participants
+    Base schema for participant-facing reviews
+    Only essential fields - hides internal metadata
     """
     review_id: str = Field(..., max_length=50)
     product_id: str = Field(..., max_length=50)
@@ -29,22 +39,20 @@ class ReviewStudy(BaseModel):
     product_category: str = Field(..., max_length=50)
     review_headline: str = Field(default="", max_length=500)
     review_body: str = Field(default="", max_length=10000)
-    star_rating: int = Field(..., ge=1, le=5)
+    star_rating: int = Field(..., ge=1, le=5, description="1-5 star rating")
     verified_purchase: bool
     helpful_votes: int = Field(..., ge=0)
     total_votes: int = Field(..., ge=0)
     customer_id: int = Field(..., gt=0)
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-# ============================================================
-# FULL BASE SCHEMA (Backend use only)
-# ============================================================
-
-class ReviewBase(BaseModel):
-    """Full review schema for backend operations"""
+class ReviewFullBase(BaseModel):
+    """
+    Base schema for full review data (backend operations)
+    Includes all fields including internal metadata
+    """
     review_id: str = Field(..., max_length=50)
     product_id: str = Field(..., max_length=50)
     product_id_original: str = Field(..., max_length=50)
@@ -77,30 +85,11 @@ class ReviewBase(BaseModel):
         return v
 
 
-# ============================================================
-# SHOES REVIEW SCHEMAS
-# ============================================================
-
-class ShoesReviewCreate(ReviewBase):
-    """Schema for creating shoes review"""
-    product_category: str = Field(default="Shoes", pattern="^Shoes$")
-
-
-class ShoesReviewResponse(ReviewBase):
-    """Schema for shoes review response (full backend data)"""
-    id: int
-    
-    class Config:
-        from_attributes = True
-
-
-class ShoesReviewStudyResponse(ReviewStudy):
-    """Schema for shoes review response (study participant view)"""
-    product_category: str = Field(default="Shoes", pattern="^Shoes$")
-
-
-class ShoesReviewUpdate(BaseModel):
-    """Schema for updating shoes review (partial updates)"""
+class ReviewUpdateBase(BaseModel):
+    """
+    Base schema for partial review updates
+    All fields optional for PATCH operations
+    """
     review_id: Optional[str] = Field(None, max_length=50)
     product_title: Optional[str] = Field(None, max_length=500)
     star_rating: Optional[int] = Field(None, ge=1, le=5)
@@ -110,107 +99,128 @@ class ShoesReviewUpdate(BaseModel):
     total_votes: Optional[int] = Field(None, ge=0)
     is_malformed: Optional[bool] = None
     malformed_type: Optional[str] = Field(None, max_length=50)
+
+
+# ============================================================
+# SHOES REVIEW SCHEMAS
+# ============================================================
+
+class ShoesReviewCreate(ReviewFullBase):
+    """Schema for creating shoes review"""
+    product_category: str = Field(default="Shoes", pattern="^Shoes$")
+
+
+class ShoesReviewResponse(ReviewFullBase):
+    """Full shoes review response (backend)"""
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ShoesReviewStudy(ReviewStudyBase):
+    """Shoes review for study participants (reduced fields)"""
+    product_category: str = Field(default="Shoes", pattern="^Shoes$")
+
+
+class ShoesReviewUpdate(ReviewUpdateBase):
+    """Partial update schema for shoes reviews"""
+    pass
 
 
 # ============================================================
 # WIRELESS REVIEW SCHEMAS
 # ============================================================
 
-class WirelessReviewCreate(ReviewBase):
+class WirelessReviewCreate(ReviewFullBase):
     """Schema for creating wireless review"""
     product_category: str = Field(default="Wireless", pattern="^Wireless$")
 
 
-class WirelessReviewResponse(ReviewBase):
-    """Schema for wireless review response (full backend data)"""
+class WirelessReviewResponse(ReviewFullBase):
+    """Full wireless review response (backend)"""
     id: int
-    
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class WirelessReviewStudyResponse(ReviewStudy):
-    """Schema for wireless review response (study participant view)"""
+class WirelessReviewStudy(ReviewStudyBase):
+    """Wireless review for study participants (reduced fields)"""
     product_category: str = Field(default="Wireless", pattern="^Wireless$")
 
 
-class WirelessReviewUpdate(BaseModel):
-    """Schema for updating wireless review (partial updates)"""
-    review_id: Optional[str] = Field(None, max_length=50)
-    product_title: Optional[str] = Field(None, max_length=500)
-    star_rating: Optional[int] = Field(None, ge=1, le=5)
-    review_headline: Optional[str] = Field(None, max_length=500)
-    review_body: Optional[str] = Field(None, max_length=10000)
-    helpful_votes: Optional[int] = Field(None, ge=0)
-    total_votes: Optional[int] = Field(None, ge=0)
-    is_malformed: Optional[bool] = None
-    malformed_type: Optional[str] = Field(None, max_length=50)
+class WirelessReviewUpdate(ReviewUpdateBase):
+    """Partial update schema for wireless reviews"""
+    pass
 
 
 # ============================================================
-# LIST/QUERY SCHEMAS
+# GENERIC LIST RESPONSES (Uses Type Variable for reusability)
 # ============================================================
 
-class ShoesReviewListResponse(BaseModel):
-    """Schema for paginated shoes review list (backend)"""
-    reviews: List[ShoesReviewResponse]
+T = TypeVar('T', bound=BaseModel)
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """
+    Generic paginated response
+    Works with any review type
+    """
+    reviews: List[T]
     total: int
     limit: int
     offset: int
 
 
-class ShoesReviewStudyListResponse(BaseModel):
-    """Schema for paginated shoes review list (study participants)"""
-    reviews: List[ShoesReviewStudyResponse]
-    total: int
-    limit: int
-    offset: int
+# Specific typed aliases for better IDE support
+ShoesReviewListResponse = PaginatedResponse[ShoesReviewResponse]
+ShoesReviewStudyListResponse = PaginatedResponse[ShoesReviewStudy]
+WirelessReviewListResponse = PaginatedResponse[WirelessReviewResponse]
+WirelessReviewStudyListResponse = PaginatedResponse[WirelessReviewStudy]
 
 
-class WirelessReviewListResponse(BaseModel):
-    """Schema for paginated wireless review list (backend)"""
-    reviews: List[WirelessReviewResponse]
-    total: int
-    limit: int
-    offset: int
-
-
-class WirelessReviewStudyListResponse(BaseModel):
-    """Schema for paginated wireless review list (study participants)"""
-    reviews: List[WirelessReviewStudyResponse]
-    total: int
-    limit: int
-    offset: int
-
+# ============================================================
+# FILTER/QUERY SCHEMAS
+# ============================================================
 
 class ReviewFilterParams(BaseModel):
-    """Schema for filtering reviews"""
+    """
+    Unified filter parameters for all review types
+    Used for GET /api/reviews/{category}?params
+    """
     min_rating: Optional[int] = Field(None, ge=1, le=5)
     max_rating: Optional[int] = Field(None, ge=1, le=5)
     verified_only: Optional[bool] = None
-    exclude_malformed: Optional[bool] = None
+    exclude_malformed: Optional[bool] = True  # Default to excluding spam
     malformed_type: Optional[MalformedType] = None
     product_id: Optional[str] = None
     is_main_product: Optional[bool] = None
     limit: int = Field(default=100, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)
+    
+    @field_validator('max_rating')
+    @classmethod
+    def validate_rating_range(cls, v: Optional[int], info) -> Optional[int]:
+        """Ensure max_rating >= min_rating"""
+        if v is not None and 'min_rating' in info.data:
+            min_rating = info.data['min_rating']
+            if min_rating is not None and v < min_rating:
+                raise ValueError('max_rating must be >= min_rating')
+        return v
 
 
 # ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
 
-def to_study_format(review) -> ReviewStudy:
+def to_study_format(review) -> ReviewStudyBase:
     """
     Convert full review model to study-safe format
+    Works with any review type (Shoes/Wireless)
     
     Args:
         review: ShoesReview or WirelessReview SQLAlchemy model
         
     Returns:
-        ReviewStudy with only participant-visible fields
+        ReviewStudyBase with only participant-visible fields
     """
-    return ReviewStudy(
+    return ReviewStudyBase(
         review_id=review.review_id,
         product_id=review.product_id,
         product_title=review.product_title,
@@ -225,14 +235,45 @@ def to_study_format(review) -> ReviewStudy:
     )
 
 
-def batch_to_study_format(reviews: List) -> List[ReviewStudy]:
+def batch_to_study_format(reviews: List) -> List[ReviewStudyBase]:
     """
     Convert list of review models to study-safe format
     
     Args:
-        reviews: List of ShoesReview or WirelessReview models
+        reviews: List of review models (any category)
         
     Returns:
-        List of ReviewStudy objects
+        List of ReviewStudyBase objects
     """
     return [to_study_format(review) for review in reviews]
+
+
+def get_response_schema(category: str, study_mode: bool = False):
+    """
+    Factory function to get the correct response schema
+    
+    Args:
+        category: 'shoes' or 'wireless'
+        study_mode: If True, returns study schema (reduced fields)
+        
+    Returns:
+        Appropriate response schema class
+        
+    Example:
+        schema = get_response_schema('shoes', study_mode=True)
+        # Returns ShoesReviewStudy
+    """
+    category_lower = category.lower()
+    
+    schema_map = {
+        ('shoes', False): ShoesReviewResponse,
+        ('shoes', True): ShoesReviewStudy,
+        ('wireless', False): WirelessReviewResponse,
+        ('wireless', True): WirelessReviewStudy,
+    }
+    
+    key = (category_lower, study_mode)
+    if key not in schema_map:
+        raise ValueError(f"Unsupported category: {category}")
+    
+    return schema_map[key]

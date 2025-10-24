@@ -189,8 +189,14 @@ const StudyApp = () => {
   // Determine if footer should be shown (not on full-screen task views)
   const showFooter = ![STUDY_CONFIG.STEPS.TASK_1, STUDY_CONFIG.STEPS.TASK_2].includes(currentStep);
 
+  useEffect(() => {
+    if (sessionId && isStudyInitialized && studyConfig) {
+      setLoading(false);
+    }
+  }, [sessionId, isStudyInitialized, studyConfig]);
+
   // Loading state
-  if (loading) {
+  if (loading || !sessionId || !studyConfig) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">

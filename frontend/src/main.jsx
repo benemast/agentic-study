@@ -17,8 +17,9 @@ import './index.css';
 import StudyApp from './StudyApp';
 import App from './App';
 
-//Import session initializer
+//Import providers
 import SessionInitializer from './components/session/SessionInitializer';
+import { WebSocketProvider } from './providers/WebSocketProvider';
 
 /*
 
@@ -194,8 +195,10 @@ const MainApp = () => {
 // Mount app
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <SessionInitializer>
-      <MainApp />
-    </SessionInitializer>    
+    <WebSocketProvider> 
+      <SessionInitializer>
+        <MainApp />
+      </SessionInitializer>
+    </WebSocketProvider>    
   </React.StrictMode>
 );

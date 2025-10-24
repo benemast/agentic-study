@@ -73,7 +73,7 @@ class ConnectionMonitor {
   
   start() {
     if (this.isInitialized) {
-      this.log('⚠️ ConnectionMonitor already initialized');
+      console.log('📶 ConnectionMonitor: Already running, skipping start');
       return;
     }
     
@@ -88,6 +88,7 @@ class ConnectionMonitor {
   
   stop() {
     if (!this.isInitialized) {
+      console.log('📶 ConnectionMonitor: Not running, skipping stop');
       return;
     }
     

@@ -9,11 +9,13 @@ import { useSession } from '../../hooks/useSession';
 const SessionStatusBar = () => {
   const { connectionStatus, error, source, clearError, syncStatus, ws } = useSession();
   const [showStatus, setShowStatus] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
 
   // Auto-hide success messages
   useEffect(() => {
     if (source === 'url' || source === 'restored') {
       setShowStatus(true);
+      setShouldRender(true);
       const timer = setTimeout(() => setShowStatus(false), 5000);
       return () => clearTimeout(timer);
     }
@@ -23,6 +25,7 @@ const SessionStatusBar = () => {
   useEffect(() => {
     if (error || connectionStatus !== 'online' || syncStatus === 'pending') {
       setShowStatus(true);
+      setShouldRender(true);
     } else if (connectionStatus === 'online' && !error && syncStatus !== 'pending') {
       // Auto-hide when everything is back to normal
       const timer = setTimeout(() => setShowStatus(false), 3000);
@@ -30,37 +33,13 @@ const SessionStatusBar = () => {
     }
   }, [error, connectionStatus, syncStatus]);
 
-  if (!showStatus) return null;
-
-  // Determine status bar style based on priority
-  const getStatusBarStyle = () => {
-    // Priority 1: Errors (red)
-    if (error || connectionStatus === 'error') {
-      return 'bg-red-50 border-red-200 text-red-700';
+  // Handle unmounting after animation completes
+  useEffect(() => {
+    if (!showStatus && shouldRender) {
+      const timer = setTimeout(() => setShouldRender(false), 300); // Match animation duration
+      return () => clearTimeout(timer);
     }
-    
-    // Priority 2: Reconnecting (blue)
-    if (connectionStatus === 'reconnecting') {
-      return 'bg-blue-50 border-blue-200 text-blue-700';
-    }
-    
-    // Priority 3: Offline (yellow)
-    if (connectionStatus === 'offline') {
-      return 'bg-yellow-50 border-yellow-200 text-yellow-700';
-    }
-    
-    // Priority 4: Syncing (blue)
-    if (syncStatus === 'pending') {
-      return 'bg-blue-50 border-blue-200 text-blue-700';
-    }
-    
-    // Priority 5: Success messages (green)
-    if (source === 'url' || source === 'restored') {
-      return 'bg-green-50 border-green-200 text-green-700';
-    }
-    
-    return 'bg-blue-50 border-blue-200 text-blue-700';
-  };
+  }, [showStatus, shouldRender]);
 
   // Status icon helper
   const getStatusIcon = () => {
@@ -161,11 +140,46 @@ const SessionStatusBar = () => {
     return null;
   };
 
+  // Determine status bar style based on priority
+  const getStatusBarStyle = () => {
+    // Priority 1: Errors (red)
+    if (error || connectionStatus === 'error') {
+      return 'bg-red-50 border-red-200 text-red-700';
+    }
+    
+    // Priority 2: Reconnecting (blue)
+    if (connectionStatus === 'reconnecting') {
+      return 'bg-blue-50 border-blue-200 text-blue-700';
+    }
+    
+    // Priority 3: Offline (yellow)
+    if (connectionStatus === 'offline') {
+      return 'bg-yellow-50 border-yellow-200 text-yellow-700';
+    }
+    
+    // Priority 4: Syncing (blue)
+    if (syncStatus === 'pending') {
+      return 'bg-blue-50 border-blue-200 text-blue-700';
+    }
+    
+    // Priority 5: Success messages (green)
+    if (source === 'url' || source === 'restored') {
+      return 'bg-green-50 border-green-200 text-green-700';
+    }
+    
+    return 'bg-blue-50 border-blue-200 text-blue-700';
+  };
+
+  // Get message and early return if none
   const message = getStatusMessage();
-  if (!message) return null;
+  if (!message || !shouldRender) return null;
 
   return (
-    <div className={`border-b px-4 py-2 text-sm ${getStatusBarStyle()}`}>
+    <div 
+      className={`fixed top-0 left-0 right-0 z-50 border-b px-4 py-2 text-sm ${getStatusBarStyle()} shadow-md
+        transition-all duration-300 ease-in-out
+        ${showStatus ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}
+    >
       <div className="max-w-7xl mx-auto">
         {message}
         {/* Optional: Show latency when online */}

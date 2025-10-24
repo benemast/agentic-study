@@ -428,7 +428,8 @@ async def get_chat_history(
     try:
         # Get messages - query by session_id
         messages = db.query(ChatMessage).filter(
-            ChatMessage.session_id == session_id
+            ChatMessage.session_id == session_id,
+            ChatMessage.deleted == False
         ).order_by(ChatMessage.timestamp).all()
         
         # Get conversation for metadata

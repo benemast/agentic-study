@@ -32,6 +32,9 @@ from .handlers import (
     handle_track_batch,
     handle_get_interactions,
     handle_batch_request,
+    handle_get_reviews,
+    handle_get_review_stats,
+    handle_get_review_by_id,
     register_handlers
 )
 
@@ -52,7 +55,10 @@ __all__ = [
     'handle_track_batch',
     'handle_get_interactions',
     'handle_batch_request',
+    'handle_get_reviews',
+    'handle_get_review_stats',
+    'handle_get_review_by_id',
     'register_handlers'
 ]
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'

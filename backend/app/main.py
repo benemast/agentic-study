@@ -11,7 +11,7 @@ import traceback
 
 from app.config import settings
 from app.logging_config import setup_logging
-from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket
+from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews
 from app.database import create_tables, check_database_connection, get_database_info
 from app.websocket.handlers import register_handlers
 
@@ -90,7 +90,7 @@ app.add_middleware(
     allow_origins=["*"],  # For development - be more specific in production
     # allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "FETCH"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=3600,  # Cache preflight requests for 1 hour
@@ -123,7 +123,7 @@ async def preflight_handler(rest_of_path: str, request: Request):
         content={"message": "OK"},
         headers={
             "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, FETCH",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Max-Age": "3600",
         }
@@ -137,6 +137,7 @@ app.include_router(ai_chat.router)
 app.include_router(orchestrator.router)
 app.include_router(websocket.router)
 app.include_router(sentry.router)
+app.include_router(reviews.router)
 
 @app.get("/")
 async def root():
@@ -231,7 +232,7 @@ async def server_error_handler(request: Request, exc: Exception):
         headers={
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, FETCH",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Expose-Headers": "*",
         }

@@ -2,6 +2,7 @@
 /**
  * Hook for session data (workflows, views, metrics, and study config)
  */
+import { use } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 
 // Default session data structure
@@ -37,6 +38,27 @@ export const useSessionData = () => {
   // ============================================================
   const setCurrentView = useSessionStore(state => state.setCurrentView);
   
+  // ========================================
+  // SESSION LIFECYCLE
+  // ========================================
+  /*
+    setAppVisible: (isVisible) => {            
+    },
+    setAppOnline: (isOnline) => {      
+    },  
+    getAppLifecycle: () => {
+      appLifecycle: {
+        isVisible: true,
+        isOnline: true,
+        lastVisibilityChange: Date.now(),
+        lastOnlineChange: Date.now(),
+      }
+    }
+  */ 
+  const setAppVisible = useSessionStore(state => state.setAppVisible);
+  const setAppOnline = useSessionStore(state => state.setAppOnline);
+  const getAppLifecycle = useSessionStore(state => state.getAppLifecycle);
+
   // ============================================================
   // TRACKING METHODS
   // ============================================================
@@ -100,6 +122,11 @@ export const useSessionData = () => {
     // View methods
     setCurrentView,
     
+    // Session ifecycle
+    setAppVisible,
+    setAppOnline,
+    getAppLifecycle,
+
     // Tracking
     trackInteraction,
     

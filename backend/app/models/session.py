@@ -1,5 +1,6 @@
 # backend/app/models/session.py
 from sqlalchemy import Column, String, DateTime, Integer, JSON, Text, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -14,7 +15,10 @@ class Session(Base):
     participant_id = Column(Integer, index=True)
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime, nullable=True)
-    last_activity = Column(DateTime, default=datetime.utcnow, index=True)
+    last_activity = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False
+    )
     user_agent = Column(Text, nullable=True)
     screen_resolution = Column(String, nullable=True)
     session_data = Column(JSON, nullable=True, default=dict)

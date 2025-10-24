@@ -27,6 +27,7 @@ import {
 
 //import { initAnalytics } from '../utils/analytics';
 import { translations } from '../locales';
+import { isInitialized } from '@sentry/react';
 
 const getInitialLanguage = () => {
   // Check URL parameter
@@ -64,9 +65,10 @@ const useSessionStore = create(
           sessionId: null,
           participantId: null,
           isSessionActive: false,
+          isSessionInitialized: false,
           sessionStartTime: null,
           sessionSource: null, // 'new', 'url', 'restored'
-          
+
           // Session data that syncs with backend
           sessionData: {
             workflowsCreated: 0,
@@ -211,14 +213,6 @@ const useSessionStore = create(
               set({ participantId: response.participant_id });
             }
             
-            const studyConfig = get().sessionData.studyConfig || (() => {
-              get().initializeStudyConfig();
-              return get().sessionData.studyConfig;
-            })();
-
-            
-            console.log(studyConfig)
-          
             //initialize Clarity Analytics
             /*
             initAnalytics({
@@ -232,11 +226,17 @@ const useSessionStore = create(
               sessionId: sessionIdToUse,
               sessionSource,
               isSessionActive: true,
+              isSessionInitialized: true,
               sessionStartTime: Date.now(),
               lastActivity: Date.now(),
               connectionStatus: 'online',
               sessionMetadata: await getSessionMetadata()
             });
+
+            /* REMOVED AS WEBSOCKET SHOULD BE HANDLED THROUGH WebSocketProvider.jsx
+                Provider handles connection automatically now
+                TODO: Delete after testing
+
             // Connect WebSocket after session initialization
             const wsStore = useWebSocketStore.getState();
             if (!wsStore.isConnected() && !wsStore.connection.sessionId) {
@@ -247,7 +247,7 @@ const useSessionStore = create(
                 // Don't block session initialization if WS fails
               }
             }
-            
+            */
             // Set URL
             setSessionIdInUrl(sessionIdToUse);
             
@@ -1203,15 +1203,19 @@ const useSessionStore = create(
           loadChatHistory: async () => {
             const { sessionId } = get();
             if (!sessionId) return;
-            
+            console.log("SessionStore: Loading Chat History")
             try {
               // Try WebSocket first, fallback to REST
               const wsStore = useWebSocketStore.getState();
+              
               let history;
               
+
               if (wsStore.isConnected()) {
+                console.log("WS Store being used!!")
                 history = await wsClient.getChatHistory();
               } else {
+                console.log("REST being used!!")
                 const response = await chatAPI.getHistory(sessionId);
                 history = response;
               }

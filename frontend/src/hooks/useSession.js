@@ -13,6 +13,7 @@ export const useSession = () => {
   const sessionId = useSessionStore(state => state.sessionId);
   const participantId = useSessionStore(state => state.participantId);
   const isActive = useSessionStore(state => state.isSessionActive);
+  const isInitialized = useSessionStore(state => state.isSessionInitialized);
   const source = useSessionStore(state => state.sessionSource);
   const startTime = useSessionStore(state => state.sessionStartTime);
   const lastActivity = useSessionStore(state => state.lastActivity);
@@ -94,6 +95,7 @@ export const useSession = () => {
     sessionId,
     participantId,
     isActive,
+    isInitialized,
     source,
     
     // Timing

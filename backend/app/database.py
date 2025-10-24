@@ -3,7 +3,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
-from contextlib import contextmanager
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from contextlib import contextmanager, asynccontextmanager
 import logging
 
 from app.config import settings
@@ -39,6 +40,23 @@ setup_slow_query_logging(engine, threshold_ms=1000)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Async engine (new)
+async_engine = create_async_engine(
+    settings.database_url.replace('postgresql://', 'postgresql+asyncpg://'),
+    echo=False,
+    pool_pre_ping=True,
+    pool_size=20,
+    max_overflow=10
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
 
 # Base class for models
 Base = declarative_base()
@@ -88,6 +106,20 @@ def get_db_context():
         raise
     finally:
         db.close()
+
+@asynccontextmanager
+async def get_async_db_context():
+    
+    db = AsyncSessionLocal()
+    try:
+        yield db
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Database error in async context: {e}")
+        raise
+    finally:
+        await db.close()
 
 
 # ============================================================

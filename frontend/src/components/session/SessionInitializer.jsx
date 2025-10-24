@@ -10,11 +10,11 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import { useSession } from '../../hooks/useSession';
-import { useSessionStore } from '../../store/sessionStore';
+import { useSessionData } from '../../hooks/useSessionData';
+import { useWebSocketContext } from '../../providers/WebSocketProvider';
 import { SESSION_CONFIG } from '../../config/constants';
 import { getSessionIdFromUrl } from '../../utils/sessionHelpers';
 import connectionMonitor from '../../services/connectionMonitor';
-
 import SessionStatusBar from './SessionStatusBar';
 
 const SessionInitializer = ({ children }) => {
@@ -22,28 +22,22 @@ const SessionInitializer = ({ children }) => {
   const [initError, setInitError] = useState(null);
   const initRef = useRef(false);
   
-  const { initialize, connectionStatus } = useSession();
-  
+  // USE HOOKS
+  const { sessionId, initialize, connectionStatus, updateActivity } = useSession();
+  const { quickSave, syncSessionData, setAppVisible } = useSessionData();
+  const { isConnected: isWebSocketConnected } = useWebSocketContext();
+
   // Store functions in refs to avoid re-running effects
-  const quickSaveRef = useRef(useSessionStore.getState().quickSave);
-  const syncSessionDataRef = useRef(useSessionStore.getState().syncSessionData);
-  const updateLastActivityRef = useRef(useSessionStore.getState().updateLastActivity);
+  const quickSaveRef = useRef(quickSave);
+  const syncSessionDataRef = useRef(syncSessionData);
+  const updateLastActivityRef = useRef(updateActivity);
   
   // Keep refs updated
   useEffect(() => {
-    quickSaveRef.current = useSessionStore.getState().quickSave;
-    syncSessionDataRef.current = useSessionStore.getState().syncSessionData;
-    updateLastActivityRef.current = useSessionStore.getState().updateLastActivity;
+    quickSaveRef.current = quickSave;
+    syncSessionDataRef.current = syncSessionData;
+    updateLastActivityRef.current = updateActivity;
   });
-
-  // ========================================
-  // CONNECTION MONITOR INITIALIZATION
-  // ========================================
-  useEffect(() => {
-    connectionMonitor.start();
-    return () => connectionMonitor.stop();
-  }, []);
-
   // ========================================
   // SESSION INITIALIZATION
   // ========================================
@@ -53,10 +47,12 @@ const SessionInitializer = ({ children }) => {
     
     const initSession = async () => {
       try {
+        console.log('🚀 SessionInitializer: Starting session initialization...');
         await initialize();
         setIsInitialized(true);
+        console.log('✅ SessionInitializer: Session initialized');
       } catch (error) {
-        console.error('Session initialization failed:', error);
+        console.error('❌ SessionInitializer: Session initialization failed:', error);
         setInitError(error.message);
         setIsInitialized(true);
       }
@@ -66,10 +62,38 @@ const SessionInitializer = ({ children }) => {
   }, [initialize]);
 
   // ========================================
+  // CONNECTION MONITOR INITIALIZATION (AFTER SESSION + WEBSOCKET)
+  // ========================================  
+  useEffect(() => {
+    // Wait for session AND WebSocket to be ready
+    if (!isInitialized || !sessionId) {
+      console.log('⏳ ConnectionMonitor: Waiting for session initialization...');
+      return;
+    }
+    
+    if (!isWebSocketConnected) {
+      console.log('⏳ ConnectionMonitor: Waiting for WebSocket connection...');
+      return;
+    }
+    
+    // start when everything is ready
+    console.log('🌐 ConnectionMonitor: Session and WebSocket ready, starting monitor...');
+    connectionMonitor.start();
+    
+    return () => {
+      console.log('🛑 ConnectionMonitor: Stopping...');
+      connectionMonitor.stop();
+    };
+  }, [isInitialized, sessionId, isWebSocketConnected]); //listen for changes in session and WebSocket connections
+
+  // ========================================
   // LIFECYCLE: Visibility Changes
   // Detect event → Update state → Systems react
   // ========================================
   useEffect(() => {
+    // Don't set up lifecycle handlers until initialized
+    if (!isInitialized) return;
+    
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
       
@@ -77,36 +101,39 @@ const SessionInitializer = ({ children }) => {
       
       // Update application lifecycle state
       // websocketStore and other systems subscribe to this
-      useSessionStore.getState().setAppVisible(isVisible);
+      setAppVisible(isVisible);
       
       if (isVisible) {
         // App became visible - update activity and force connection check
-        updateLastActivityRef.current();
+        updateLastActivityRef.current?.();
         connectionMonitor.forceUpdate();
       } else {
-        // App hidden - save session data
+        // App hidden - quick save session data
         console.log('💾 App hidden - quick saving');
-        quickSaveRef.current();
+        quickSaveRef.current?.();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [isInitialized]);
 
   // ========================================
   // LIFECYCLE: Page Unload
   // ========================================
   useEffect(() => {
+    // Don't set up unload handler until initialized
+    if (!isInitialized) return;
+    
     const handleBeforeUnload = () => {
       console.log('💾 Page unloading - final save');
-      quickSaveRef.current();
+      quickSaveRef.current?.();
       // Note: WebSocket cleanup happens automatically in websocketStore
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
+  }, [isInitialized]);
 
   // ========================================
   // HEARTBEAT (Session activity tracking)
@@ -114,17 +141,24 @@ const SessionInitializer = ({ children }) => {
   // This tracks user activity for session timeout
   // ========================================
   useEffect(() => {
+    // Don't start heartbeat until initialized
+    if (!isInitialized || !sessionId) return;
+    
+    console.log('💓 Starting session heartbeat...');
+    
     const heartbeatInterval = setInterval(() => {
-      updateLastActivityRef.current();
+      updateLastActivityRef.current?.();
       
-      // Optional: Log connection context for debugging
       if (connectionStatus !== 'online') {
         console.log('💓 User active but offline - changes queued for sync');
       }
     }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
 
-    return () => clearInterval(heartbeatInterval);
-  }, [connectionStatus]);
+    return () => {
+      console.log('💓 Stopping session heartbeat');
+      clearInterval(heartbeatInterval);
+    };
+  }, [isInitialized, sessionId, connectionStatus]);
 
   // ========================================
   // LOADING STATE
@@ -139,7 +173,9 @@ const SessionInitializer = ({ children }) => {
               Initializing Study Session
             </h2>
             <p className="text-gray-600">
-              {getSessionIdFromUrl() ? 'Restoring your session...' : 'Setting up your research session...'}
+              {getSessionIdFromUrl() 
+                ? 'Restoring your session...' 
+                : 'Setting up your research session...'}
             </p>
           </div>
         </div>

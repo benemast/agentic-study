@@ -10,9 +10,12 @@ import ExecutionProgress from '../ExecutionProgress';
 // Hooks
 import { useSession } from '../../hooks/useSession';
 import { useChat } from '../../hooks/useChat';
-import { useWebSocket } from '../../hooks/useWebSocket';
+import { useWebSocketContext } from '../../providers/WebSocketProvider'; // ✅ NEW
 import { useTracking } from '../../hooks/useTracking';
 import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
+
+// Services
+import { wsClient } from '../../services/websocket'; // ✅ For event subscriptions
 
 // Config
 import { chatAPI } from '../../config/api';
@@ -23,10 +26,10 @@ const AIChat = () => {
   // HOOK USAGE
   // ========================================
   
-  // Session identity & health
+  // Session identity
   const { sessionId } = useSession();
   
-  // Chat messages (combines WebSocket + Session store)
+  // Chat messages (abstracted - no store access)
   const {
     messages: chatMessages,
     isStreaming: wsIsStreaming,
@@ -39,211 +42,164 @@ const AIChat = () => {
     isLoadingHistory,
   } = useChat();
   
-  // WebSocket connection
-  const {
-    isConnected: isWebSocketConnected,
-    sendChat,
-    clearChat: clearChatRemote,
-    on: wsOn,
-  } = useWebSocket({ autoConnect: true });
+  // WebSocket connection (from provider - no direct store access)
+  const { isConnected: isWebSocketConnected } = useWebSocketContext();
   
   // Tracking
   const { 
     trackMessageSent, 
     trackMessageReceived, 
-    trackMessagesCleared, 
+    trackMessagesCleared,
     trackError 
   } = useTracking();
   
-  // Execution hook for LangGraph orchestrator
-  const {
-    status: executionStatus,
-    progress: executionProgress,
-    progressPercentage,
-    currentStep,
-    result: executionResult,
-    error: executionError,
-    executeAgentTask,
-    cancelExecution
-  } = useWorkflowExecution(sessionId, 'ai_assistant');
+  // Workflow execution (for agent tasks)
+  const { executeAgentTask, status: executionStatus } = useWorkflowExecution(sessionId, 'ai_assistant');
 
   // ========================================
-  // LOCAL UI STATE
+  // LOCAL STATE
   // ========================================
-
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingContent, setEditingContent] = useState('');
-  const [mode, setMode] = useState('chat'); // 'chat' or 'task'
-
-  // Local streaming state (REST fallback)
+  
+  // Local streaming state (for REST fallback)
   const [localIsStreaming, setLocalIsStreaming] = useState(false);
   const [localStreamingContent, setLocalStreamingContent] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   
-  // Determine which streaming state to use
-  const isStreaming = wsIsStreaming || localIsStreaming;
-  const streamingContent = wsStreamingContent || localStreamingContent;
-
-  // ========================================
-  // REFS
-  // ========================================
-
-  const messagesEndRef = useRef(null);
-  const hasLoadedHistory = useRef(false);
+  // Refs
   const inputRef = useRef(null);
   const editInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const streamingMessageIndexRef = useRef(null);
 
-  // TODO(architecture): Move WebSocket into App Level WebSocketProvider
-  // - see preliminary file frontend/src/providers/WebSocketProvider.jsx
-  // Priority: Medium - works but not ideal
-  const wsOnRef = useRef(wsOn);
-
-  // TODO(performance): Add useCallback to memoize these functions
-  // - updateMessage in useChat.js
-  // - trackMessageReceived in useTracking.js
-  // - addMessage, clearChat, setChatHistory in useChat.js
-  // Current workaround: Using refs in AIChat.jsx (lines 105-179)
-  // Priority: Medium - works but not ideal
-  const updateMessageRef = useRef(updateMessage);
-  const trackMessageReceivedRef = useRef(trackMessageReceived);
+  // ========================================
+  // COMPUTED STATE
+  // ========================================
+  const isStreaming = wsIsStreaming || localIsStreaming;
+  const streamingContent = wsStreamingContent || localStreamingContent;
 
   // ========================================
   // WEBSOCKET EVENT HANDLERS
   // ========================================
   
-  // Update refs when functions change
-  useEffect(() => {
-    wsOnRef.current = wsOn;
-    updateMessageRef.current = updateMessage;
-    trackMessageReceivedRef.current = trackMessageReceived;
-  });
-  
   useEffect(() => {
     // Only subscribe if WebSocket is connected
     if (!isWebSocketConnected) return;
-
-    const currentWsOn = wsOnRef.current;
-    if (!currentWsOn) return;
     
-    console.log('🔌 Setting up WebSocket event listeners');
+    console.log('🔌 AIChat: Setting up WebSocket event listeners');
 
     // Listen for streaming chunks
-    const unsubStream = currentWsOn('chat_stream', (data) => {
-      // The store handles this automatically now
-      // streamingContent gets updated by websocketStore.js
-      // No manual updates needed here!
-    });
-    
-    // Listen for completion
-    const unsubComplete = currentWsOn('chat_complete', (data) => {
-      const finalContent = data.content || '';
-
-      if (streamingMessageIndexRef.current !== null) {
-        updateMessageRef.current(streamingMessageIndexRef.current, {
-          content: finalContent,
-          isStreaming: false
-        });
+    // Note: websocketStore already handles these globally and updates state
+    // We just need to track analytics here
+    const unsubStream = wsClient.on('chat_stream', (data) => {
+      // Store already updated streamingContent via global subscription
+      // Just track if needed
+      if (data.full_content) {
+        console.log('📨 Streaming:', data.full_content.length, 'chars');
       }
+    });
+
+    // Listen for completion
+    const unsubComplete = wsClient.on('chat_complete', (data) => {
+      console.log('✅ Chat complete received');
       
-      setLocalIsStreaming(false);
-      setLocalStreamingContent('');
-      streamingMessageIndexRef.current = null;
+      // Track message received
+      if (data.content) {
+        const responseTime = data.metadata?.response_time_ms || 0;
+        trackMessageReceived(data.content.length, responseTime);
+      }
+
+      // Reset local state
       setIsLoading(false);
+      setLocalIsStreaming(false);
+      streamingMessageIndexRef.current = null;
       
-      trackMessageReceivedRef.current(finalContent.length, 0);
-      
+      // Focus input
       setTimeout(() => inputRef.current?.focus(), 100);
     });
-    
+
     // Listen for errors
-    const unsubError = currentWsOn('chat_error', (data) => {
-      console.error('Chat WebSocket error:', data.error);
-      setError(data.error || 'Chat error occurred');
-      
-      // Reset streaming state
-      setLocalIsStreaming(false);
-      setLocalStreamingContent('');
-      streamingMessageIndexRef.current = null;
+    const unsubError = wsClient.on('chat_error', (data) => {
+      console.error('❌ Chat error:', data.error);
+      setError(data.error || ERROR_MESSAGES.API_ERROR);
       setIsLoading(false);
-      
+      setLocalIsStreaming(false);
       trackError('chat_websocket_error', data.error);
     });
-    
-    // Cleanup
+
+    // Cleanup subscriptions on unmount or disconnect
     return () => {
-      console.log('🔌 Cleaning up WebSocket event listeners');
+      console.log('🔌 AIChat: Cleaning up WebSocket event listeners');
       unsubStream();
       unsubComplete();
       unsubError();
     };
-  }, [isWebSocketConnected]);
+  }, [isWebSocketConnected, trackMessageReceived, trackError]);
 
-  // ============================================================
-  // EFFECTS
-  // ============================================================
+  // ========================================
+  // LIFECYCLE
+  // ========================================
   
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, isLoading, streamingContent, executionProgress]);
+  }, [chatMessages, streamingContent]);
 
   // Load chat history on mount
+    useEffect(() => {
+    // Wait for session and WebSocket
+    if (!sessionId) {
+      console.log('📜 History: Waiting for session...');
+      return;
+    }
+    
+    if (!isWebSocketConnected) {
+      console.log('📜 History: Waiting for WebSocket connection...');
+      return;
+    }
+    
+    // Check if we should load history
+    const shouldLoadHistory = (
+      !isLoadingHistory &&           // Not already loading
+      chatMessages.length === 0      // No messages yet
+    );
+    
+    console.log('📜 History check:', {
+      sessionId,
+      isWebSocketConnected,
+      isLoadingHistory,
+      messageCount: chatMessages.length,
+      shouldLoadHistory
+    });
+    
+    if (shouldLoadHistory) {
+      console.log('📜 Loading chat history...');
+      loadHistory()
+        .then(() => console.log('✅ History loaded'))
+        .catch(err => console.error('❌ Failed to load history:', err));
+    }
+    
+  }, [sessionId, isWebSocketConnected, chatMessages.length, isLoadingHistory, loadHistory]);
+
+
+  // Focus input on mount
   useEffect(() => {
-    if (sessionId && !hasLoadedHistory.current && !isLoadingHistory) {
-      hasLoadedHistory.current = true;
-      loadHistory();
-    }
-  }, [sessionId, isLoadingHistory, loadHistory]);
-
-  // Handle execution results
-  useEffect(() => {
-    if (executionResult && executionStatus === 'completed') {
-      const resultMessage = {
-        role: 'assistant',
-        content: formatExecutionResult(executionResult),
-        timestamp: new Date().toISOString(),
-        isExecutionResult: true
-      };
-
-      addMessage(resultMessage);
-      trackMessageReceived(resultMessage.content.length, 0);
-    }
-  }, [executionResult, executionStatus, addMessage, trackMessageReceived]);
-
-  // Handle execution errors
-  useEffect(() => {
-    if (executionError && executionStatus === 'failed') {
-      setError(`Task execution failed: ${executionError}`);
-      trackError('execution_failed', executionError);
-    }
-  }, [executionError, executionStatus, trackError]);
-
-  // ========================================
-  // HELPER FUNCTIONS
-  // ========================================
-
-  const formatExecutionResult = (result) => {
-    if (!result) return 'Task completed successfully.';
-    if (typeof result === 'string') return result;
-    if (result.insights) {
-      return `**Task Complete!**\n\n${result.insights.join('\n\n')}`;
-    }
-    return '**Task Complete!**\n\n```json\n' + JSON.stringify(result, null, 2) + '\n```';
-  };
+    inputRef.current?.focus();
+  }, []);
 
   // ========================================
   // SEND MESSAGE
   // ========================================
-
-  const sendMessage = async (e) => {
+  
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!input.trim() || isLoading || isStreaming) return;
+    
+    if (!input.trim() || isStreaming || isLoading) return;
     if (!sessionId) {
-      setError(ERROR_MESSAGES.SESSION_EXPIRED);
+      setError('Session not initialized');
       return;
     }
 
@@ -252,182 +208,138 @@ const AIChat = () => {
       content: input.trim(),
       timestamp: new Date().toISOString()
     };
-    // Task mode
-    if (mode === 'task') {
-      await executeTask(userMessage);
-      return;
+
+    // Send via WebSocket if connected, otherwise REST
+    if (isWebSocketConnected) {
+      await sendMessageViaWebSocket(userMessage);
+    } else {
+      await sendMessageViaREST(userMessage);
     }
+  };
 
-    // Chat mode
+  /**
+   * Send message via WebSocket (preferred)
+   */
+  const sendMessageViaWebSocket = async (userMessage) => {
     addMessage(userMessage);
-
-    // Calculate index for assistant message (after user message is added)
-    const assistantMessageIndex = chatMessages.length + 1;
-    
     setInput('');
-    setIsLoading(true);
     setError(null);
-    
-    // Reset streaming state
 
     trackMessageSent(userMessage.content.length);
 
-    const contextMessages = chatMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
-
     try {
-      // Use WebSocket if available
-      if (isWebSocketConnected && sendChat) {
-        // Add empty assistant message for streaming
-        addMessage({
-          role: 'assistant',
-          content: '',
-          timestamp: new Date().toISOString(),
-          isStreaming: true
-        });
-        
-        streamingMessageIndexRef.current = assistantMessageIndex;
-        setLocalIsStreaming(true);
-        
-        await sendChat(userMessage.content, [...contextMessages, userMessage]);
-        
-      } else {
-        // Fallback to REST
-        await sendViaREST(userMessage, contextMessages);
-      }
-      
-    } catch (err) {
-      console.error('Chat error:', err);
-      
-      captureException(err, {
-        tags: {
-          error_type: 'chat_message_failed',
-          component: 'AIChat',
-          method: isWebSocketConnected ? 'websocket' : 'rest'
-        },
-        contexts: {
-          message_length: userMessage?.length,
-          history_count: messages?.length,
-          is_streaming: isStreaming,
-          session_id: sessionId,
-          condition: 'ai_assistant',
-        }
-      });
-
-      // Save user message to backend
-      //await chatAPI.saveMessage(sessionId, userMessage);
-
-      // Prepare request
-
-      setError(err.message || ERROR_MESSAGES.API_ERROR);
-      setIsLoading(false);
-      setLocalIsStreaming(false);
-      trackError('chat_error', err.message);
-      streamingMessageIndexRef.current = null;
-    }
-  };
-      
-  // ========================================
-  // REST API FALLBACK
-  // ========================================
-  const sendViaREST = async (userMessage, contextMessages) => {
-    try {
-      const chatRequest = {
-        session_id: sessionId,
-        messages: [...contextMessages, userMessage],
-        model: AI_CONFIG.MODEL,
-        temperature: AI_CONFIG.TEMPERATURE,
-        max_tokens: AI_CONFIG.MAX_TOKENS,
-        stream: true
-      };
-
-      const response = await chatAPI.send(chatRequest);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = '';
-      const startTime = Date.now();
-
-      addMessage({
+      // Add placeholder for assistant response
+      const placeholderMessage = {
         role: 'assistant',
         content: '',
-        timestamp: new Date().toISOString(),
-        isStreaming: true
+        isStreaming: true,
+        timestamp: new Date().toISOString()
+      };
+      
+      addMessage(placeholderMessage);
+      streamingMessageIndexRef.current = chatMessages.length;
+
+      // Get context for AI
+      const contextMessages = chatMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
+      
+      // Send via wsClient
+      await wsClient.sendChatMessage(userMessage.content, contextMessages);
+      
+      // WebSocket events will handle the response streaming
+      
+    } catch (err) {
+      console.error('WebSocket send error:', err);
+      
+      captureException(err, {
+        tags: { 
+          error_type: 'chat_websocket_send_failed', 
+          component: 'AIChat' 
+        },
+        contexts: {
+          message_length: userMessage.content.length,
+          history_count: chatMessages.length,
+          session_id: sessionId,
+        }
       });
       
-      const assistantIndex = chatMessages.length;
+      setError(err.message || ERROR_MESSAGES.API_ERROR);
+      trackError('chat_send_error', err.message);
+    }
+  };
+
+  /**
+   * Send message via REST (fallback when WebSocket unavailable)
+   */
+  const sendMessageViaREST = async (userMessage) => {
+    addMessage(userMessage);
+    setInput('');
+    setIsLoading(true);
+    setError(null);
+
+    trackMessageSent(userMessage.content.length);
+
+    // Add placeholder for streaming
+    const assistantMessageIndex = chatMessages.length;
+    const assistantMessage = {
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      timestamp: new Date().toISOString()
+    };
+    addMessage(assistantMessage);
+
+    try {
       setLocalIsStreaming(true);
+      setLocalStreamingContent('');
+      streamingMessageIndexRef.current = assistantMessageIndex;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const contextMessages = chatMessages.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
+      
+      const response = await chatAPI.sendMessage(sessionId, {
+        message: userMessage.content,
+        context: contextMessages.map(m => ({
+          role: m.role,
+          content: m.content
+        }))
+      });
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+      const fullContent = response.response || response.content || '';
+      
+      // Update with final content
+      updateMessage(assistantMessageIndex, {
+        content: fullContent,
+        isStreaming: false,
+        timestamp: new Date().toISOString()
+      });
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data.trim() === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.error) throw new Error(parsed.error);
-              
-              if (parsed.content) {
-                fullContent += parsed.content;
-                updateMessage(assistantIndex, { content: fullContent });
-              }
-            } catch (err) {
-              console.error('Error processing response chunk:', err);
-              continue;
-            }
-          }
-        }
-      }
-
-      const responseTime = Date.now() - startTime;
-      updateMessage(assistantIndex, { isStreaming: false });
+      const responseTime = response.metadata?.response_time_ms || 0;
       trackMessageReceived(fullContent.length, responseTime);
+      
       setIsLoading(false);
       setLocalIsStreaming(false);
+      setLocalStreamingContent('');
       
       setTimeout(() => inputRef.current?.focus(), 100);
 
-        /*
-        // Save complete message to backend
-        if (fullContent) {
-          await chatAPI.saveMessage(sessionId, {
-            role: 'assistant',
-            content: fullContent,
-            timestamp: new Date().toISOString()
-          });
-        }
-          */
     } catch (err) {
       console.error('REST API error:', err);
 
       captureException(err, {
         tags: { 
-          error_type: 'chat_message_failed', 
+          error_type: 'chat_rest_send_failed', 
           component: 'AIChat' 
         },
         contexts: {
-          message_length: userMessage?.length,
-          history_count: messages?.length,
-          is_streaming: isStreaming,
+          message_length: userMessage.content.length,
+          history_count: chatMessages.length,
           session_id: sessionId,
-          model: AI_CONFIG.MODEL,
-          condition: 'ai_assistant',
         }
       });
       
       setError(err.message || ERROR_MESSAGES.API_ERROR);
       setIsLoading(false);
       setLocalIsStreaming(false);
-      trackError('chat_error', err.message);
+      trackError('chat_rest_error', err.message);
     }
   };
 
@@ -450,7 +362,6 @@ const AIChat = () => {
         isSystemMessage: true
       });
 
-      // Execute as agent task through LangGraph
       const contextMessages = chatMessages.slice(-5);
       
       await executeAgentTask(userMessage.content, {
@@ -470,11 +381,8 @@ const AIChat = () => {
           component: 'AIChat'
         },
         contexts: {
-          message_length: userMessage?.length,
-          history_count: messages?.length,
-          is_streaming: isStreaming,
+          message_length: userMessage.content.length,
           session_id: sessionId,
-          condition: 'ai_assistant',
         }
       });
       
@@ -492,9 +400,9 @@ const AIChat = () => {
     if (!confirm('Are you sure you want to clear the chat history?')) return;
 
     try {
-      // Clear via WebSocket if available
-      if (isWebSocketConnected && clearChatRemote) {
-        await clearChatRemote();
+      // Try WebSocket first
+      if (isWebSocketConnected) {
+        await wsClient.clearChat();
       } else {
         // Fallback to REST
         await chatAPI.clear(sessionId);
@@ -556,383 +464,216 @@ const AIChat = () => {
       cancelEdit();
 
       // Regenerate response
-      setIsLoading(true);
-      setError(null);
-
       const editedUserMessage = { ...messagesToKeep[editingIndex], role: 'user' };
-      const contextMessages = messagesToKeep.slice(-AI_CONFIG.MAX_CONTEXT_MESSAGES);
-      const assistantMessageIndex = messagesToKeep.length;
-
-      if (isWebSocketConnected && sendChat) {
-        // Add empty assistant message
-        addMessage({
-          role: 'assistant',
-          content: '',
-          timestamp: new Date().toISOString(),
-          isStreaming: true
-        });
-        
-        streamingMessageIndexRef.current = assistantMessageIndex;
-        setLocalIsStreaming(true);
-        
-        await sendChat(editedUserMessage.content, contextMessages);
+      
+      if (isWebSocketConnected) {
+        await sendMessageViaWebSocket(editedUserMessage);
       } else {
-        await sendViaREST(editedUserMessage, contextMessages.slice(0, -1));
+        await sendMessageViaREST(editedUserMessage);
       }
 
     } catch (err) {
-      console.error('Edit and regenerate error:', err);
-      setError(err.message || ERROR_MESSAGES.API_ERROR);
-      setIsLoading(false);
-      setLocalIsStreaming(false);
-      trackError('edit_regenerate_error', err.message);
-      streamingMessageIndexRef.current = null;
+      console.error('Failed to edit message:', err);
+      setError('Failed to edit message');
+      trackError('message_edit_failed', err.message);
     }
   };
 
   // ========================================
-  // UI HELPERS
-  // ========================================
-  
-  const toggleMode = () => {
-    setMode(prev => prev === 'chat' ? 'task' : 'chat');
-  };
-
-  const isInputDisabled = isLoading || isStreaming || !sessionId || ['running', 'starting'].includes(executionStatus);
-  const isExecuting = ['running', 'starting'].includes(executionStatus);
-
-  // ========================================
   // RENDER
   // ========================================
+
   return (
-    <div className="flex h-full bg-gray-50">
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Bot className="w-6 h-6 text-blue-600" />
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">
-                  AI Assistant {isWebSocketConnected && <span className="text-xs text-green-600">(Live)</span>}
-                </h2>
-                <p className="text-sm text-gray-500">
-                  {isStreaming ? (
-                    <span className="flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Generating response...</span>
-                    </span>
-                  ) : isExecuting ? (
-                    <span className="flex items-center gap-1">
-                      <Zap className="w-3 h-3" />
-                      <span>Executing task...</span>
-                    </span>
-                  ) : (
-                    `Mode: ${mode === 'chat' ? 'Chat' : 'Task Execution'}`
-                  )}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {/* Mode Toggle */}
-              <button
-                onClick={toggleMode}
-                disabled={isInputDisabled}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  mode === 'task'
-                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-                title={mode === 'chat' ? 'Switch to Task Execution Mode' : 'Switch to Chat Mode'}
-              >
-                {mode === 'task' ? (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    <span>Task Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Chat Mode</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={clearHistory}
-                disabled={isStreaming || !hasMessages}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Clear chat history"
-              >
-                <Trash2 className="w-4 h-4" />
-                Clear
-              </button>
-            </div>
+    <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
+            <Bot className="w-5 h-5 text-white" />
           </div>
-
-          {/* Mode Description */}
-          <div className="mt-2 text-xs text-gray-600">
-            {mode === 'chat' ? (
-              `💬 Chat mode: Have a conversation with the AI assistant ${isWebSocketConnected ? '(Real-time via WebSocket)' : '(REST API)'}`
-            ) : (
-              '⚡ Task mode: AI agent will autonomously execute your request using workflows'
-            )}
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">AI Assistant</h2>
+            <p className="text-xs text-gray-500">
+              {isWebSocketConnected ? '🟢 Connected' : '🔴 Offline'}
+            </p>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {!hasMessages && !isLoading && (
-            <div className="text-center text-gray-500 mt-8">
-              <Bot className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              <p className="text-lg font-medium mb-2">Start a conversation</p>
-              <p className="text-sm">
-                {mode === 'chat' 
-                  ? 'Ask me about creating workflows, automation, or anything else!'
-                  : 'Describe a task and I\'ll autonomously execute it for you!'
-                }
-              </p>
-            </div>
-          )}
-
-          {chatMessages.map((message, idx) => (
-            <div
-              key={idx}
-              className={`flex gap-3 ${
-                message.role === 'user' ? 'justify-end' : 
-                message.isSystemMessage ? 'justify-center' : 'justify-start'
-              } group relative`}
-            >
-              {/* System messages */}
-              {message.isSystemMessage && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-800">
-                  {message.content}
-                </div>
-              )}
-
-              {/* Regular messages */}
-              {!message.isSystemMessage && (
-                <>
-                  {message.role === 'assistant' && (
-                    <div className="flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                        <Bot className="w-5 h-5 text-blue-600" />
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="flex flex-col gap-1 max-w-[70%]">
-                    {editingIndex === idx ? (
-                      // Edit mode
-                      <div className="flex gap-2 items-start">
-                        <textarea
-                          ref={editInputRef}
-                          value={editingContent}
-                          onChange={(e) => setEditingContent(e.target.value)}
-                          className="flex-1 px-3 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                          rows={3}
-                          maxLength={AI_CONFIG.MAX_MESSAGE_LENGTH}
-                        />
-                        <div className="flex flex-col gap-1">
-                          <button
-                            onClick={saveEdit}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            title="Save and regenerate"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Cancel"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      // View mode
-                      <div className="flex items-start gap-2">
-                        <div
-                          className={`rounded-lg px-4 py-2 ${
-                            message.role === 'user'
-                              ? 'bg-blue-600 text-white'
-                              : message.isExecutionResult
-                              ? 'bg-purple-50 text-gray-900 border-2 border-purple-200'
-                              : 'bg-white text-gray-900 border border-gray-200'
-                          }`}
-                        >
-                          {/* USE StreamingMessage for smooth display */}
-                          {message.role === 'assistant' ? (
-                            message.isStreaming ? (
-                              // DURING STREAMING: Use streamingContent from store, not message.content
-                              <StreamingMessage
-                                content={streamingContent}  // ← From WebSocket store (updates smoothly)
-                                isStreaming={true}
-                              />
-                            ) : (
-                              // AFTER STREAMING: Use actual message content
-                              <StreamingMessage
-                                content={message.content}   // ← From messages array (final content)
-                                isStreaming={false}
-                              />
-                            )
-                          ) : (
-                            // User messages - no streaming needed
-                            <p className="whitespace-pre-wrap break-words">
-                              {message.content}
-                            </p>
-                          )}
-                        </div>
-                        
-                        {/* Edit button for user messages */}                        
-                        {message.role === 'user' && !isStreaming && !isLoading && !isExecuting && (
-                          <button
-                            onClick={() => startEdit(idx)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded flex-shrink-0"
-                            title="Edit message"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* Edited indicator */}
-                    {message.role === 'user' && message.edited && !message.isStreaming && (
-                      <span className="text-xs text-gray-400 italic px-1">
-                        (edited)
-                      </span>
-                    )}
-
-                    {/* Execution result badge */}
-                    {message.isExecutionResult && (
-                      <span className="text-xs text-purple-600 font-medium px-1">
-                        ⚡ Task Result
-                      </span>
-                    )}
-                  </div>
-
-                  {message.role === 'user' && (
-                    <div className="flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                        <User className="w-5 h-5 text-gray-600" />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          ))}
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-              {error}
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input Form */}
-        <div className="bg-white border-t border-gray-200 px-6 py-4">
-          {/* Status indicators */}
-          {isStreaming && (
-            <div className="mb-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
-              <Lock className="w-4 h-4" />
-              <span>Chat locked while AI is responding...</span>
-            </div>
-          )}
-
-          {isExecuting && (
-            <div className="mb-3 flex items-center gap-2 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
-              <Zap className="w-4 h-4 animate-pulse" />
-              <span>Agent is executing your task...</span>
-              {currentStep && (
-                <span className="text-xs">
-                  (Step {currentStep.step}: {currentStep.action || currentStep.label})
-                </span>
-              )}
-            </div>
-          )}
-
-          <form onSubmit={sendMessage} className="flex gap-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={isInputDisabled}
-              placeholder={
-                isStreaming 
-                  ? "Waiting for response to complete..." 
-                  : isExecuting
-                  ? "Task is being executed..."
-                  : !sessionId 
-                  ? "Loading session..." 
-                  : mode === 'task'
-                  ? "Describe the task you want to execute..."
-                  : "Type your message..."
-              }
-              className={`flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                isInputDisabled
-                  ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed'
-                  : 'bg-white border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-              }`}
-              maxLength={AI_CONFIG.MAX_MESSAGE_LENGTH}
-            />
-            
-            <button
-              type="submit"
-              disabled={isInputDisabled || !input.trim()}
-              className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${
-                isInputDisabled || !input.trim()
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : mode === 'task'
-                  ? 'bg-purple-600 text-white hover:bg-purple-700 active:scale-95'
-                  : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
-              }`}
-            >
-              {isLoading || isExecuting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{mode === 'task' ? 'Executing...' : 'Sending...'}</span>
-                </>
-              ) : (
-                <>
-                  {mode === 'task' ? <Zap className="w-5 h-5" /> : <Send className="w-5 h-5" />}
-                  <span>{mode === 'task' ? 'Execute' : 'Send'}</span>
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Character count */}
-          {input.length > AI_CONFIG.MAX_MESSAGE_LENGTH * 0.8 && (
-            <div className="mt-2 text-xs text-gray-500 text-right">
-              {input.length} / {AI_CONFIG.MAX_MESSAGE_LENGTH} characters
-            </div>
-          )}
-        </div>
+        <button
+          onClick={clearHistory}
+          disabled={!hasMessages || isStreaming}
+          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Clear chat history"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span className="hidden sm:inline">Clear</span>
+        </button>
       </div>
 
-      {/* Execution Progress Sidebar */}
-      {(isExecuting || executionStatus === 'completed' || executionStatus === 'failed') && (
-        <div className="w-96 border-l border-gray-200 bg-white overflow-y-auto">
-          <div className="p-4">
-            <ExecutionProgress
-              status={executionStatus}
-              progress={executionProgress}
-              progressPercentage={progressPercentage}
-              currentStep={currentStep}
-              condition="ai_assistant"
-              onCancel={cancelExecution}
-            />
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        {!hasMessages && !isLoading ? (
+          <div className="text-center py-12">
+            <Bot className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">
+              Welcome to AI Assistant
+            </h3>
+            <p className="text-gray-500 max-w-md mx-auto">
+              Ask me anything! I can help analyze data, answer questions, and execute tasks for you.
+            </p>
           </div>
+        ) : (
+          <>
+            {chatMessages.map((message, index) => (
+              <div
+                key={index}
+                className={`flex gap-3 ${
+                  message.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+              >
+                {message.role === 'assistant' && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                )}
+
+                <div
+                  className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                    message.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : message.isSystemMessage
+                      ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                      : 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                  }`}
+                >
+                  {editingIndex === index ? (
+                    <div className="space-y-2">
+                      <textarea
+                        ref={editInputRef}
+                        value={editingContent}
+                        onChange={(e) => setEditingContent(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                        rows={3}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveEdit}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                        >
+                          <Check className="w-4 h-4" />
+                          Save
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                        >
+                          <X className="w-4 h-4" />
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="prose prose-sm max-w-none">
+                        {message.isStreaming && !message.content ? (
+                          <div className="flex items-center gap-2 text-gray-500">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Thinking...</span>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words">
+                            {message.content}
+                          </p>
+                        )}
+                      </div>
+                      {message.role === 'user' && !isStreaming && (
+                        <button
+                          onClick={() => startEdit(index)}
+                          className="mt-2 flex items-center gap-1 text-xs text-blue-100 hover:text-white transition-colors"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          Edit
+                        </button>
+                      )}
+                      {message.edited && (
+                        <p className="mt-1 text-xs opacity-70">(edited)</p>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {message.role === 'user' && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                    <User className="w-5 h-5 text-white" />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Streaming Message */}
+            {isStreaming && streamingContent && (
+              <div className="flex gap-3 justify-start">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+                <div className="max-w-[70%] rounded-2xl px-4 py-3 bg-white text-gray-900 shadow-sm border border-gray-100">
+                  <StreamingMessage content={streamingContent} />
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </>
+        )}
+
+        {/* Execution Progress */}
+        {executionStatus === 'running' && (
+          <div className="mt-4">
+            <ExecutionProgress />
+          </div>
+        )}
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mx-4 mb-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+          {error}
         </div>
       )}
+
+      {/* Input */}
+      <div className="border-t border-gray-200 bg-white p-4">
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={
+              isStreaming
+                ? 'Please wait for response...'
+                : 'Type your message...'
+            }
+            disabled={isStreaming || isLoading}
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || isStreaming || isLoading}
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium shadow-lg shadow-blue-500/25"
+          >
+            {isLoading || isStreaming ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
+            <span className="hidden sm:inline">Send</span>
+          </button>
+        </form>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          {isWebSocketConnected ? '✓ Real-time mode' : '⚠ Offline mode (REST fallback)'}
+        </p>
+      </div>
     </div>
   );
 };

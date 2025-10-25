@@ -1,11 +1,11 @@
-// frontend/src/config/api.js
+// frontend/src/services/api.js
 /**
  * Hybrid API Client - Seamlessly uses WebSocket or REST
  * Provides transparent fallback and optimal performance
  */
-import { captureException, scrubData } from './sentry';
-import { API_CONFIG, ERROR_MESSAGES } from './constants';
-import wsClient from '../services/websocket';
+import { captureException, scrubData } from '../config/sentry';
+import { API_CONFIG, ERROR_MESSAGES } from '../config/constants';
+import wsClient from './websocket';
 
 /**
  * HTTP Client for REST fallback
@@ -144,7 +144,10 @@ class HybridApiClient {
       'session_sync',
       'chat_history',
       'track',
-      'interactions'
+      'interactions',
+      'reviews_get',
+      'reviews_stats',
+      'reviews_by_id'
     ]);
     
     // Performance metrics
@@ -279,6 +282,11 @@ export const API_ENDPOINTS = {
     detail: (executionId) => `/api/orchestrator/execution/${executionId}`,
     cancel: (executionId) => `/api/orchestrator/execution/${executionId}/cancel`,
     sessionExecutions: (sessionId) => `/api/orchestrator/session/${sessionId}/executions`,
+  },
+  reviews: {
+    getReviews: (category) => `/api/reviews/${category}`,
+    getStats: (category, productId) => `/api/reviews/${category}/${productId}/stats`,
+    getById: (category, reviewId) => `/api/reviews/${category}/${reviewId}`,
   },
   health: () => '/health',
   version: () => '/api/version',
@@ -453,6 +461,64 @@ export const orchestratorAPI = {
   ),
 };
 
+/**
+ * Reviews API - Handles fetching review datasets for study tasks
+ * Supports both WebSocket (preferred) and REST (fallback) communication
+ */
+export const reviewsAPI = {
+  /**
+   * Get reviews for a specific product
+   * @param {string} category - 'shoes' or 'wireless'
+   * @param {string} productId - Product ID to filter by
+   * @param {Object} options - Additional filter options
+   */
+  getReviews: (category, productId, options = {}) => {
+    const params = new URLSearchParams({
+      product_id: productId,
+      limit: options.limit || 500,
+      offset: options.offset || 0,
+      exclude_malformed: options.excludeMalformed || false // Default false
+    });
+
+    // Add optional filters
+    if (options.minRating) params.append('min_rating', options.minRating);
+    if (options.maxRating) params.append('max_rating', options.maxRating);
+    if (options.verifiedOnly) params.append('verified_only', 'true');
+
+    return hybridClient.request(
+      'reviews_get',
+      () => wsClient.request('reviews_get', { 
+        category, 
+        product_id: productId, 
+        ...options 
+      }, { cache: true }),
+      () => hybridClient.http.get(`${API_ENDPOINTS.reviews.getReviews(category)}?${params}`)
+    );
+  },
+
+  /**
+   * Get summary statistics for a product's reviews
+   * @param {string} category - 'shoes' or 'wireless'
+   * @param {string} productId - Product ID to analyze
+   */
+  getReviewStats: (category, productId) => hybridClient.request(
+    'reviews_stats',
+    () => wsClient.request('reviews_stats', { category, product_id: productId }, { cache: true }),
+    () => hybridClient.http.get(API_ENDPOINTS.reviews.getStats(category, productId))
+  ),
+
+  /**
+   * Get a single review by ID
+   * @param {string} category - 'shoes' or 'wireless'
+   * @param {string} reviewId - Review ID
+   */
+  getReviewById: (category, reviewId) => hybridClient.request(
+    'reviews_by_id',
+    () => wsClient.request('reviews_by_id', { category, review_id: reviewId }),
+    () => hybridClient.http.get(API_ENDPOINTS.reviews.getById(category, reviewId))
+  ),
+};
+
 export const systemAPI = {
   health: () => hybridClient.http.get(API_ENDPOINTS.health()),
   version: () => hybridClient.http.get(API_ENDPOINTS.version()),
@@ -464,7 +530,6 @@ export const systemAPI = {
     websocket: wsClient.getMetrics()
   })
 };
-
 
 // Export the clients and utilities
 export { hybridClient, wsClient, ApiError };

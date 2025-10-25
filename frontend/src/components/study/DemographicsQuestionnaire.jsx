@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { useSession } from '../../hooks/useSession';
 import { useSessionData } from '../../hooks/useSessionData';
 import { useTracking } from '../../hooks/useTracking';
-import { demographicsAPI } from '../../config/api';
+import { demographicsAPI } from '../../services/api';
 import { 
   DEMOGRAPHICS_CONFIG, 
   ERROR_MESSAGES, 

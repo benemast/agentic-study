@@ -13,7 +13,7 @@ import { immer } from 'zustand/middleware/immer';
 import useWebSocketStore from './websocketStore';
 import wsClient from '../services/websocket';
 
-import { sessionAPI, chatAPI, interactionAPI } from '../config/api';
+import { sessionAPI, chatAPI, interactionAPI } from '../services/api';
 
 import { SESSION_CONFIG, TRACKING_EVENTS, STUDY_CONFIG } from '../config/constants';
 
@@ -429,37 +429,36 @@ const useSessionStore = create(
                 state.sessionData.interactions = state.sessionData.interactions.slice(-100);
               }
             });
-            
-            // Send to backend
-            // Use WebSocket for tracking if available
-            const wsStore = useWebSocketStore.getState();
-            if (wsStore.isConnected()) {
-              wsStore.queueTrackingEvent(eventType, eventData);
-            } else {
-              // Fallback to REST
-              try {
+            try {
+              // Send to backend
+              // Use WebSocket for tracking if available
+              const wsStore = useWebSocketStore.getState();
+              if (wsStore.isConnected()) {
+                wsStore.queueTrackingEvent(eventType, eventData);
+              } else {
+                // Fallback to REST             
                 await interactionAPI.track(sessionId, interaction);
-              } catch (error) {
-                console.error('Failed to track interaction:', error);
-        
-                // Log interaction tracking failures
-                captureException(error, {
-                  tags: {
-                    error_type: 'interaction_tracking_failed',
-                    event_type: eventType
-                  },
-                  contexts: {
-                    session_id: sessionId,
-                    event_type: eventType,
-                  }
-                });
               }
-              
+            } catch (error) {
+              console.error('Failed to track interaction:', error);
+      
+              // Log interaction tracking failures
+              captureException(error, {
+                tags: {
+                  error_type: 'interaction_tracking_failed',
+                  event_type: eventType
+                },
+                contexts: {
+                  session_id: sessionId,
+                  event_type: eventType,
+                }
+              });                
+            
               set({ 
                 connectionStatus: 'error',
                 sessionError: error.message 
               });
-            }
+            }            
           },
           
           // ========================================
@@ -1095,6 +1094,9 @@ const useSessionStore = create(
                 state.sessionData.demographics = data;
                 state.sessionData.demographicsCompleted = true;
                 state.sessionData.demographicsCompletedAt = new Date().toISOString();
+
+                // Move on to task 1
+                state.sessionData.currentStep = 'task_1';
               });
               
               // Sync to backend

@@ -1,6 +1,6 @@
 // frontend/src/hooks/useWorkflowExecution.js
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { orchestratorAPI } from '../config/api';
+import { orchestratorAPI } from '../services/api';
 import { useTracking } from './useTracking';
 import { useWebSocket } from './useWebSocket';
 import { serializeWorkflow } from '../utils/workflowSerializer';

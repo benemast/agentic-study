@@ -31,7 +31,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
 
 // Config & API
-import { sessionAPI } from '../../config/api';
+import { sessionAPI } from '../../services/api';
 import { 
   WORKFLOW_CONFIG, 
   UI_CONFIG,

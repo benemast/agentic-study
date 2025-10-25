@@ -18,7 +18,7 @@ import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
 import { wsClient } from '../../services/websocket'; // ✅ For event subscriptions
 
 // Config
-import { chatAPI } from '../../config/api';
+import { chatAPI } from '../../services/api';
 import { AI_CONFIG, ERROR_MESSAGES } from '../../config/constants';
 
 const AIChat = () => {
@@ -656,6 +656,13 @@ const AIChat = () => {
             }
             disabled={isStreaming || isLoading}
             className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="true"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore
           />
           <button
             type="submit"
@@ -670,9 +677,6 @@ const AIChat = () => {
             <span className="hidden sm:inline">Send</span>
           </button>
         </form>
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          {isWebSocketConnected ? '✓ Real-time mode' : '⚠ Offline mode (REST fallback)'}
-        </p>
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import DemographicsQuestionnaire from './components/study/DemographicsQuestionna
 import TaskScreen from './components/study/TaskScreen';
 import SurveyQuestionnaire from './components/study/SurveyQuestionnaire';
 import CompletionScreen from './components/study/CompletionScreen';
+import StudyFooter from './components/study/StudyFooter';
 
 // Hooks
 import { useSession } from './hooks/useSession';
@@ -34,68 +35,6 @@ import { interpolateComponents } from './utils/translationHelpers';
 
 // Config
 import { STUDY_CONFIG } from './config/constants';
-
-const StudyFooter = () => {
-  const contactEmail = import.meta.env.VITE_CONTACT_EMAIL;
-  const { t } = useTranslation();
-  const currentYear = "2025" //new Date.UTC.year
-  
-  return (
-    <footer className="bg-gray-900 text-gray-300 py-6 mt-auto">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          {/* Left: Copyright */}
-          <div className="text-sm text-center md:text-left">
-            <p className="font-medium text-white mb-1 text-center">
-              © {currentYear}{' '}{t('base.university.chair')}<br></br>
-              @ {t('base.university.name')}
-            </p>
-          </div>
-
-          {/* Center: Contact */}
-          <div className="text-sm text-center">
-            <p className="text-gray-400">
-                {interpolateComponents(
-                    t('footer.contact'),
-                    {
-                        EMAIL: (
-                            <a 
-                            href={`mailto:${contactEmail}`}
-                            className="text-blue-400 hover:text-blue-300 underline"
-                            >
-                            {contactEmail}
-                            </a>
-                        )
-                    }
-                )}
-            </p>
-          </div>
-
-          {/* Right: Links */}
-          <div className="flex items-center gap-6 text-sm">
-            <a
-              href="/impressum"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-300 hover:text-white transition-colors"
-            >
-              {t('footer.legalNote.label')}
-            </a>
-            <span className="text-gray-600">•</span>
-            <a
-              href={t('welcome.privacy.url')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-300 hover:text-white transition-colors"
-            >
-              {t('welcome.privacyModal.title')}
-            </a>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-};
 
 const StudyApp = () => {
   const { sessionId } = useSession();
@@ -187,7 +126,7 @@ const StudyApp = () => {
   };
 
   // Determine if footer should be shown (not on full-screen task views)
-  const showFooter = ![STUDY_CONFIG.STEPS.TASK_1, STUDY_CONFIG.STEPS.TASK_2].includes(currentStep);
+  const showFooter = ![STUDY_CONFIG.STEPS.TASK_12, STUDY_CONFIG.STEPS.TASK_23].includes(currentStep);
 
   useEffect(() => {
     if (sessionId && isStudyInitialized && studyConfig) {
@@ -317,7 +256,7 @@ const StudyApp = () => {
           <div className="space-y-1">
             <div><strong>Group:</strong> {studyConfig.group}</div>
             <div><strong>Step:</strong> {currentStep}</div>
-            <div><strong>Session:</strong> {sessionId?.slice(0, 8)}...</div>
+            <div><strong>Session:</strong> {sessionId}</div>
             <div className="pt-2 mt-2 border-t border-gray-700">
               <a href="/admin" className="text-blue-400 hover:underline">
                 → Admin Interface

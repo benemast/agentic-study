@@ -142,12 +142,13 @@ class HybridApiClient {
     this.wsPreferred = new Set([
       'session_update',
       'session_sync',
+      'send',
       'chat_history',
       'track',
       'interactions',
-      'reviews_get',
-      'reviews_stats',
-      'reviews_by_id'
+      'get_reviews',
+      'get_review_stats',
+      'get_review_by_id'
     ]);
     
     // Performance metrics
@@ -474,7 +475,6 @@ export const reviewsAPI = {
    */
   getReviews: (category, productId, options = {}) => {
     const params = new URLSearchParams({
-      product_id: productId,
       limit: options.limit || 500,
       offset: options.offset || 0,
       exclude_malformed: options.excludeMalformed || false // Default false
@@ -485,11 +485,13 @@ export const reviewsAPI = {
     if (options.maxRating) params.append('max_rating', options.maxRating);
     if (options.verifiedOnly) params.append('verified_only', 'true');
 
+    console.log("Sending 'get_reviews' call with parameters: ", params.toString())
+
     return hybridClient.request(
-      'reviews_get',
-      () => wsClient.request('reviews_get', { 
+      'get_reviews',
+      () => wsClient.request('get_reviews', { 
         category, 
-        product_id: productId, 
+        ...(productId && { product_id: productId }),
         ...options 
       }, { cache: true }),
       () => hybridClient.http.get(`${API_ENDPOINTS.reviews.getReviews(category)}?${params}`)
@@ -502,8 +504,8 @@ export const reviewsAPI = {
    * @param {string} productId - Product ID to analyze
    */
   getReviewStats: (category, productId) => hybridClient.request(
-    'reviews_stats',
-    () => wsClient.request('reviews_stats', { category, product_id: productId }, { cache: true }),
+    'get_review_stats',
+    () => wsClient.request('get_review_stats', { category, product_id: productId }, { cache: true }),
     () => hybridClient.http.get(API_ENDPOINTS.reviews.getStats(category, productId))
   ),
 
@@ -513,8 +515,8 @@ export const reviewsAPI = {
    * @param {string} reviewId - Review ID
    */
   getReviewById: (category, reviewId) => hybridClient.request(
-    'reviews_by_id',
-    () => wsClient.request('reviews_by_id', { category, review_id: reviewId }),
+    'get_review_by_id',
+    () => wsClient.request('get_review_by_id', { category, review_id: reviewId }),
     () => hybridClient.http.get(API_ENDPOINTS.reviews.getById(category, reviewId))
   ),
 };

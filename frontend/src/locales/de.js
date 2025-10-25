@@ -69,13 +69,13 @@ export const de = {
     
     privacy: {
       label: "Datenschutz",
-      value: "Anonym & DSGVO-konform"
+      value: "Anonym & DSGVO-konform",
+      url: "https://www.tu-darmstadt.de/datenschutzerklaerung.de.jsp"
     },
     
     privacyModal: {
       title: "Datenschutzerklärung",
       content: "Detaillierte Informationen zum Datenschutz findest du in unserer vollständigen Datenschutzerklärung unter: ",
-      url: "https://www.tu-darmstadt.de/datenschutzerklaerung.de.jsp",
       close: "Schließen"
     },
     

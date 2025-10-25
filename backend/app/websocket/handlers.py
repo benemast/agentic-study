@@ -12,7 +12,8 @@ import httpx
 from app.database import get_db_context, get_async_db_context
 from app.models.session import Session as SessionModel, Interaction
 from app.models.ai_chat import ChatMessage, ChatConversation
-from app.models.reviews import ShoesReview, WirelessReview
+from app.models.reviews import ShoesReview, WirelessReview, get_review_model
+from app.schemas.reviews import batch_to_study_format
 from app.websocket.manager import ws_manager
 from app.config import settings
 
@@ -1238,65 +1239,80 @@ async def handle_execution_cancel(session_id: str, message: dict):
 # ============================================================
 
 async def handle_get_reviews(session_id: str, message: dict):
-    """Handle getting reviews via WebSocket"""
+    """
+    Handle getting reviews via WebSocket
+    
+    Uses existing schema helpers for consistency with REST API
+    Matches REST API behavior exactly
+    """
     request_id = message.get('request_id')
     
     try:
         category = message.get('category')
         product_id = message.get('product_id')
         
-        # options
+        # Options
         limit = message.get('limit', 500)
         offset = message.get('offset', 0)
-        exclude_malformed = message.get('exclude_malformed', True)
-        min_rating = message.get('min_rating')
-        max_rating = message.get('max_rating')
-        verified_only = message.get('verified_only')
+        exclude_malformed = message.get('excludeMalformed', True)
+        min_rating = message.get('minRating')
+        max_rating = message.get('maxRating')
+        verified_only = message.get('verifiedOnly')
         
-        if not category or not product_id:
+        # Only category is required
+        if not category:
             await ws_manager.send_to_session(session_id, {
                 'type': 'response',
                 'request_id': request_id,
                 'status': 'error',
-                'error': 'category and product_id are required'
+                'error': 'category is required'
             })
             return
         
-        # Normalize category
-        category_normalized = category.capitalize()
-        if category_normalized not in ['Shoes', 'Wireless']:
+        # Get correct model
+        try:
+            model = get_review_model(category)
+        except ValueError as e:
             await ws_manager.send_to_session(session_id, {
                 'type': 'response',
                 'request_id': request_id,
                 'status': 'error',
-                'error': 'Invalid category'
+                'error': str(e)
             })
             return
         
         with get_db_context() as db:
-            from app.schemas.reviews import ReviewStudyBase
-            
             # Build query
-            query = db.query(ReviewStudyBase).filter(
-                ReviewStudyBase.product_category == category_normalized,
-                ReviewStudyBase.product_id == product_id
-            )
+            query = db.query(model)
             
-            # Apply filters
+            # Apply filters (matching REST API logic)
+            if product_id:
+                query = query.filter(model.product_id == product_id)
+            
+            logger.info(f"Malformed should be excluded: {exclude_malformed}")
+            if exclude_malformed:
+                query = query.filter(model.is_malformed == False)
+            
             if verified_only:
-                query = query.filter(ReviewStudyBase.verified_purchase == True)
+                query = query.filter(model.verified_purchase == True)
             
             if min_rating is not None:
-                query = query.filter(ReviewStudyBase.star_rating >= min_rating)
+                query = query.filter(model.star_rating >= min_rating)
             
             if max_rating is not None:
-                query = query.filter(ReviewStudyBase.star_rating <= max_rating)
+                query = query.filter(model.star_rating <= max_rating)
             
-            # Get total count
+            # Order by helpful votes desc, then date desc (same as REST API)
+            query = query.order_by(
+                model.helpful_votes.desc(),
+                model.review_date.desc()
+            )
+            
+            # Get total count BEFORE pagination
             total = query.count()
             
             if total == 0:
-                logger.warning(f"No reviews found for {category}/{product_id}")
+                logger.warning(f"No reviews found for {category}" + (f"/{product_id}" if product_id else ""))
                 await ws_manager.send_to_session(session_id, {
                     'type': 'response',
                     'request_id': request_id,
@@ -1305,46 +1321,31 @@ async def handle_get_reviews(session_id: str, message: dict):
                         'reviews': [],
                         'total': 0,
                         'limit': limit,
-                        'offset': offset,
-                        'category': category_normalized,
-                        'product_id': product_id
+                        'offset': offset
                     }
                 })
                 return
             
-            # Send initial response with metadata
+            # Send loading notification
             await ws_manager.send_to_session(session_id, {
                 'type': 'reviews_loading',
                 'request_id': request_id,
                 'total': total,
-                'category': category_normalized,
-                'product_id': product_id
+                'loaded': 0
             })
             
             # Get paginated results
             reviews = query.offset(offset).limit(limit).all()
             
-            # Convert to study-safe format
-            study_reviews = [
-                {
-                    'review_id': r.review_id,
-                    'product_id': r.product_id,
-                    'product_title': r.product_title,
-                    'product_category': r.product_category,
-                    'review_headline': r.review_headline or "",
-                    'review_body': r.review_body or "",
-                    'star_rating': r.star_rating,
-                    'verified_purchase': r.verified_purchase,
-                    'helpful_votes': r.helpful_votes or 0,
-                    'total_votes': r.total_votes or 0,
-                    'customer_id': int(r.customer_id) if r.customer_id else 0
-                }
-                for r in reviews
-            ]
+            # Convert to study format using existing helper (returns Pydantic models)
+            study_reviews_pydantic = batch_to_study_format(reviews)
             
-            logger.info(f"Sending {len(study_reviews)} reviews for {category}/{product_id} via WebSocket")
+            # Convert Pydantic models to dicts for JSON serialization
+            study_reviews = [review.model_dump() for review in study_reviews_pydantic]
             
-            # Send final response
+            logger.info(f"Sending {len(study_reviews)}/{total} {category} reviews via WebSocket")
+            
+            # Send final response (matches REST API format)
             await ws_manager.send_to_session(session_id, {
                 'type': 'response',
                 'request_id': request_id,
@@ -1353,9 +1354,7 @@ async def handle_get_reviews(session_id: str, message: dict):
                     'reviews': study_reviews,
                     'total': total,
                     'limit': limit,
-                    'offset': offset,
-                    'category': category_normalized,
-                    'product_id': product_id
+                    'offset': offset
                 }
             })
         

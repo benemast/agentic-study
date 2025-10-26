@@ -17,14 +17,16 @@ import logging
 
 from .data_tools import (
     BaseTool,
-    GatherDataTool,
-    FilterDataTool,
+    FilterReviewsTool,
+    SortReviewsTool,
+    LoadReviewsTool,
+
     CleanDataTool,
-    SortDataTool,
     CombineDataTool
 )
 from .analysis_tools import (
-    SentimentAnalysisTool,
+    ReviewSentimentAnalysisTool,
+
     GenerateInsightsTool,
     ShowResultsTool
 )
@@ -103,26 +105,38 @@ class ToolDefinition:
 TOOL_DEFINITIONS = [
     # DATA TOOLS
     ToolDefinition(
-        tool_class=GatherDataTool,
-        workflow_id='gather-data',
-        ai_id='gather_data',
-        display_name='Gather Data',
-        description='Collect initial data from a source. Use when no data exists yet.',
+        tool_class=LoadReviewsTool,
+        workflow_id='load-reviews',  # Used in Workflow Builder UI
+        ai_id='load_reviews',  # Used by AI Assistant
+        display_name='Load Product Reviews',
+        description='Load product reviews from database with filtering options (category, rating, verified purchases)',
         category='data',
-        requires_data=False,
-        parameter_schema_name='GatherDataParams'  # References schema in tool_schemas.py
+        requires_data=False,  # Can be used without prior data
+        parameter_schema_name='LoadReviewsParams'
     ),
     
     ToolDefinition(
-        tool_class=FilterDataTool,
-        workflow_id='filter-data',
-        ai_id='filter_data',
-        display_name='Filter Data',
-        description='Filter existing data records based on criteria (e.g., value thresholds).',
+        tool_class=FilterReviewsTool,
+        workflow_id='filter-reviews',
+        ai_id='filter_reviews',
+        display_name='Filter Reviews',
+        description='Filter reviews by rating, helpfulness, verified status, or text content',
         category='data',
         requires_data=True,
-        parameter_schema_name='FilterDataParams'
+        parameter_schema_name='FilterReviewsParams'
     ),
+
+    ToolDefinition(
+        tool_class=SortReviewsTool,
+        workflow_id='sort-reviews',
+        ai_id='sort_reviews',
+        display_name='Sort Reviews',
+        description='Sort reviews by rating, helpfulness, engagement, or other fields',
+        category='data',
+        requires_data=True,
+        parameter_schema_name='SortReviewsParams'
+    ),
+
     
     ToolDefinition(
         tool_class=CleanDataTool,
@@ -135,16 +149,6 @@ TOOL_DEFINITIONS = [
         parameter_schema_name=None  # No parameters
     ),
     
-    ToolDefinition(
-        tool_class=SortDataTool,
-        workflow_id='sort-data',
-        ai_id='sort_data',
-        display_name='Sort Data',
-        description='Sort data records by a specified field.',
-        category='data',
-        requires_data=True,
-        parameter_schema_name='SortDataParams'
-    ),
     
     ToolDefinition(
         tool_class=CombineDataTool,
@@ -156,19 +160,19 @@ TOOL_DEFINITIONS = [
         requires_data=True,
         parameter_schema_name=None
     ),
-    
+
     # ANALYSIS TOOLS
     ToolDefinition(
-        tool_class=SentimentAnalysisTool,
-        workflow_id='sentiment-analysis',
-        ai_id='sentiment_analysis',
-        display_name='Sentiment Analysis',
-        description='Analyze sentiment of text in data records. Classifies as positive/neutral/negative.',
+        tool_class=ReviewSentimentAnalysisTool,
+        workflow_id='review-sentiment-analysis',  # Used in Workflow Builder UI
+        ai_id='review_sentiment_analysis',  # Used by AI Assistant
+        display_name='Analyze Review Sentiment',
+        description='Analyze sentiment of product reviews (positive/neutral/negative) based on ratings and text keywords',
         category='analysis',
-        requires_data=True,
-        parameter_schema_name=None
+        requires_data=True,  # Needs reviews from load_reviews
+        parameter_schema_name='ReviewSentimentAnalysisParams'
     ),
-    
+
     ToolDefinition(
         tool_class=GenerateInsightsTool,
         workflow_id='generate-insights',

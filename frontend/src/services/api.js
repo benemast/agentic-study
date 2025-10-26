@@ -140,12 +140,20 @@ class HybridApiClient {
     
     // Track which endpoints should prefer WebSocket
     this.wsPreferred = new Set([
+      'session_get',
       'session_update',
+      'session_quickSave',
       'session_sync',
+      'session_end',
       'send',
       'chat_history',
+      'chat_clear',
       'track',
+      'track_batch',
       'interactions',
+      'execute',
+      'workflow_execute',
+      'execution_cancel',
       'get_reviews',
       'get_review_stats',
       'get_review_by_id'
@@ -329,14 +337,14 @@ export const sessionAPI = {
   // Quick save uses WebSocket for speed
   quickSave: (sessionId, data) => hybridClient.request(
     'session_quicksave',
-    () => wsClient.updateSession(data),
+    () => wsClient.quickSaveSession(data),
     () => hybridClient.http.post(API_ENDPOINTS.sessions.quickSave(sessionId), data)
   ),
   
   // Sync always tries WebSocket first
   sync: (sessionId, data) => hybridClient.request(
     'session_sync',
-    () => wsClient.updateSession(data),
+    () => wsClient.syncSession(data),
     () => hybridClient.http.post(API_ENDPOINTS.sessions.sync(sessionId), data)
   ),
 };

@@ -12,6 +12,8 @@
  * - State persistence across page reloads
  * - Progress tracking
  * - Footer with legal links
+ * - Dark mode support
+ * - Language switching
  */
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
@@ -23,12 +25,15 @@ import TaskScreen from './components/study/TaskScreen';
 import SurveyQuestionnaire from './components/study/SurveyQuestionnaire';
 import CompletionScreen from './components/study/CompletionScreen';
 import StudyFooter from './components/study/StudyFooter';
+import LanguageSwitcher from './components/LanguageSwitcher';
+import ThemeSwitcher from './components/ThemeSwitcher';
 
 // Hooks
 import { useSession } from './hooks/useSession';
 import { useSessionData } from './hooks/useSessionData';
 import { useTracking } from './hooks/useTracking';
 import { useTranslation } from './hooks/useTranslation';
+import { useTheme } from './hooks/useTheme';
 
 //Helpers
 import { interpolateComponents } from './utils/translationHelpers';
@@ -52,6 +57,8 @@ const StudyApp = () => {
     isStudyInitialized
   } = useSessionData();
   const { trackViewChange, track } = useTracking();
+  const { t } = useTranslation();
+  const { theme } = useTheme();
 
   const [loading, setLoading] = useState(true);
 
@@ -126,7 +133,7 @@ const StudyApp = () => {
   };
 
   // Determine if footer should be shown (not on full-screen task views)
-  const showFooter = ![STUDY_CONFIG.STEPS.TASK_12, STUDY_CONFIG.STEPS.TASK_23].includes(currentStep);
+  const showFooter = ![STUDY_CONFIG.STEPS.TASK_1, STUDY_CONFIG.STEPS.TASK_2].includes(currentStep);
 
   useEffect(() => {
     if (sessionId && isStudyInitialized && studyConfig) {
@@ -137,10 +144,10 @@ const StudyApp = () => {
   // Loading state
   if (loading || !sessionId || !studyConfig) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4">⏳</div>
-          <p className="text-xl text-gray-600">Initialisiere Studie...</p>
+          <p className="text-xl text-gray-600 dark:text-gray-400">{t('base.studyConfig.init', 'Initialisiere Studie...')}</p>
         </div>
       </div>
     );
@@ -149,20 +156,21 @@ const StudyApp = () => {
   // Error state
   if (!studyConfig) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <div className="text-6xl mb-4">⚠️</div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Konfigurationsfehler
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+              {t('base.studyConfig.error.label', 'Konfigurationsfehler')}
             </h2>
-            <p className="text-gray-600 mb-4">
-              Die Studienkonfiguration konnte nicht geladen werden. Bitte laden Sie die Seite neu.
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              {t('base.studyConfig.error.label', 'Die Studienkonfiguration konnte nicht geladen werden. Bitte laden Sie die Seite neu.')}
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition-colors"
             >
+              {t('base.studyConfig.error.label', 'Seite neu laden')}
               Seite neu laden
             </button>
           </div>
@@ -238,10 +246,10 @@ const StudyApp = () => {
 
       default:
         return (
-          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
             <div className="text-center">
               <div className="text-6xl mb-4">❓</div>
-              <p className="text-xl text-gray-600">Unknown step: {currentStep}</p>
+              <p className="text-xl text-gray-600 dark:text-gray-400">Unknown step: {currentStep}</p>
             </div>
           </div>
         );
@@ -249,31 +257,57 @@ const StudyApp = () => {
   };
 
   return (
-    <div className="study-app min-h-screen flex flex-col">
-      {/* Debug info (only in development) */}
-      {import.meta.env.DEV && (
-        <div className="fixed bottom-4 right-4 bg-gray-900 text-white text-xs p-3 rounded-lg shadow-lg z-50 font-mono">
-          <div className="space-y-1">
-            <div><strong>Group:</strong> {studyConfig.group}</div>
-            <div><strong>Step:</strong> {currentStep}</div>
-            <div><strong>Session:</strong> {sessionId}</div>
-            <div className="pt-2 mt-2 border-t border-gray-700">
-              <a href="/admin" className="text-blue-400 hover:underline">
-                → Admin Interface
-              </a>
-            </div>
+    <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
+    {/* Header/Navigation */}
+    <header className="flex-shrink-0">
+      {/* Your header content */}
+    </header>
+
+    {/* Fixed Controls Bar - Language and Theme Switchers */}
+    {/* Move OUTSIDE header */}
+    {showFooter && (
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        <LanguageSwitcher 
+          variant="compact" 
+          showLabels={false}
+          className="bg-white dark:bg-gray-800 shadow-lg"
+        />
+        <ThemeSwitcher 
+          variant="icon-only"
+          className="bg-white dark:bg-gray-800 shadow-lg"
+        />
+      </div>
+    )}
+
+    {/* Debug info (only in development) */}
+    {import.meta.env.DEV && (
+      <div className="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-800 text-white text-xs p-3 rounded-lg shadow-lg z-50 font-mono">
+        <div className="space-y-1">
+          <div><strong>Group:</strong> {studyConfig.group}</div>
+          <div><strong>Step:</strong> {currentStep}</div>
+          <div><strong>Session:</strong> {sessionId}</div>
+          <div><strong>Theme:</strong> {theme}</div>
+          <div className="pt-2 mt-2 border-t border-gray-700">
+            <a href="/admin" className="text-blue-400 hover:underline">
+              → Admin Interface
+            </a>
           </div>
         </div>
-      )}
-
-      {/* Main Content */}
-      <div className="flex-1">
-        {renderCurrentStep()}
       </div>
+    )}
 
-      {/* Footer (conditionally shown) */}
-      {showFooter && <StudyFooter />}
-    </div>
+    {/* Main Content - REMOVE nested div */}
+    <main className="flex-1 overflow-auto">
+      {renderCurrentStep()}
+    </main>
+
+    {/* Footer - always rendered, sticks to bottom */}
+    {showFooter && (
+      <footer className="flex-shrink-0">
+        <StudyFooter />
+      </footer>
+    )}
+  </div>
   );
 };
 

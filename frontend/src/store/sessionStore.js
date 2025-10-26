@@ -34,22 +34,39 @@ const getInitialLanguage = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const urlLang = urlParams.get('lang');
   if (urlLang && translations[urlLang]) {
-    return urlLang;
+    return { language: urlLang, source: 'url', wasSelected: false }
   }
 
   // Check localStorage
   const storedLang = localStorage.getItem('study-language');
   if (storedLang && translations[storedLang]) {
-    return storedLang;
+    return { language: storedLang, source: 'local', wasSelected: false }; 
   }
 
   // Check browser language
   const browserLang = navigator.language.split('-')[0];
   if (translations[browserLang]) {
-    return browserLang;
+    return { language: browserLang, source: 'browser', wasSelected: false };
   }
 
-  return 'en';
+  return { language: null, source: null, wasSelected: false }; 
+};
+
+const { initialLanguage, source , wasSelected } = getInitialLanguage();
+
+const getInitialTheme = () => {
+  // Check localStorage first
+  const stored = localStorage.getItem('theme');
+  if (stored === 'dark' || stored === 'light') {
+    return stored;
+  }
+  
+  // Fall back to system preference
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  
+  return 'light';
 };
 
 const useSessionStore = create(
@@ -133,8 +150,13 @@ const useSessionStore = create(
           sessionMetadata: getSessionMetadata(),
 
           // Language
-          currentLanguage: getInitialLanguage(),
-          availableLanguages: Object.keys(translations),
+          currentLanguage: initialLanguage, 
+          initialLanguageSource: source,
+          wasLanguageSelected: wasSelected || false,
+          availableLanguages: Object.keys(translations),    
+          
+          // Theme
+          theme: getInitialTheme(),
           
           // Auto-sync
           autoSyncEnabled: true,
@@ -525,10 +547,9 @@ const useSessionStore = create(
           // LANGUAGE MANAGEMENT
           // ========================================
 
-          setLanguage: (lang) => {
+          setLanguage: (lang, wasSelected = false) => {
             if (translations[lang]) {
-              set({ currentLanguage: lang });
-              localStorage.setItem('study-language', lang);
+              set({ currentLanguage: lang, wasLanguageSelected: wasSelected });
               
               // Update URL parameter
               const url = new URL(window.location);
@@ -549,6 +570,18 @@ const useSessionStore = create(
             return translations[lang]?.[key] || translations.en[key] || key;
           },
           
+
+          setTheme : (newTheme) => {
+            set({ theme: newTheme });
+
+            // Update DOM
+            const root = document.documentElement;
+            if (newTheme === 'dark') {
+              root.classList.add('dark');
+            } else {
+              root.classList.remove('dark');
+            }
+          },
           // ========================================
           // STUDY CONFIG MANAGEMENT
           // ========================================
@@ -1478,6 +1511,8 @@ const useSessionStore = create(
             participantId: state.participantId,
             sessionData: state.sessionData,
             currentLanguage: state.currentLanguage,
+            wasLanguageSelected: state.wasLanguageSelected,
+            theme: state.theme,
             sessionStartTime: state.sessionStartTime,
             condition: state.condition,
 

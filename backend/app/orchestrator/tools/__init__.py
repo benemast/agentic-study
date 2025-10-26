@@ -22,14 +22,16 @@ from .registry import (
 # Export individual tool classes if needed for testing/extending
 from .data_tools import (
     BaseTool,
-    GatherDataTool,
-    FilterDataTool,
+    LoadReviewsTool,
+    FilterReviewsTool,
+    SortReviewsTool,
+    
     CleanDataTool,
-    SortDataTool,
     CombineDataTool
 )
 
 from .analysis_tools import (
+    ReviewSentimentAnalysisTool,
     SentimentAnalysisTool,
     GenerateInsightsTool,
     ShowResultsTool
@@ -44,10 +46,12 @@ __all__ = [
     
     # Individual tool classes (for testing/advanced use)
     'BaseTool',
-    'GatherDataTool',
-    'FilterDataTool',
+    'LoadReviewsTool',
+    'FilterReviewsTool',
+    'SortReviewsTool',
+    'ReviewSentimentAnalysisTool',
+
     'CleanDataTool',
-    'SortDataTool',
     'CombineDataTool',
     'SentimentAnalysisTool',
     'GenerateInsightsTool',

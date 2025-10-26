@@ -4,6 +4,8 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  // Enable dark mode with class strategy
+  darkMode: 'class',
   theme: {
     extend: {},
   },

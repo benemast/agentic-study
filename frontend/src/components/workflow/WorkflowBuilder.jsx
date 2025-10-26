@@ -52,7 +52,9 @@ import { getNodeTranslationKey } from '../../utils/translationHelpers';
 const NotificationBanner = memo(({ notification }) => {
   if (!notification) return null;
 
-  const bgColor = notification.type === 'error' ? 'bg-red-500' : 'bg-green-500';
+  const bgColor = notification.type === 'error' 
+    ? 'bg-red-500 dark:bg-red-600' 
+    : 'bg-green-500 dark:bg-green-600';
 
   return (
     <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 p-4 rounded ${bgColor} text-white z-50 shadow-lg`}>
@@ -520,7 +522,9 @@ const WorkflowBuilder = () => {
       
       captureException(error, {
         tags: {
-          error_type: 'workflow_execution_failed',
+          error_type: error.response?.status === 500 
+            ? 'workflow_execution_server_error' 
+            : 'workflow_execution_failed',
           component: 'WorkflowBuilder'
         },
         contexts: {
@@ -627,7 +631,7 @@ const WorkflowBuilder = () => {
   // RENDER
   // ========================================
   return (
-    <div className="h-full flex min-h-0 bg-gray-50">
+    <div className="h-full flex min-h-0 bg-gray-50 dark:bg-gray-900">
       <NotificationBanner notification={notification} />
       
       {/* Language Switcher Panel */}
@@ -685,15 +689,16 @@ const WorkflowBuilder = () => {
             multiSelectionKeyCode="Shift"
           >
             <Background 
-              gap={WORKFLOW_CONFIG.GRID_SIZE} 
               color="#e5e7eb"
+              className="dark:!bg-gray-700"
+              gap={WORKFLOW_CONFIG.GRID_SIZE} 
               size={1}
             />
-            <Controls className="bg-white border border-gray-200" />
+            <Controls className="bg-white border border-gray-200 dark:!bg-gray-700" />
             <MiniMap 
-              className="bg-white border border-gray-200"
               nodeColor={miniMapNodeColor}
-              maskColor="rgba(0, 0, 0, 0.1)"
+              maskColor="rgba(0, 0, 0, 0.2)"
+              className="bg-white border border-gray-200 dark:!bg-gray-800"
             />
 
             {/* Empty State Panel */}
@@ -721,14 +726,14 @@ const WorkflowBuilder = () => {
             {/* Validation Warning Panel */}
             {!workflowValidation.isValid && nodes.length > 0 && (
               <Panel position="top-left" className="m-4">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-sm shadow-lg">
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 max-w-sm shadow-lg">
                   <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2 flex-shrink-0" />
+                    <div className="w-2 h-2 bg-yellow-500 dark:bg-yellow-400 rounded-full mt-2 flex-shrink-0" />
                     <div>
-                      <h4 className="font-medium text-yellow-800 mb-1">
+                      <h4 className="font-medium text-yellow-800 dark:text-yellow-300 mb-1">
                         {workflowValidation.message}
                       </h4>
-                      <p className="text-sm text-yellow-700">
+                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
                         {workflowValidation.details}
                       </p>
                     </div>
@@ -740,8 +745,8 @@ const WorkflowBuilder = () => {
             {/* Connection Helper Panel */}
             {connectionState.isConnecting && (
               <Panel position="top-center" className="m-4">
-                <div className="bg-blue-100 border border-blue-300 rounded-lg px-4 py-2 shadow-lg">
-                  <p className="text-blue-800 text-sm font-medium">
+                <div className="bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 rounded-lg px-4 py-2 shadow-lg">
+                  <p className="text-blue-800 dark:text-blue-300 text-sm font-medium">
                     {t('workflow.builder.connectionHelper.connecting')}
                   </p>
                 </div>
@@ -751,7 +756,7 @@ const WorkflowBuilder = () => {
         </div>
         {/* Execution Progress Panel */}
         {executionStatus !== 'idle' && (
-          <div className="w-96 border-l border-gray-200 p-4 overflow-y-auto">
+          <div className="w-96 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 overflow-y-auto">
             <ExecutionProgress
               status={executionStatus}
               progress={executionProgress}
@@ -763,9 +768,9 @@ const WorkflowBuilder = () => {
             
             {/* Show results */}
             {executionResult && (
-              <div className="mt-4 bg-green-50 rounded-lg p-4">
-                <h4 className="font-semibold text-green-900 mb-2">Results</h4>
-                <pre className="text-sm text-green-800 overflow-x-auto">
+              <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
+                <h4 className="font-semibold text-green-900 dark:text-green-300 mb-2">Results</h4>
+                <pre className="text-sm text-green-800 dark:text-green-200 overflow-x-auto">
                   {JSON.stringify(executionResult, null, 2)}
                 </pre>
               </div>

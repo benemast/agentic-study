@@ -3,33 +3,44 @@
  * Post-Task Survey Component
  * 
  * Measures:
- * - Perceived agency and control (Likert scales)
+ * - Perceived agency and control
  * - User understanding and trust
  * - Cognitive effort (NASA-TLX)
  * - User experience
+ * 
+ * Features:
+ * - Multi-section survey with progress tracking
+ * - Likert scales and NASA-TLX sliders
+ * - Dark mode support
+ * - Language switcher
+ * - Open-ended feedback
  */
 import React, { useState } from 'react';
 import { useTracking } from '../../hooks/useTracking';
+import { useTranslation } from '../../hooks/useTranslation';
 
+// ============================================================
+// QUESTION DEFINITIONS
+// ============================================================
 const AGENCY_QUESTIONS = [
   {
     id: 'control',
-    question: 'I felt in control of the task completion process.',
+    questionKey: 'survey.agency.control',
     category: 'agency'
   },
   {
     id: 'autonomy',
-    question: 'I had enough autonomy to complete the task my way.',
+    questionKey: 'survey.agency.autonomy',
     category: 'agency'
   },
   {
     id: 'influence',
-    question: 'I could influence how the task was executed.',
+    questionKey: 'survey.agency.influence',
     category: 'agency'
   },
   {
     id: 'decision_making',
-    question: 'I was actively involved in decision-making throughout the task.',
+    questionKey: 'survey.agency.decisionMaking',
     category: 'agency'
   }
 ];
@@ -37,17 +48,17 @@ const AGENCY_QUESTIONS = [
 const UNDERSTANDING_QUESTIONS = [
   {
     id: 'process_clarity',
-    question: 'I understood how the system was processing my task.',
+    questionKey: 'survey.understanding.processClarity',
     category: 'understanding'
   },
   {
     id: 'steps_clear',
-    question: 'The steps taken to complete the task were clear to me.',
+    questionKey: 'survey.understanding.stepsClear',
     category: 'understanding'
   },
   {
     id: 'predictability',
-    question: 'I could predict what the system would do next.',
+    questionKey: 'survey.understanding.predictability',
     category: 'understanding'
   }
 ];
@@ -55,17 +66,17 @@ const UNDERSTANDING_QUESTIONS = [
 const TRUST_QUESTIONS = [
   {
     id: 'trust_results',
-    question: 'I trust the results produced by the system.',
+    questionKey: 'survey.trust.results',
     category: 'trust'
   },
   {
     id: 'trust_process',
-    question: 'I trust that the system processed the data correctly.',
+    questionKey: 'survey.trust.process',
     category: 'trust'
   },
   {
     id: 'confidence',
-    question: 'I am confident in the quality of the output.',
+    questionKey: 'survey.trust.confidence',
     category: 'trust'
   }
 ];
@@ -73,59 +84,64 @@ const TRUST_QUESTIONS = [
 const NASA_TLX_QUESTIONS = [
   {
     id: 'mental_demand',
-    question: 'Mental Demand: How mentally demanding was the task?',
+    questionKey: 'survey.nasaTlx.mentalDemand',
     category: 'cognitive_load',
-    low: 'Very Low',
-    high: 'Very High'
+    lowKey: 'survey.nasaTlx.veryLow',
+    highKey: 'survey.nasaTlx.veryHigh'
   },
   {
     id: 'temporal_demand',
-    question: 'Temporal Demand: How hurried or rushed was the pace of the task?',
+    questionKey: 'survey.nasaTlx.temporalDemand',
     category: 'cognitive_load',
-    low: 'Very Low',
-    high: 'Very High'
+    lowKey: 'survey.nasaTlx.veryLow',
+    highKey: 'survey.nasaTlx.veryHigh'
   },
   {
     id: 'effort',
-    question: 'Effort: How hard did you have to work to accomplish your level of performance?',
+    questionKey: 'survey.nasaTlx.effort',
     category: 'cognitive_load',
-    low: 'Very Low',
-    high: 'Very High'
+    lowKey: 'survey.nasaTlx.veryLow',
+    highKey: 'survey.nasaTlx.veryHigh'
   },
   {
     id: 'frustration',
-    question: 'Frustration: How insecure, discouraged, irritated, stressed, and annoyed were you?',
+    questionKey: 'survey.nasaTlx.frustration',
     category: 'cognitive_load',
-    low: 'Very Low',
-    high: 'Very High'
+    lowKey: 'survey.nasaTlx.veryLow',
+    highKey: 'survey.nasaTlx.veryHigh'
   }
 ];
 
 const EXPERIENCE_QUESTIONS = [
   {
     id: 'ease_of_use',
-    question: 'The interface was easy to use.',
+    questionKey: 'survey.experience.easeOfUse',
     category: 'experience'
   },
   {
     id: 'efficiency',
-    question: 'I was able to complete the task efficiently.',
+    questionKey: 'survey.experience.efficiency',
     category: 'experience'
   },
   {
     id: 'satisfaction',
-    question: 'I am satisfied with how I completed the task.',
+    questionKey: 'survey.experience.satisfaction',
     category: 'experience'
   }
 ];
 
+// ============================================================
+// LIKERT SCALE COMPONENT
+// ============================================================
 const LikertScale = ({ value, onChange, questionId }) => {
+  const { t } = useTranslation();
+  
   const options = [
-    { value: 1, label: 'Strongly Disagree' },
-    { value: 2, label: 'Disagree' },
-    { value: 3, label: 'Neutral' },
-    { value: 4, label: 'Agree' },
-    { value: 5, label: 'Strongly Agree' }
+    { value: 1, labelKey: 'survey.likert.stronglyDisagree' },
+    { value: 2, labelKey: 'survey.likert.disagree' },
+    { value: 3, labelKey: 'survey.likert.neutral' },
+    { value: 4, labelKey: 'survey.likert.agree' },
+    { value: 5, labelKey: 'survey.likert.stronglyAgree' }
   ];
 
   return (
@@ -147,13 +163,13 @@ const LikertScale = ({ value, onChange, questionId }) => {
             className={`
               p-3 rounded-lg border-2 text-center transition-all
               ${value === option.value
-                ? 'border-blue-600 bg-blue-50 text-blue-900'
-                : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                ? 'border-blue-600 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-300' 
+                : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800'
               }
             `}
           >
-            <div className="text-2xl mb-1">{option.value}</div>
-            <div className="text-xs font-medium">{option.label}</div>
+            <div className="text-2xl mb-1 font-bold">{option.value}</div>
+            <div className="text-xs font-medium">{t(option.labelKey)}</div>
           </div>
         </label>
       ))}
@@ -161,7 +177,12 @@ const LikertScale = ({ value, onChange, questionId }) => {
   );
 };
 
-const NASAScale = ({ value, onChange, questionId, low, high }) => {
+// ============================================================
+// NASA-TLX SCALE COMPONENT
+// ============================================================
+const NASAScale = ({ value, onChange, questionId, lowKey, highKey }) => {
+  const { t } = useTranslation();
+  
   return (
     <div className="space-y-2">
       <input
@@ -170,19 +191,23 @@ const NASAScale = ({ value, onChange, questionId, low, high }) => {
         max="21"
         value={value || 11}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+        className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:accent-blue-500"
       />
-      <div className="flex justify-between text-xs text-gray-600">
-        <span>{low}</span>
-        <span className="font-semibold text-gray-900">{value || 11}/21</span>
-        <span>{high}</span>
+      <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
+        <span>{t(lowKey)}</span>
+        <span className="font-semibold text-gray-900 dark:text-gray-100">{value || 11}/21</span>
+        <span>{t(highKey)}</span>
       </div>
     </div>
   );
 };
 
+// ============================================================
+// MAIN SURVEY COMPONENT
+// ============================================================
 const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
   const { track } = useTracking();
+  const { t } = useTranslation();
   const [responses, setResponses] = useState({});
   const [openEnded, setOpenEnded] = useState({
     positive: '',
@@ -192,12 +217,12 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
   const [currentSection, setCurrentSection] = useState(0);
 
   const sections = [
-    { title: 'Agency & Control', questions: AGENCY_QUESTIONS },
-    { title: 'Understanding', questions: UNDERSTANDING_QUESTIONS },
-    { title: 'Trust', questions: TRUST_QUESTIONS },
-    { title: 'Cognitive Load (NASA-TLX)', questions: NASA_TLX_QUESTIONS },
-    { title: 'User Experience', questions: EXPERIENCE_QUESTIONS },
-    { title: 'Open-Ended Feedback', questions: [] }
+    { titleKey: 'survey.sections.agency', questions: AGENCY_QUESTIONS },
+    { titleKey: 'survey.sections.understanding', questions: UNDERSTANDING_QUESTIONS },
+    { titleKey: 'survey.sections.trust', questions: TRUST_QUESTIONS },
+    { titleKey: 'survey.sections.cognitiveLoad', questions: NASA_TLX_QUESTIONS },
+    { titleKey: 'survey.sections.experience', questions: EXPERIENCE_QUESTIONS },
+    { titleKey: 'survey.sections.feedback', questions: [] }
   ];
 
   const handleResponse = (questionId, value) => {
@@ -218,8 +243,7 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
     const section = sections[currentSection];
     
     if (currentSection === sections.length - 1) {
-      // Open-ended section is optional
-      return true;
+      return true; // Open-ended is optional
     }
     
     return section.questions.every(q => responses[q.id] !== undefined);
@@ -268,41 +292,41 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
       return (
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              What did you find most helpful or positive about this approach?
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {t('survey.openEnded.positive')}
             </label>
             <textarea
               value={openEnded.positive}
               onChange={(e) => handleOpenEndedChange('positive', e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Share your thoughts..."
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+              placeholder={t('survey.openEnded.placeholder')}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              What challenges or frustrations did you encounter?
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {t('survey.openEnded.negative')}
             </label>
             <textarea
               value={openEnded.negative}
               onChange={(e) => handleOpenEndedChange('negative', e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Share your thoughts..."
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+              placeholder={t('survey.openEnded.placeholder')}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              What improvements would you suggest?
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {t('survey.openEnded.improvements')}
             </label>
             <textarea
               value={openEnded.improvements}
               onChange={(e) => handleOpenEndedChange('improvements', e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Share your thoughts..."
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+              placeholder={t('survey.openEnded.placeholder')}
             />
           </div>
         </div>
@@ -314,8 +338,8 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
       <div className="space-y-8">
         {section.questions.map((question) => (
           <div key={question.id} className="space-y-3">
-            <p className="font-medium text-gray-900">
-              {question.question}
+            <p className="font-medium text-gray-900 dark:text-gray-100">
+              {t(question.questionKey)}
             </p>
             
             {question.category === 'cognitive_load' ? (
@@ -323,8 +347,8 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
                 value={responses[question.id]}
                 onChange={(value) => handleResponse(question.id, value)}
                 questionId={question.id}
-                low={question.low}
-                high={question.high}
+                lowKey={question.lowKey}
+                highKey={question.highKey}
               />
             ) : (
               <LikertScale
@@ -340,65 +364,68 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="h-full bg-gray-50 dark:bg-gray-900 py-12 relative">
       <div className="max-w-4xl mx-auto px-4">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Task {taskNumber} Feedback Survey
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6 border border-gray-200 dark:border-gray-700">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            {t('survey.title', { number: taskNumber })}
           </h1>
-          <p className="text-gray-600">
-            Please share your experience with the {condition === 'workflow_builder' ? 'Workflow Builder' : 'AI Assistant'}.
-            Your feedback helps us understand how people interact with these systems.
+          <p className="text-gray-600 dark:text-gray-400">
+            {t('survey.description', { 
+              condition: condition === 'workflow_builder' 
+                ? t('survey.conditionWorkflow') 
+                : t('survey.conditionAI')
+            })}
           </p>
         </div>
 
         {/* Progress */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">
-              Section {currentSection + 1} of {sections.length}
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('survey.progress.section')} {currentSection + 1} {t('survey.progress.of')} {sections.length}
             </span>
-            <span className="text-sm text-gray-500">
-              {Math.round(((currentSection + 1) / sections.length) * 100)}% Complete
+            <span className="text-sm text-gray-500 dark:text-gray-500">
+              {Math.round(((currentSection + 1) / sections.length) * 100)}% {t('survey.progress.complete')}
             </span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all duration-300"
               style={{ width: `${((currentSection + 1) / sections.length) * 100}%` }}
             />
           </div>
         </div>
 
         {/* Survey Section */}
-        <div className="bg-white rounded-lg shadow-sm p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">
-            {sections[currentSection].title}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-8 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">
+            {t(sections[currentSection].titleKey)}
           </h2>
 
           {renderSection()}
 
           {/* Navigation */}
-          <div className="flex justify-between mt-8 pt-6 border-t border-gray-200">
+          <div className="flex justify-between mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={handlePrevious}
               disabled={currentSection === 0}
               className={`px-6 py-2 rounded-lg font-medium transition-colors ${
                 currentSection === 0
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
-              Previous
+              {t('common.navigation.previous')}
             </button>
 
             {currentSection === sections.length - 1 ? (
               <button
                 onClick={handleSubmit}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                className="px-6 py-2 bg-green-600 dark:bg-green-500 text-white rounded-lg font-medium hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
               >
-                Submit Survey
+                {t('survey.submit')}
               </button>
             ) : (
               <button
@@ -406,11 +433,11 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
                 disabled={!isCurrentSectionComplete()}
                 className={`px-6 py-2 rounded-lg font-medium transition-colors ${
                   isCurrentSectionComplete()
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed'
                 }`}
               >
-                Next
+                {t('common.navigation.next')}
               </button>
             )}
           </div>

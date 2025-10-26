@@ -1289,7 +1289,6 @@ async def handle_get_reviews(session_id: str, message: dict):
             if product_id:
                 query = query.filter(model.product_id == product_id)
             
-            logger.info(f"Malformed should be excluded: {exclude_malformed}")
             if exclude_malformed:
                 query = query.filter(model.is_malformed == False)
             

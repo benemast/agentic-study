@@ -16,7 +16,7 @@ const LanguageSwitcher = ({
         {availableLanguages.map(lang => (
           <button
             key={lang.code}
-            onClick={() => setLanguage(lang.code)}
+            onClick={() => setLanguage(lang.code, true)}
             className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
               currentLanguage === lang.code 
                 ? 'bg-white text-blue-600 shadow-sm' 
@@ -35,7 +35,7 @@ const LanguageSwitcher = ({
       <div className={`relative ${className}`}>
         <select
           value={currentLanguage}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => setLanguage(e.target.value, true)}
           className="appearance-none bg-white border border-gray-300 rounded px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
           {availableLanguages.map(lang => (
@@ -59,7 +59,7 @@ const LanguageSwitcher = ({
       {availableLanguages.map(lang => (
         <button
           key={lang.code}
-          onClick={() => setLanguage(lang.code)}
+          onClick={() => setLanguage(lang.code, true)}
           className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
             currentLanguage === lang.code
               ? 'bg-blue-600 text-white'

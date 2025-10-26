@@ -16,7 +16,6 @@ from .tool_schemas import (
     ActionType,
     map_action_to_tool
 )
-from ..tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +32,8 @@ class DecisionMaker:
     """
     
     def __init__(self, confidence_threshold: float = 0.6):
+
+        from ..tools.registry import tool_registry
         self.confidence_threshold = confidence_threshold
         self.validator = tool_validator
         self.registry = tool_registry
@@ -377,4 +378,25 @@ Provide your decision in JSON format with clear reasoning."""
 
 
 # Global decision maker instance
-decision_maker = DecisionMaker(confidence_threshold=0.6)
+# decision_maker = DecisionMaker(confidence_threshold=0.6)
+
+# WITH:
+_decision_maker_instance = None
+
+def get_decision_maker() -> DecisionMaker:
+    """Get singleton decision maker instance (lazy initialization)"""
+    global _decision_maker_instance
+    if _decision_maker_instance is None:
+        _decision_maker_instance = DecisionMaker(confidence_threshold=0.6)
+    return _decision_maker_instance
+
+# For backwards compatibility
+class _DecisionMakerProxy:
+    """Proxy for lazy decision_maker access"""
+    def __getattr__(self, name):
+        return getattr(get_decision_maker(), name)
+    
+    def __call__(self, *args, **kwargs):
+        return get_decision_maker()(*args, **kwargs)
+
+decision_maker = _DecisionMakerProxy()

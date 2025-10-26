@@ -1,10 +1,11 @@
 // frontend/src/components/study/DemographicsQuestionnaire.jsx
-import React, { useEffect, useCallback } from 'react';
-import { useTranslation } from '../../hooks/useTranslation';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSession } from '../../hooks/useSession';
 import { useSessionData } from '../../hooks/useSessionData';
 import { useTracking } from '../../hooks/useTracking';
+import { useTranslation } from '../../hooks/useTranslation';
 import { demographicsAPI } from '../../services/api';
+import { interpolateComponents } from '../../utils/translationHelpers';
 import { 
   DEMOGRAPHICS_CONFIG, 
   ERROR_MESSAGES, 
@@ -12,28 +13,28 @@ import {
 } from '../../config/constants';
 
 const DemographicsQuestionnaire = ({ onComplete }) => {
-  const { t, currentLanguage } = useTranslation();
   const { sessionId } = useSession();
-  const { track, trackError } = useTracking();
-  
-  // Get demographics state from SessionStore
-  const {
+  const { 
     demographicsData,
     demographicsStep,
-    demographicsError,
     setDemographicsField,
     setDemographicsStep,
+    completeDemographics,
     setDemographicsError,
-    completeDemographics
+    demographicsError
   } = useSessionData();
+  
+  const { track, trackError } = useTracking();
+  const { t, currentLanguage } = useTranslation();
+  const [fieldErrors, setFieldErrors] = useState({});
 
-  // Track field-level errors for highlighting
-  const [fieldErrors, setFieldErrors] = React.useState({});
-
-  // Track demographics start on mount
+  // Track page view
   useEffect(() => {
-    track(TRACKING_EVENTS.DEMOGRAPHICS_STARTED);
-  }, [track]);
+    track(TRACKING_EVENTS.DEMOGRAPHICS_STARTED, {
+      step: demographicsStep,
+      language: currentLanguage
+    });
+  }, []);
 
   // Safety check: reset demographicsStep if out of bounds
   useEffect(() => {
@@ -43,16 +44,23 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     }
   }, [demographicsStep, setDemographicsStep]);
 
-  // Conditional field visibility
-  const shouldShowFieldOfStudy = ['bachelors', 'masters', 'phd'].includes(
-    demographicsData.education
-  );
+  // Computed: Check if field_of_study should be shown
+  const shouldShowFieldOfStudy = useMemo(() => {
+    const education = demographicsData.education;
+    return education === 'bachelors' || education === 'masters' || education === 'phd';
+  }, [demographicsData.education]);
 
-  // Handle input change
-  const handleChange = useCallback((field, value) => {
+  // Computed: Check if additional AI fields should be shown
+  const shouldShowAdditionalAI = useMemo(() => {
+    const ai_ml_experience = demographicsData.ai_ml_experience;
+    return ai_ml_experience !== 'none' && ai_ml_experience !== '';
+  }, [demographicsData.ai_ml_experience]);
+
+  // Handle text/select inputs
+  const handleInputChange = useCallback((field, value) => {
     setDemographicsField(field, value);
     
-    // Clear error for this specific field when user starts typing
+    // Clear error for this field
     if (fieldErrors[field]) {
       setFieldErrors(prev => {
         const newErrors = { ...prev };
@@ -67,10 +75,10 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
     }
   }, [setDemographicsField, fieldErrors, demographicsError, setDemographicsError]);
 
-  // Handle checkbox array changes (for workflow_tools_used)
+  // Handle checkbox arrays
   const handleCheckboxChange = useCallback((field, value, checked) => {
     const currentValues = demographicsData[field] || [];
-    const newValues = checked
+    const newValues = checked 
       ? [...currentValues, value]
       : currentValues.filter(v => v !== value);
     setDemographicsField(field, newValues);
@@ -101,12 +109,24 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
         }
       }
       
+      
       // Conditional required: field_of_study if bachelors/masters/phd
       if (field.key === 'field_of_study' && shouldShowFieldOfStudy && field.required) {
         if (!demographicsData.field_of_study || demographicsData.field_of_study.trim() === '') {
           stepErrors.field_of_study = t('common.validation.required');
         }
       }
+
+
+     // Conditional required: AI fields when AI experience is not none
+    if ((field.key === 'ai_ml_expertise' || field.key === 'ai_tools_used' || field.key === 'workflow_tools_used') 
+        && shouldShowAdditionalAI && field.required) {
+      const value = demographicsData[field.key];
+      if (!value || (Array.isArray(value) && value.length === 0) || 
+          (typeof value === 'string' && value.trim() === '')) {
+        stepErrors[field.key] = t('common.validation.required');
+      }
+    }
     });
 
     if (Object.keys(stepErrors).length > 0) {
@@ -186,19 +206,9 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
         completed_at: new Date().toISOString()
       };
 
-      console.log('Submitting demographics:', submissionData);
-      console.log('workflow_tools_used type:', typeof submissionData.workflow_tools_used, 'isArray:', Array.isArray(submissionData.workflow_tools_used));
-
-
-      // Submit to backend
-      const result = await demographicsAPI.create(submissionData);
-
-      console.log('✅ Demographics submitted:', result);
-
-      // Complete demographics in store (triggers sync)
+      await demographicsAPI.create(submissionData);
       await completeDemographics(demographicsData);
-
-      // Track completion
+      
       track(TRACKING_EVENTS.DEMOGRAPHICS_COMPLETED, {
         fieldsCompleted: Object.keys(cleanedData).length,
         language: currentLanguage
@@ -206,19 +216,16 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
 
       // Call parent callback
       if (onComplete) {
-        onComplete(result);
+        onComplete(demographicsData);
       }
 
     } catch (error) {
-      console.error('❌ Demographics submission failed:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      console.error('Error status:', error.status);
-
+      console.error('Demographics submission failed:', error);
       let errorMessage = ERROR_MESSAGES.API_ERROR;
       if (error.status === 409) {
         errorMessage = 'Demographics already submitted';
       } else if (error.status === 400) {
-        errorMessage = 'Invalid data. Please check your responses.';
+        errorMessage = 'Invalid data submitted. Please check your responses.';
       } else if (error.status === 500) {
         errorMessage = 'Server error. Please try again or contact support.';
       } else if (error.message) {
@@ -268,16 +275,16 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
           ]
         },
         {
-          key: 'gender',
-          label: t('demographics.basicInfo.gender.label'),
+          key: 'genderIdentity',
+          label: t('demographics.basicInfo.genderIdentity.label'),
           type: 'select',
-          required: false,
+          required: true,
           options: [
-            { value: 'woman', label: t('demographics.basicInfo.gender.woman') },
-            { value: 'man', label: t('demographics.basicInfo.gender.man') },
-            { value: 'non-binary', label: t('demographics.basicInfo.gender.nonBinary') },
-            { value: 'other', label: t('demographics.basicInfo.gender.other') },
-            { value: 'prefer-not-to-say', label: t('demographics.basicInfo.gender.preferNotToSay') }
+            { value: 'woman', label: t('demographics.basicInfo.genderIdentity.woman') },
+            { value: 'man', label: t('demographics.basicInfo.genderIdentity.man') },
+            { value: 'non-binary', label: t('demographics.basicInfo.genderIdentity.nonBinary') },
+            { value: 'other', label: t('demographics.basicInfo.genderIdentity.other') },
+            { value: 'prefer-not-to-say', label: t('demographics.basicInfo.genderIdentity.preferNotToSay') }
           ]
         },
         {
@@ -300,109 +307,188 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
           type: 'select',
           required: true,
           options: [
-            { value: 'high-school', label: t('demographics.basicInfo.education.highSchool') },
-            { value: 'some-college', label: t('demographics.basicInfo.education.someCollege') },
+            { value: 'none', label: t('demographics.basicInfo.education.none') },
+            { value: 'school', label: t('demographics.basicInfo.education.school') },
+            { value: 'upperSecondary', label: t('demographics.basicInfo.education.upperSecondary') },
+            { value: 'vocational', label: t('demographics.basicInfo.education.vocational') },
+            { value: 'shortTertiary', label: t('demographics.basicInfo.education.shortTertiary') },
             { value: 'bachelors', label: t('demographics.basicInfo.education.bachelors') },
             { value: 'masters', label: t('demographics.basicInfo.education.masters') },
             { value: 'phd', label: t('demographics.basicInfo.education.phd') },
-            { value: 'other', label: t('demographics.basicInfo.education.other') }
+            { value: 'other', label: t('demographics.basicInfo.education.other') },
+            { value: 'prefer-not-to-say', label: t('demographics.basicInfo.education.preferNotToSay') }
           ]
         },
         ...(shouldShowFieldOfStudy ? [{
           key: 'field_of_study',
           label: t('demographics.basicInfo.fieldOfStudy.label'),
           type: 'text',
-          required: true,
+          required: false,
           placeholder: t('demographics.basicInfo.fieldOfStudy.placeholder')
-        }] : []),
+        }] : [])
+      ]
+    },
+    
+    // Step 2: Professional Background
+    {
+      title: t('demographics.professionalBackground.title'),
+      description: t('demographics.professionalBackground.description'),
+      fields: [
         {
           key: 'occupation',
-          label: t('demographics.basicInfo.occupation.label'),
+          label: t('demographics.professionalBackground.occupation.label'),
           type: 'text',
           required: false,
-          placeholder: t('demographics.basicInfo.occupation.placeholder')
+          placeholder: t('demographics.professionalBackground.occupation.placeholder')
+        },
+        {
+          key: 'industry',
+          label: t('demographics.professionalBackground.industry.label'),
+          type: 'select',
+          required: true,
+          options: [
+            { value: 'consulting',    label: t('demographics.professionalBackground.industry.consulting') },
+            { value: 'education',     label: t('demographics.professionalBackground.industry.education') },
+            { value: 'finance',       label: t('demographics.professionalBackground.industry.finance') },
+            { value: 'government',    label: t('demographics.professionalBackground.industry.government') },
+            { value: 'healthcare',    label: t('demographics.professionalBackground.industry.healthcare') },
+            { value: 'manufacturing', label: t('demographics.professionalBackground.industry.manufacturing') },
+            { value: 'nonprofit',     label: t('demographics.professionalBackground.industry.nonprofit') },
+            { value: 'research',      label: t('demographics.professionalBackground.industry.research') },
+            { value: 'retail',        label: t('demographics.professionalBackground.industry.retail') },
+            { value: 'tech',          label: t('demographics.professionalBackground.industry.tech') },
+            { value: 'student',       label: t('demographics.professionalBackground.industry.student') },
+            { value: 'other',         label: t('demographics.professionalBackground.industry.other') }
+          ]
+        },
+        {
+          key: 'work_experience',
+          label: t('demographics.professionalBackground.workExperience.label'),
+          type: 'select',
+          required: true,
+          options: [
+            { value: 'none', label: t('demographics.professionalBackground.workExperience.none') },
+            { value: '0-2', label: t('demographics.professionalBackground.workExperience.lessThan2') },
+            { value: '3-5', label: t('demographics.professionalBackground.workExperience.threeToFive') },
+            { value: '6-10', label: t('demographics.professionalBackground.workExperience.sixToTen') },
+            { value: '10+', label: t('demographics.professionalBackground.workExperience.moreThan10') }
+          ]
         }
       ]
     },
 
-    // Step 2: Technical Background
+    // Step 3: Technical Background
     {
       title: t('demographics.technicalBackground.title'),
       description: t('demographics.technicalBackground.description'),
       fields: [
-        {
-          key: 'programming_experience',
-          label: t('demographics.technicalBackground.programming.label'),
-          type: 'select',
-          required: true,
-          options: [
-            { value: 'none', label: t('demographics.technicalBackground.programming.none') },
-            { value: 'beginner', label: t('demographics.technicalBackground.programming.beginner') },
-            { value: 'intermediate', label: t('demographics.technicalBackground.programming.intermediate') },
-            { value: 'advanced', label: t('demographics.technicalBackground.programming.advanced') },
-            { value: 'expert', label: t('demographics.technicalBackground.programming.expert') }
-          ]
-        },
-        {
-          key: 'ai_ml_experience',
-          label: t('demographics.technicalBackground.aiMl.label'),
-          type: 'select',
-          required: true,
-          options: [
-            { value: 'none', label: t('demographics.technicalBackground.aiMl.none') },
-            { value: 'beginner', label: t('demographics.technicalBackground.aiMl.beginner') },
-            { value: 'intermediate', label: t('demographics.technicalBackground.aiMl.intermediate') },
-            { value: 'advanced', label: t('demographics.technicalBackground.aiMl.advanced') },
-            { value: 'expert', label: t('demographics.technicalBackground.aiMl.expert') }
-          ]
-        },
-        {
-          key: 'workflow_tools_used',
-          label: t('demographics.technicalBackground.workflowTools.label'),
-          type: 'checkbox',
-          required: false,
-          options: [
-            { value: 'zapier', label: 'Zapier' },
-            { value: 'make', label: 'Make (Integromat)' },
-            { value: 'n8n', label: 'n8n' },
-            { value: 'node-red', label: 'Node-RED' },
-            { value: 'airflow', label: 'Apache Airflow' },
-            { value: 'prefect', label: 'Prefect' },
-            { value: 'temporal', label: 'Temporal' },
-            { value: 'langchain', label: 'LangChain' },
-            { value: 'llamaindex', label: 'LlamaIndex' },
-            { value: 'haystack', label: 'Haystack' },
-            { value: 'power-automate', label: 'Microsoft Power Automate' },
-            { value: 'ifttt', label: 'IFTTT' },
-            { value: 'workato', label: 'Workato' },
-            { value: 'tray', label: 'Tray.io' },
-            { value: 'azure-logic-apps', label: 'Azure Logic Apps' },
-            { value: 'other', label: t('demographics.technicalBackground.workflowTools.other') },
-            { value: 'none', label: t('demographics.technicalBackground.workflowTools.none') }
-          ]
-        },
         {
           key: 'technical_role',
           label: t('demographics.technicalBackground.technicalRole.label'),
           type: 'select',
           required: false,
           options: [
-            { value: 'developer', label: t('demographics.technicalBackground.technicalRole.developer') },
-            { value: 'devops-engineer', label: t('demographics.technicalBackground.technicalRole.devopsEngineer') },
-            { value: 'data-scientist', label: t('demographics.technicalBackground.technicalRole.dataScientist') },
-            { value: 'researcher', label: t('demographics.technicalBackground.technicalRole.researcher') },
-            { value: 'pro-manager', label: t('demographics.technicalBackground.technicalRole.proManager') },
-            { value: 'designer', label: t('demographics.technicalBackground.technicalRole.designer') },
-            { value: 'student', label: t('demographics.technicalBackground.technicalRole.student') },
-            { value: 'business-analyst', label: t('demographics.technicalBackground.technicalRole.businessAnalyst') },
-            { value: 'qa-engineer', label: t('demographics.technicalBackground.technicalRole.qaEngineer') },
-            { value: 'system-architect', label: t('demographics.technicalBackground.technicalRole.systemArchitect') },
-            { value: 'consultant', label: t('demographics.technicalBackground.technicalRole.consultant') },
-            { value: 'entrepreneur', label: t('demographics.technicalBackground.technicalRole.entrepreneur') },
-            { value: 'other-technical', label: t('demographics.technicalBackground.technicalRole.otherTechnical') },
-            { value: 'non-technical', label: t('demographics.technicalBackground.technicalRole.nonTechnical') }
+            { value: 'business-analyst',    label: t('demographics.technicalBackground.technicalRole.businessAnalyst') },
+            { value: 'consultant',          label: t('demographics.technicalBackground.technicalRole.consultant') },
+            { value: 'data-scientist',      label: t('demographics.technicalBackground.technicalRole.dataScientist') },
+            { value: 'designer',            label: t('demographics.technicalBackground.technicalRole.designer') },
+            { value: 'devops-engineer',     label: t('demographics.technicalBackground.technicalRole.devopsEngineer') },
+            { value: 'developer',           label: t('demographics.technicalBackground.technicalRole.developer') },
+            { value: 'entrepreneur',        label: t('demographics.technicalBackground.technicalRole.entrepreneur') },
+            { value: 'pro-manager',         label: t('demographics.technicalBackground.technicalRole.proManager') },
+            { value: 'qa-engineer',         label: t('demographics.technicalBackground.technicalRole.qaEngineer') },
+            { value: 'researcher',          label: t('demographics.technicalBackground.technicalRole.researcher') },
+            { value: 'system-architect',    label: t('demographics.technicalBackground.technicalRole.systemArchitect') },
+            { value: 'other-technical',     label: t('demographics.technicalBackground.technicalRole.otherTechnical') },
+            { value: 'non-technical',       label: t('demographics.technicalBackground.technicalRole.nonTechnical') }
           ]
         },
+        {
+          key: 'programming_experience',
+          label: t('demographics.technicalBackground.programmingExperience.label'),
+          type: 'select',
+          required: true,
+          options: [
+            { value: 'none', label: t('demographics.technicalBackground.programmingExperience.none') },
+            { value: 'basic', label: t('demographics.technicalBackground.programmingExperience.basic') },
+            { value: 'intermediate', label: t('demographics.technicalBackground.programmingExperience.intermediate') },
+            { value: 'advanced', label: t('demographics.technicalBackground.programmingExperience.advanced') },
+            { value: 'expert', label: t('demographics.technicalBackground.programmingExperience.expert') }
+          ]
+        },
+        {
+          key: 'ai_ml_experience',
+          label: t('demographics.technicalBackground.aiMlExperience.time.label'),
+          description: t('demographics.technicalBackground.aiMlExperience.time.description'),
+          type: 'select',
+          required: true,
+          options: [
+            { value: 'none', label: t('demographics.technicalBackground.aiMlExperience.time.none') },
+            { value: 'basic', label: t('demographics.technicalBackground.aiMlExperience.time.basic') },
+            { value: 'intermediate', label: t('demographics.technicalBackground.aiMlExperience.time.intermediate') },
+            { value: 'advanced', label: t('demographics.technicalBackground.aiMlExperience.time.advanced') },
+            { value: 'expert', label: t('demographics.technicalBackground.aiMlExperience.time.expert') }
+          ]
+        },
+
+        ...(shouldShowAdditionalAI ? [
+          {
+            key: 'ai_ml_expertise',
+            label: t('demographics.technicalBackground.aiMlExperience.level.label'),
+            type: 'select',
+            required: false,
+            options: [
+              { value: 'basic', label: t('demographics.technicalBackground.aiMlExperience.level.basic') },
+              { value: 'intermediate', label: t('demographics.technicalBackground.aiMlExperience.level.intermediate') },
+              { value: 'advanced', label: t('demographics.technicalBackground.aiMlExperience.level.advanced') },
+              { value: 'expert', label: t('demographics.technicalBackground.aiMlExperience.level.expert') }
+            ]
+          },
+          {
+            key: 'ai_tools_used',
+            label: t('demographics.technicalBackground.tools.labelAI'),
+            type: 'checkbox',
+            required: true,
+            options: [
+              { value: 'chatgpt',        label: 'ChatGPT' },
+              { value: 'claude',         label: 'Claude' },
+              { value: 'deepSeek',       label: 'DeepSeek' },
+              { value: 'github',         label: 'GitHub Copilot' },
+              { value: 'gemini',         label: 'Google Gemini' },
+              { value: 'microsoft',      label: 'Microsoft Copilot' },
+              { value: 'midjourney',     label: 'Midjourney' },
+              { value: 'stable-diffusion', label: 'Stable Diffusion' },
+              { value: 'other',          label: t('demographics.technicalBackground.tools.other') },
+              { value: 'none',           label: t('demographics.technicalBackground.tools.none') }
+            ]
+          },
+          {
+            key: 'workflow_tools_used',
+            label: t('demographics.technicalBackground.tools.labelWorkflow'),
+            type: 'checkbox',
+            required: true,
+            options: [
+              { value: 'airflow',          label: 'Apache Airflow' },
+              { value: 'azure-logic-apps', label: 'Azure Logic Apps' },
+              { value: 'haystack',         label: 'Haystack' },
+              { value: 'ifttt',            label: 'IFTTT' },
+              { value: 'langchain',        label: 'LangChain' },
+              { value: 'llamaindex',       label: 'LlamaIndex' },
+              { value: 'make',             label: 'Make (Integromat)' },
+              { value: 'n8n',              label: 'n8n' },
+              { value: 'node-red',         label: 'Node-RED' },
+              { value: 'power-automate',   label: 'Microsoft Power Automate' },
+              { value: 'prefect',          label: 'Prefect' },
+              { value: 'tray',             label: 'Tray.io' },
+              { value: 'temporal',         label: 'Temporal' },
+              { value: 'workato',          label: 'Workato' },
+              { value: 'zapier',           label: 'Zapier' },
+              { value: 'other',            label: t('demographics.technicalBackground.tools.other') },
+              { value: 'none',             label: t('demographics.technicalBackground.tools.none') }
+            ]
+
+          }
+        ] : []),
         {
           key: 'comments',
           label: t('demographics.technicalBackground.comments.label'),
@@ -423,192 +509,193 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
 
   // Render field based on type
   const renderField = (field) => {
+    if (field.hidden) return null;
+
     const value = demographicsData[field.key] || (field.type === 'checkbox' ? [] : '');
     const fieldId = `demographics-${field.key}`;
     const hasError = !!fieldErrors[field.key];
 
     const baseInputClass = `
-      w-full px-4 py-2 border rounded-lg 
+      w-full px-4 py-3 border rounded-lg 
       focus:ring-2 focus:outline-none
-      transition-colors
+      transition-all duration-200
       ${hasError 
-        ? 'border-red-500 focus:ring-red-500 focus:border-red-500' 
-        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+        ? 'border-red-300 dark:border-red-700 focus:ring-red-500 dark:focus:ring-red-400 focus:border-red-500 dark:focus:border-red-400 bg-red-50 dark:bg-red-900/10' 
+        : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400'
       }
+      bg-white dark:bg-gray-700
+      text-gray-900 dark:text-gray-100
+      placeholder-gray-400 dark:placeholder-gray-500
+      disabled:bg-gray-100 dark:disabled:bg-gray-800
+      disabled:text-gray-500 dark:disabled:text-gray-600
+      disabled:cursor-not-allowed
     `;
 
-    switch (field.type) {
-      case 'text':
-        return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700">
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </label>
-            <input
-              id={fieldId}
-              type="text"
-              value={value}
-              onChange={(e) => handleChange(field.key, e.target.value)}
-              placeholder={field.placeholder}
-              maxLength={DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH}
-              className={baseInputClass}
-            />
-            {hasError && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <span>⚠️</span>
-                <span>{fieldErrors[field.key]}</span>
-              </p>
-            )}
-          </div>
-        );
+    const labelClass = `
+      block text-sm font-semibold mb-2
+      ${hasError ? 'text-red-700 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}
+    `;
 
-      case 'textarea':
-        return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700">
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </label>
-            <textarea
-              id={fieldId}
-              value={value}
-              onChange={(e) => handleChange(field.key, e.target.value)}
-              placeholder={field.placeholder}
-              rows={field.rows || 3}
-              maxLength={DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH}
-              className={baseInputClass}
-            />
-            <div className="flex justify-between items-center">
-              <div>
-                {hasError && (
-                  <p className="text-sm text-red-600 flex items-center gap-1">
-                    <span>⚠️</span>
-                    <span>{fieldErrors[field.key]}</span>
-                  </p>
-                )}
-              </div>
-              <p className="text-xs text-gray-500">
-                {value.length} / {DEMOGRAPHICS_CONFIG.MAX_TEXT_LENGTH}
-              </p>
-            </div>
-          </div>
-        );
+    return (
+      <div key={field.key} className="space-y-2">
+        <label htmlFor={fieldId} className={labelClass}>
+          {field.label}
+          {field.required && <span className="text-red-500 dark:text-red-400 ml-1 font-bold">*</span>}
+        </label>
 
-      case 'select':
-        return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700">
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </label>
-            <select
-              id={fieldId}
-              value={value}
-              onChange={(e) => handleChange(field.key, e.target.value)}
-              className={baseInputClass}
-            >
-              <option value="">{t('common.form.pleaseSelect')}</option>
-              {field.options.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {hasError && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <span>⚠️</span>
-                <span>{fieldErrors[field.key]}</span>
-              </p>
-            )}
-          </div>
-        );
+        {/* Field Description - with highlighted box for important clarifications */}
+        {field.description && (
+        <div className="flex items-start gap-2 !mb-2">
+          <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm text-gray-600 dark:text-gray-400 ">
+            {field.description}
+          </p>
+        </div>
+        )}
 
-      case 'checkbox':
-        return (
-          <div key={field.key} className="space-y-3">
-            <label className="block text-sm font-medium text-gray-700">
-              {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
-            </label>
-            <div className={`space-y-2 p-3 rounded-lg border ${hasError ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
-              {field.options.map(option => {
-                const isChecked = value.includes(option.value);
-                return (
-                  <label key={option.value} className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={(e) => handleCheckboxChange(field.key, option.value, e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">{option.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            {hasError && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <span>⚠️</span>
-                <span>{fieldErrors[field.key]}</span>
-              </p>
-            )}
-          </div>
-        );
+        {/* Text Input */}
+        {field.type === 'text' && (
+          <input
+            id={fieldId}
+            type="text"
+            value={value}
+            onChange={(e) => handleInputChange(field.key, e.target.value)}
+            placeholder={field.placeholder}
+            className={baseInputClass}
+          />
+        )}
 
-      default:
-        return null;
-    }
+        {/* Select Dropdown */}
+        {field.type === 'select' && (
+          <select
+            id={fieldId}
+            value={value}
+            onChange={(e) => handleInputChange(field.key, e.target.value)}
+            className={baseInputClass}
+          >
+            <option value="" className="text-gray-500 dark:text-gray-400">
+              {t('common.form.selectOption')}
+            </option>
+            {field.options.map(opt => (
+              <option 
+                key={opt.value} 
+                value={opt.value}
+                className="text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700"
+              >
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Textarea */}
+        {field.type === 'textarea' && (
+          <textarea
+            id={fieldId}
+            value={value}
+            onChange={(e) => handleInputChange(field.key, e.target.value)}
+            placeholder={field.placeholder}
+            rows={field.rows || 3}
+            className={baseInputClass}
+          />
+        )}
+
+        {/* Checkbox Group */}
+        {field.type === 'checkbox' && (
+          <div className={`space-y-2.5 p-5 rounded-lg border ${
+            hasError 
+              ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10' 
+              : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+          }`}>
+            {field.options.map(option => {
+              const isChecked = Array.isArray(value) && value.includes(option.value);
+              return (
+                <label
+                  key={option.value}
+                  className="flex items-center space-x-3 cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => handleCheckboxChange(field.key, option.value, e.target.checked)}
+                    className="w-4 h-4 text-blue-600 dark:text-blue-500 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 transition-colors cursor-pointer"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100 transition-colors">
+                    {option.label}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Error Message */}
+        {hasError && (
+          <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5 font-medium">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{fieldErrors[field.key]}</span>
+          </p>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-xl shadow-xl p-8">
+    <div className="h-full bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-900 dark:to-blue-950 py-12">
+      <div className="max-w-4xl mx-auto px-6">
+        {/* Progress Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              {t('demographics.title')}
+            </h1>
+            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-full border border-blue-200 dark:border-blue-800">
+              {t('demographics.progress.step', { current: safeStep + 1, total: steps.length })}
+            </span>
+          </div>
+          
           {/* Progress Bar */}
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">
-                {t('demographics.progress.step', { current: safeStep + 1, total: steps.length })}
-              </span>
-              <span className="text-sm text-gray-500">
-                {Math.round(progress)}% {t('demographics.progress.complete')}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 shadow-inner">
+            <div
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {demographicsError && (
+          <div className="mb-6 p-5 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 dark:border-red-400 rounded-r-xl shadow-sm">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-red-500 dark:text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-red-800 dark:text-red-300 text-sm font-medium">
+                {demographicsError}
+              </p>
             </div>
           </div>
+        )}
 
-          {/* Error Banner */}
-          {demographicsError && (
-            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded">
-              <div className="flex items-start">
-                <span className="text-red-500 text-xl mr-3">⚠️</span>
-                <div className="flex-1">
-                  <p className="text-sm text-red-700">{demographicsError}</p>
-                </div>
-                <button
-                  onClick={() => setDemographicsError(null)}
-                  className="text-red-500 hover:text-red-700 text-xl leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step Content */}
+        {/* Form Card - Matching Welcome Screen Style */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-200 dark:border-gray-700">
           <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
+            {/* Form Content */}
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
+                <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
                 {currentStepData.title}
               </h2>
               {currentStepData.description && (
-                <p className="text-gray-600 mb-6">{currentStepData.description}</p>
+                <p className="text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
+                  {currentStepData.description}
+                </p>
               )}
 
               <div className="space-y-6">
@@ -617,24 +704,26 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
             </div>
 
             {/* Navigation */}
-            <div className="flex justify-between items-center pt-6 border-t">
+            <div className="flex justify-between items-center pt-6 border-t border-gray-200 dark:border-gray-700">
               <button
                 type="button"
                 onClick={handlePrevious}
                 disabled={demographicsStep === 0}
                 className={`
-                  px-6 py-2.5 rounded-lg font-medium transition-all
+                  px-6 py-3 rounded-xl font-semibold transition-all duration-200
+                  flex items-center gap-2 shadow-sm
                   ${demographicsStep === 0
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-gray-200 dark:border-gray-700'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 hover:shadow-md'
                   }
                 `}
               >
+                <span>←</span>
                 {t('common.navigation.previous')}
               </button>
 
               <div className="text-center">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
                   {demographicsStep === 0 && t('demographics.navigation.readyToStart')}
                   {demographicsStep > 0 && !isLastStep && t('demographics.navigation.continueWhenReady')}
                   {isLastStep && t('demographics.navigation.almostDone')}
@@ -644,10 +733,11 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
               <button
                 type="submit"
                 className={`
-                  px-6 py-2.5 rounded-lg font-medium transition-all
+                  px-6 py-3 rounded-xl font-semibold transition-all duration-200
+                  flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105
                   ${isLastStep
-                    ? 'bg-green-600 hover:bg-green-700 text-white'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    ? 'bg-gradient-to-r from-green-600 to-green-500 dark:from-green-500 dark:to-green-400 hover:from-green-700 hover:to-green-600 dark:hover:from-green-600 dark:hover:to-green-500 text-white'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 hover:from-blue-700 hover:to-indigo-700 dark:hover:from-blue-600 dark:hover:to-indigo-600 text-white'
                   }
                 `}
               >
@@ -655,16 +745,34 @@ const DemographicsQuestionnaire = ({ onComplete }) => {
                   ? t('demographics.navigation.completeAndContinue')
                   : t('common.navigation.next')
                 }
+                <span>→</span>
               </button>
             </div>
           </form>
 
           {/* Privacy Note */}
-          <div className="mt-6 pt-6 border-t">
-            <p className="text-xs text-gray-500 text-center">
-              {t('demographics.privacyNote')}
-            </p>
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                {t('demographics.privacyNote')}
+              </p>
+            </div>
           </div>
+        </div>
+
+        {/* Help Text */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {interpolateComponents(
+              t('demographics.requiredNote'),
+              {
+                ASTERISK: (<span className="text-red-500 dark:text-red-400">*</span> )
+              }
+            )}
+          </p>
         </div>
       </div>
     </div>

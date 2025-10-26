@@ -11,6 +11,6 @@ export default defineConfig({
     postcss: './postcss.config.js',
   },
   optimizeDeps: {
-    include: ['reactflow']
+    include: ['reactflow', 'react-window']
   }
 })

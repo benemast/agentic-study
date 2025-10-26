@@ -10,14 +10,12 @@ import ExecutionProgress from '../ExecutionProgress';
 // Hooks
 import { useSession } from '../../hooks/useSession';
 import { useChat } from '../../hooks/useChat';
-import { useWebSocketContext } from '../../providers/WebSocketProvider'; // ✅ NEW
+import { useWebSocketContext } from '../../providers/WebSocketProvider';
 import { useTracking } from '../../hooks/useTracking';
 import { useWorkflowExecution } from '../../hooks/useWorkflowExecution';
 
 // Services
-import { wsClient } from '../../services/websocket'; // ✅ For event subscriptions
-
-// Config
+import { wsClient } from '../../services/websocket';
 import { chatAPI } from '../../services/api';
 import { AI_CONFIG, ERROR_MESSAGES } from '../../config/constants';
 
@@ -484,42 +482,59 @@ const AIChat = () => {
   // ========================================
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
-            <Bot className="w-5 h-5 text-white" />
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 flex items-center justify-center">
+              <Bot className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                AI Assistant
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {isWebSocketConnected ? (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full" />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-yellow-500 dark:bg-yellow-400 rounded-full" />
+                    Fallback Mode
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">AI Assistant</h2>
-            <p className="text-xs text-gray-500">
-              {isWebSocketConnected ? '🟢 Connected' : '🔴 Offline'}
-            </p>
-          </div>
+          <button
+            onClick={clearHistory}
+            disabled={!hasMessages || isStreaming}
+            className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Clear chat history"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear
+          </button>
         </div>
-
-        <button
-          onClick={clearHistory}
-          disabled={!hasMessages || isStreaming}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Clear chat history"
-        >
-          <Trash2 className="w-4 h-4" />
-          <span className="hidden sm:inline">Clear</span>
-        </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {!hasMessages && !isLoading ? (
-          <div className="text-center py-12">
-            <Bot className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">
-              Welcome to AI Assistant
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {isLoadingHistory ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
+          </div>
+        ) : !hasMessages ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <MessageSquare className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+              Start a conversation
             </h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              Ask me anything! I can help analyze data, answer questions, and execute tasks for you.
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+              Ask me anything or describe a task you'd like me to help with.
             </p>
           </div>
         ) : (
@@ -528,68 +543,66 @@ const AIChat = () => {
               <div
                 key={index}
                 className={`flex gap-3 ${
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
+                  message.role === 'assistant' ? 'justify-start' : 'justify-end'
                 }`}
               >
                 {message.role === 'assistant' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 flex items-center justify-center">
                     <Bot className="w-5 h-5 text-white" />
                   </div>
                 )}
 
-                <div
-                  className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                    message.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : message.isSystemMessage
-                      ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                      : 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                  }`}
-                >
+                <div className={`group max-w-[70%] rounded-2xl px-4 py-3 ${
+                  message.role === 'assistant'
+                    ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-100 dark:border-gray-700'
+                    : 'bg-gradient-to-br from-blue-600 to-blue-500 dark:from-blue-500 dark:to-blue-400 text-white shadow-md'
+                }`}>
                   {editingIndex === index ? (
                     <div className="space-y-2">
                       <textarea
                         ref={editInputRef}
                         value={editingContent}
                         onChange={(e) => setEditingContent(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                        className="w-full p-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 rounded resize-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:outline-none"
                         rows={3}
                       />
                       <div className="flex gap-2">
                         <button
                           onClick={saveEdit}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                          className="flex items-center gap-1 px-3 py-1 bg-blue-600 dark:bg-blue-500 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
                         >
-                          <Check className="w-4 h-4" />
+                          <Check className="w-3 h-3" />
                           Save
                         </button>
                         <button
                           onClick={cancelEdit}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                          className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
                         >
-                          <X className="w-4 h-4" />
+                          <X className="w-3 h-3" />
                           Cancel
                         </button>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="prose prose-sm max-w-none">
-                        {message.isStreaming && !message.content ? (
-                          <div className="flex items-center gap-2 text-gray-500">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Thinking...</span>
-                          </div>
-                        ) : (
-                          <p className="whitespace-pre-wrap break-words">
-                            {message.content}
-                          </p>
-                        )}
-                      </div>
+                      {message.isSystemMessage ? (
+                        <p className="text-sm italic text-gray-600 dark:text-gray-400">
+                          {message.content}
+                        </p>
+                      ) : message.isStreaming && !message.content ? (
+                        <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Thinking...</span>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words">
+                          {message.content}
+                        </p>
+                      )}
                       {message.role === 'user' && !isStreaming && (
                         <button
                           onClick={() => startEdit(index)}
-                          className="mt-2 flex items-center gap-1 text-xs text-blue-100 hover:text-white transition-colors"
+                          className="mt-2 flex items-center gap-1 text-xs text-blue-100 dark:text-blue-200 hover:text-white dark:hover:text-white transition-all opacity-0 group-hover:opacity-100"
                         >
                           <Edit2 className="w-3 h-3" />
                           Edit
@@ -603,7 +616,7 @@ const AIChat = () => {
                 </div>
 
                 {message.role === 'user' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 dark:from-gray-600 dark:to-gray-800 flex items-center justify-center">
                     <User className="w-5 h-5 text-white" />
                   </div>
                 )}
@@ -613,10 +626,10 @@ const AIChat = () => {
             {/* Streaming Message */}
             {isStreaming && streamingContent && (
               <div className="flex gap-3 justify-start">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 flex items-center justify-center">
                   <Bot className="w-5 h-5 text-white" />
                 </div>
-                <div className="max-w-[70%] rounded-2xl px-4 py-3 bg-white text-gray-900 shadow-sm border border-gray-100">
+                <div className="max-w-[70%] rounded-2xl px-4 py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-100 dark:border-gray-700">
                   <StreamingMessage content={streamingContent} />
                 </div>
               </div>
@@ -636,13 +649,13 @@ const AIChat = () => {
 
       {/* Error Display */}
       {error && (
-        <div className="mx-4 mb-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+        <div className="mx-4 mb-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
 
       {/* Input */}
-      <div className="border-t border-gray-200 bg-white p-4">
+      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex-shrink-0">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             ref={inputRef}
@@ -655,7 +668,7 @@ const AIChat = () => {
                 : 'Type your message...'
             }
             disabled={isStreaming || isLoading}
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
@@ -667,14 +680,13 @@ const AIChat = () => {
           <button
             type="submit"
             disabled={!input.trim() || isStreaming || isLoading}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium shadow-lg shadow-blue-500/25"
+            className="px-6 py-3 bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {isLoading || isStreaming ? (
+            {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <Send className="w-5 h-5" />
             )}
-            <span className="hidden sm:inline">Send</span>
           </button>
         </form>
       </div>

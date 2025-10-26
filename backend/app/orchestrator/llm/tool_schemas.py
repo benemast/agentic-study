@@ -4,23 +4,22 @@ Tool schemas and validation for AI Assistant
 integrated with centralized tool registry
 """
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 import logging
-
-
-from ..tools.registry import tool_registry, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
 class ActionType(str, Enum):
     """Available action types"""
-    GATHER = "gather"
-    FILTER = "filter"
-    CLEAN = "clean"
+    LOAD = "load"
     SORT = "sort"
-    COMBINE = "combine"
+    FILTER = "filter"
     ANALYZE = "analyze"
+
+    GATHER = "gather"
+    CLEAN = "clean"
+    COMBINE = "combine"
     GENERATE = "generate"
     OUTPUT = "output"
     FINISH = "finish"
@@ -29,29 +28,88 @@ class ActionType(str, Enum):
 # PARAMETER SCHEMAS (Pydantic Models)
 # ============================================================
 
-class GatherDataParams(BaseModel):
-    """Parameters for gather_data tool"""
-    source: str = Field(default="default", description="Data source identifier")
-    query: str = Field(default="", description="Query string for filtering")
+
+class LoadReviewsParams(BaseModel):
+    """
+    Parameters for load_reviews tool
+    
+    Used to fetch product reviews with various filters
+    """
+    category: str = Field(
+        ..., 
+        description="Product category: 'shoes' or 'wireless'",
+        pattern="^(shoes|wireless)$"
+    )
+    product_id: Optional[str] = Field(
+        None,
+        description="Specific product ID to filter by"
+    )
+    min_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Minimum star rating (1-5)"
+    )
+    max_rating: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Maximum star rating (1-5)"
+    )
+    verified_only: Optional[bool] = Field(
+        None,
+        description="Only include verified purchases"
+    )
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum number of reviews to load"
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Pagination offset"
+    )
+    
+    @field_validator('max_rating')
+    @classmethod
+    def validate_rating_range(cls, v: Optional[int], info) -> Optional[int]:
+        """Ensure max_rating >= min_rating"""
+        if v is not None and 'min_rating' in info.data:
+            min_rating = info.data['min_rating']
+            if min_rating is not None and v < min_rating:
+                raise ValueError('max_rating must be >= min_rating')
+        return v
+
+class FilterReviewsParams(BaseModel): ...
+class SortReviewsParams(BaseModel): ...
 
 
-class FilterDataParams(BaseModel):
-    """Parameters for filter_data tool"""
-    min_value: Optional[int] = Field(None, description="Minimum value threshold")
-    max_value: Optional[int] = Field(None, description="Maximum value threshold")
+class ReviewSentimentAnalysisParams(BaseModel):
+    """
+    Parameters for review_sentiment_analysis tool
+    
+    Analyzes sentiment of reviews loaded by load_reviews
+    """
+    # This tool operates on data from the working state
+    # It needs reviews from a previous load_reviews call
+    aggregate_by_product: bool = Field(
+        default=False,
+        description="Group sentiment analysis by product_id"
+    )
 
 
-class SortDataParams(BaseModel):
-    """Parameters for sort_data tool"""
-    field: str = Field(default="value", description="Field to sort by")
-    descending: bool = Field(default=False, description="Sort in descending order")
+
 
 
 # Map parameter schemas to tool AI IDs
 PARAMETER_SCHEMAS = {
-    'gather_data': GatherDataParams,
-    'filter_data': FilterDataParams,
-    'sort_data': SortDataParams,
+    'load_reviews': LoadReviewsParams,
+    'filter_reviews': FilterReviewsParams,
+    'sort_reviews': SortReviewsParams,
+    'review_sentiment_analysis': ReviewSentimentAnalysisParams,
+
     # Tools without parameters return None
     'clean_data': None,
     'combine_data': None,
@@ -77,9 +135,11 @@ class AgentDecision(BaseModel):
     confidence: float = Field(0.5, ge=0.0, le=1.0, description="Confidence score 0-1")
     alternatives_considered: List[str] = Field(default_factory=list, description="Other options considered")
     
-    @validator('tool_name')
+    @field_validator('tool_name')
     def validate_tool_exists(cls, v, values):
         """Ensure tool_name exists in registry"""
+        from ..tools.registry import tool_registry
+
         action = values.get('action')
         
         # If action is 'finish', tool_name should be None
@@ -97,7 +157,7 @@ class AgentDecision(BaseModel):
         
         return v
     
-    @validator('confidence')
+    @field_validator('confidence')
     def validate_confidence_range(cls, v):
         """Ensure confidence is in valid range"""
         if not 0.0 <= v <= 1.0:
@@ -118,6 +178,7 @@ class ToolValidator:
     """
     
     def __init__(self):
+        from ..tools.registry import tool_registry 
         self.registry = tool_registry
     
     def validate_tool_params(
@@ -375,6 +436,7 @@ def map_action_to_tool(
 
 def get_tool_count() -> int:
     """Get total number of registered tools"""
+    from ..tools.registry import tool_registry
     return tool_registry.get_tool_count()
 
 
@@ -385,6 +447,7 @@ def list_all_tools() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dict mapping AI ID to metadata
     """
+    from ..tools.registry import tool_registry
     result = {}
     for tool_def in tool_registry.get_all_definitions():
         result[tool_def.ai_id] = {
@@ -403,7 +466,23 @@ def list_all_tools() -> Dict[str, Dict[str, Any]]:
 # ============================================================
 
 # Export validator instance
-tool_validator = ToolValidator()
+#tool_validator = ToolValidator()
+_tool_validator_instance = None
+
+def get_tool_validator() -> ToolValidator:
+    """Get singleton tool validator instance (lazy initialization)"""
+    global _tool_validator_instance
+    if _tool_validator_instance is None:
+        _tool_validator_instance = ToolValidator()
+    return _tool_validator_instance
+
+# For backwards compatibility, create a property-like access
+class _ToolValidatorProxy:
+    """Proxy for lazy tool_validator access"""
+    def __getattr__(self, name):
+        return getattr(get_tool_validator(), name)
+
+tool_validator = _ToolValidatorProxy()
 
 # Backwards compatibility exports
 __all__ = [
@@ -416,7 +495,7 @@ __all__ = [
     
     # Validator
     'ToolValidator',
-    'tool_validator',
+    #'tool_validator',
     
     # Helper functions
     'map_action_to_tool',

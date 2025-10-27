@@ -665,7 +665,7 @@ const WorkflowBuilder = () => {
         />
 
         {/* ReactFlow Canvas */}
-        <div className="h-full pt-16">
+        <div className="workflow-canvas h-full pt-16">
           <ReactFlow
             nodes={enhancedNodes}
             edges={edges}
@@ -704,12 +704,12 @@ const WorkflowBuilder = () => {
             {/* Empty State Panel */}
             {nodes.length === 0 && (
               <Panel position="center">
-                <div className="text-center p-8 bg-white rounded-lg shadow-lg border border-gray-200 max-w-md">
-                  <BrainIcon size={48} className="mx-auto mb-4 text-gray-400" />
-                  <h3 className="text-lg font-medium text-gray-800 mb-2">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 max-w-md text-center border border-gray-200 dark:border-gray-700">
+                  <div className="text-5xl mb-4">🔧</div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
                     {t('workflow.builder.emptyState.title')}
                   </h3>
-                  <p className="text-gray-600 mb-4">
+                    <p className="text-gray-600 dark:text-gray-400">
                     {t('workflow.builder.emptyState.description')}
                   </p>
                   <button

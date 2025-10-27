@@ -365,7 +365,113 @@ export const de = {
       cancel: 'Abbrechen'
     }
   },
-
+  // ========== TUTORIAL ==========
+  tutorial: {
+    // Joyride locale (buttons)
+    locale: {
+      back: '← Zurück',
+      close: 'Schließen',
+      last: 'Verstanden! ✓',
+      next: 'Weiter →',
+      skip: 'Tutorial überspringen',
+    },
+    
+    // Screen-level tutorial (Task 1 only)
+    screen: {
+      welcome: {
+        title: '👋 Willkommen zum Aufgaben-Bildschirm!',
+        description: 'Dieser Bildschirm enthält alles, was Sie zur Erledigung Ihrer Aufgabe benötigen. Lassen Sie mich Ihnen alles zeigen!',
+      },
+      taskDescription: {
+        title: '📋 Aufgabenbeschreibung',
+        description: 'Hier finden Sie Ihre Rolle, Ihr Ziel und welche Ausgabe erwartet wird. Klicken Sie auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
+      },
+      datasetViewer: {
+        title: '📊 Datensatz-Viewer',
+        description: 'Dies ist Ihre Datenquelle - Kundenbewertungen, die Sie analysieren werden. Sie können hier durch alle verfügbaren Bewertungen scrollen.',
+      },
+      viewModes: {
+        title: '🔄 Ansichtsmodi wechseln',
+        description: 'Wechseln Sie zwischen Kartenansicht (einfacher zu lesen) und Tabellenansicht (kompakter). Wählen Sie, was am besten für Sie funktioniert!',
+      },
+      filterReviews: {
+        title: '🔍 Bewertungen filtern',
+        description: 'Filtern Sie Bewertungen nach Stimmung: Alle, Positiv (4-5 Sterne), Neutral (3 Sterne) oder Negativ (1-2 Sterne).',
+      },
+      resizePanels: {
+        title: '↔️ Panels anpassen',
+        description: 'Ziehen Sie diesen Griff nach links oder rechts, um die Panel-Größen anzupassen. Vergrößern Sie den Daten-Viewer oder geben Sie mehr Platz für Ihren Arbeitsbereich!',
+      },
+    },
+    
+    // Workflow Builder tutorial
+    workflowBuilder: {
+      welcome: {
+        title: '🔧 Workflow-Builder',
+        description: 'Erstellen Sie Ihre Analyse, indem Sie Tools miteinander verbinden. Jedes Tool verarbeitet Daten und gibt sie an den nächsten Schritt weiter!',
+      },
+      availableTools: {
+        title: '🧰 Verfügbare Tools',
+        description: 'Durchsuchen Sie alle verfügbaren Tools in der Seitenleiste. Jedes Tool hat eine spezifische Funktion zur Analyse Ihrer Daten.',
+      },
+      workflowCanvas: {
+        title: '🎨 Workflow-Canvas',
+        description: 'Ziehen Sie Tools aus der Seitenleiste auf diese Arbeitsfläche, um Ihren Workflow zu erstellen. Verbinden Sie sie, um den Datenfluss zu definieren.',
+      },
+      connectTools: {
+        title: '🔗 Tools verbinden',
+        description: 'Klicken und ziehen Sie vom Ausgang eines Tools zum Eingang eines anderen, um sie zu verbinden. Dies definiert den Datenfluss.',
+      },
+      configureTools: {
+        title: '⚙️ Tools konfigurieren',
+        description: 'Klicken Sie auf ein Tool, um seine Einstellungen zu konfigurieren. Jedes Tool hat verschiedene Optionen, die Sie anpassen können.',
+      },
+      executeWorkflow: {
+        title: '▶️ Workflow ausführen',
+        description: 'Sobald Ihr Workflow bereit ist, klicken Sie auf die Schaltfläche "Ausführen", um ihn zu starten. Sie sehen die Ergebnisse in Echtzeit!',
+      },
+      clearWorkflow: {
+        title: '🗑️ Löschen & Zurücksetzen',
+        description: 'Verwenden Sie die Schaltfläche "Löschen", um alle Tools zu entfernen und bei Bedarf von vorne zu beginnen.',
+      },
+      autoSave: {
+        title: '💾 Automatisches Speichern',
+        description: 'Ihr Workflow wird automatisch gespeichert, während Sie arbeiten, sodass Sie keinen Fortschritt verlieren!',
+      },
+    },
+    
+    // AI Assistant tutorial
+    aiAssistant: {
+      welcome: {
+        title: '🤖 KI-Assistent',
+        description: 'Chatten Sie mit der KI, um Ihre Daten zu analysieren. Die KI wird autonom Aufgaben ausführen und Tools verwenden, um Ihnen zu helfen!',
+      },
+      chatInterface: {
+        title: '💬 Chat-Interface',
+        description: 'Beschreiben Sie, was Sie analysieren möchten, oder stellen Sie Fragen zu den Daten. Seien Sie spezifisch für beste Ergebnisse!',
+        example: 'Beispiel: "Finde die Top 3 negativen Themen" oder "Analysiere die Stimmungsverteilung"',
+      },
+      aiTakesAction: {
+        title: '🔄 KI handelt',
+        description: 'Die KI wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um Ihre Fragen zu beantworten. Sie sehen im Chat, was sie tut.',
+      },
+      reviewResults: {
+        title: '🔍 Ergebnisse überprüfen',
+        description: 'Die KI zeigt Ihnen Analyseergebnisse, Erkenntnisse und Daten. Sie können Folgefragen stellen, um tiefer zu graben!',
+      },
+      iterateRefine: {
+        title: '🔁 Iterieren & Verfeinern',
+        description: 'Chatten Sie weiter, um Ihre Analyse zu verfeinern. Fragen Sie nach mehr Details, verschiedenen Perspektiven oder zusätzlichen Erkenntnissen.',
+      },
+      tipsForSuccess: {
+        title: '💡 Tipps für den Erfolg',
+        tip1: 'Seien Sie spezifisch, was Sie wollen',
+        tip2: 'Stellen Sie jeweils eine Frage',
+        tip3: 'Überprüfen Sie die Arbeit der KI und geben Sie Feedback',
+        tip4: 'Iterieren Sie, bis Sie haben, was Sie brauchen',
+      },
+    },
+  },
   // ========== SURVEY ==========
   survey: {
     title: 'Fragebogen nach der Aufgabe',

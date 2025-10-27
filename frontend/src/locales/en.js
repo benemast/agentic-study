@@ -364,6 +364,113 @@ export const en = {
       cancel: 'Cancel'
     }
   },
+  // ========== TUTORIAL ==========
+  tutorial: {
+    // Joyride locale (buttons)
+    locale: {
+      back: '← Previous',
+      close: 'Close',
+      last: 'Got it! ✓',
+      next: 'Next →',
+      skip: 'Skip tutorial',
+    },
+    
+    // Screen-level tutorial (Task 1 only)
+    screen: {
+      welcome: {
+        title: '👋 Welcome to the Task Screen!',
+        description: 'This screen has everything you need to complete your task. Let me show you around!',
+      },
+      taskDescription: {
+        title: '📋 Task Description',
+        description: "Here you'll find your role, goal, and what output is expected. Click the arrow to collapse/expand this section.",
+      },
+      datasetViewer: {
+        title: '📊 Dataset Viewer',
+        description: "This is your data source - customer reviews you'll analyze. You can scroll through all available reviews here.",
+      },
+      viewModes: {
+        title: '🔄 Switch View Modes',
+        description: 'Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you!',
+      },
+      filterReviews: {
+        title: '🔍 Filter Reviews',
+        description: 'Filter reviews by sentiment: All, Positive (4-5 stars), Neutral (3 stars), or Negative (1-2 stars).',
+      },
+      resizePanels: {
+        title: '↔️ Resize Panels',
+        description: 'Drag this handle left or right to adjust the panel sizes. Make the data viewer larger or give more space to your work area!',
+      },
+    },
+    
+    // Workflow Builder tutorial
+    workflowBuilder: {
+      welcome: {
+        title: '🔧 Workflow Builder',
+        description: 'Build your analysis by connecting tools together. Each tool processes data and passes it to the next step!',
+      },
+      availableTools: {
+        title: '🧰 Available Tools',
+        description: 'Browse all available tools in the sidebar. Each tool has a specific function for analyzing your data.',
+      },
+      workflowCanvas: {
+        title: '🎨 Workflow Canvas',
+        description: 'Drag tools from the sidebar onto this canvas to build your workflow. Connect them to define the flow of data.',
+      },
+      connectTools: {
+        title: '🔗 Connect Tools',
+        description: "Click and drag from one tool's output to another's input to connect them. This defines the flow of data.",
+      },
+      configureTools: {
+        title: '⚙️ Configure Tools',
+        description: 'Click on a tool to configure its settings. Each tool has different options you can customize.',
+      },
+      executeWorkflow: {
+        title: '▶️ Execute Workflow',
+        description: "Once your workflow is ready, click the Execute button to run it. You'll see results in real-time!",
+      },
+      clearWorkflow: {
+        title: '🗑️ Clear & Reset',
+        description: 'Use the Clear button to remove all tools and start fresh if needed.',
+      },
+      autoSave: {
+        title: '💾 Auto-Save',
+        description: "Your workflow is automatically saved as you work, so you won't lose any progress!",
+      },
+    },
+    
+    // AI Assistant tutorial
+    aiAssistant: {
+      welcome: {
+        title: '🤖 AI Assistant',
+        description: 'Chat with the AI to analyze your data. The AI will autonomously execute tasks and use tools to help you!',
+      },
+      chatInterface: {
+        title: '💬 Chat Interface',
+        description: 'Describe what you want to analyze or ask questions about the data. Be specific for best results!',
+        example: 'Example: "Find the top 3 negative themes" or "Analyze sentiment distribution"',
+      },
+      aiTakesAction: {
+        title: '🔄 AI Takes Action',
+        description: "The AI will automatically use the right tools and process data to answer your questions. You'll see what it's doing in the chat.",
+      },
+      reviewResults: {
+        title: '🔍 Review Results',
+        description: 'The AI will show you analysis results, insights, and data. You can ask follow-up questions to dig deeper!',
+      },
+      iterateRefine: {
+        title: '🔁 Iterate & Refine',
+        description: 'Keep chatting to refine your analysis. Ask for more details, different perspectives, or additional insights.',
+      },
+      tipsForSuccess: {
+        title: '💡 Tips for Success',
+        tip1: 'Be specific about what you want',
+        tip2: 'Ask one question at a time',
+        tip3: "Review AI's work and provide feedback",
+        tip4: 'Iterate until you have what you need',
+      },
+    },
+  },
   // ========== SURVEY ==========
   survey: {
     title: 'Post-Task Survey',

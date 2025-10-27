@@ -13,11 +13,14 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import Joyride from 'react-joyride';
 
+//components
+import JoyridePortal from '../JoyridePortal';
 import WorkflowBuilder from '../workflow/WorkflowBuilder';
 import AIChat from '../assistant/AIChat';
 import DatasetViewer from './DatasetViewer';
+
+// Hooks
 import { useTracking } from '../../hooks/useTracking';
 import { useReviewData } from '../../hooks/useReviewData';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -79,11 +82,13 @@ const getJoyrideStyles = (isDarkMode) => ({
   },
   overlay: {
     backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.5)',
+    zIndex: 9999,
   },
   spotlight: {
     backgroundColor: 'transparent',
     border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
     borderRadius: 4,
+     zIndex: 9998,
   },
 });
 
@@ -327,6 +332,15 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   // Get theme-aware Joyride styles
   const joyrideStyles = useMemo(() => getJoyrideStyles(isDarkMode), [isDarkMode]);
   
+  // ✅ NEW: Internationalized Joyride locale
+  const joyrideLocale = useMemo(() => ({
+    back: t('tutorial.locale.back', '← Previous'),
+    close: t('tutorial.locale.close', 'Close'),
+    last: t('tutorial.locale.last', 'Got it! ✓'),
+    next: t('tutorial.locale.next', 'Next →'),
+    skip: t('tutorial.locale.skip', 'Skip tutorial'),
+  }), [t]);
+  
   // Tutorial system
   const {
     run,
@@ -398,7 +412,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Joyride Tutorial */}
-      <Joyride
+      <JoyridePortal
         steps={steps}
         run={run}
         continuous

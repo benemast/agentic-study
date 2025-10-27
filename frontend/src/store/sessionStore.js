@@ -139,6 +139,12 @@ const useSessionStore = create(
           demographicsCompleted: false,
           demographicsCompletedAt: null,
           
+          tutorialState: {
+            screenTutorialShown: false,
+            task1TutorialShown: false,
+            task2TutorialShown: false,
+          },
+
           // Activity tracking
           lastActivity: Date.now(),
           sessionError: null,
@@ -1163,6 +1169,61 @@ const useSessionStore = create(
           },
 
           // ========================================
+          // TUTORIAL ACTIONS
+          // ========================================
+          
+          /**
+           * Update tutorial state
+           */
+          updateTutorialState: (updates) => {
+            set((state) => {
+              state.tutorialState = {
+                ...state.tutorialState,
+                ...updates
+              };
+            });
+          },
+          
+          /**
+           * Mark screen tutorial as shown
+           */
+          markScreenTutorialShown: () => {
+            set((state) => {
+              state.tutorialState.screenTutorialShown = true;
+            });
+          },
+          
+          /**
+           * Mark task tutorial as shown
+           */
+          markTaskTutorialShown: (taskNumber) => {
+            set((state) => {
+              const key = taskNumber === 1 ? 'task1TutorialShown' : 'task2TutorialShown';
+              state.tutorialState[key] = true;
+            });
+          },
+          
+          /**
+           * Reset all tutorials (for testing)
+           */
+          resetAllTutorials: () => {
+            set((state) => {
+              state.tutorialState = {
+                screenTutorialShown: false,
+                task1TutorialShown: false,
+                task2TutorialShown: false,
+              };
+            });
+          },
+          
+          /**
+           * Get tutorial state
+           */
+          getTutorialState: () => {
+            return get().tutorialState;
+          },
+
+          // ========================================
           // CHAT MESSAGES MANAGEMENT
           // ========================================
           
@@ -1515,6 +1576,7 @@ const useSessionStore = create(
             theme: state.theme,
             sessionStartTime: state.sessionStartTime,
             condition: state.condition,
+            tutorialState: state.tutorialState,
 
             demographicsData: state.demographicsData,
             demographicsStep: state.demographicsStep,

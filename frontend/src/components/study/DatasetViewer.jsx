@@ -356,13 +356,15 @@ const DatasetViewer = ({
     
     // Add small delay to ensure layout is settled
     const timer = setTimeout(measureHeight, 100);
+    const timer2 = setTimeout(measureHeight, 300); // Extra measurement for modal
     
     window.addEventListener('resize', measureHeight);
     return () => {
       clearTimeout(timer);
+      clearTimeout(timer2);
       window.removeEventListener('resize', measureHeight);
     };
-  }, [viewMode]); // Re-measure when view mode changes
+  }, [viewMode, isModalOpen]); // Re-measure when view mode OR modal state changes
   
   // Reset expanded reviews when filters/sorting changes
   useEffect(() => {
@@ -727,9 +729,9 @@ const DatasetViewer = ({
           ) : (
             // TABLE VIEW - Virtual Scrolling with Fixed Column Widths
             <div className="h-full flex flex-col p-4">
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 h-full flex flex-col overflow-hidden">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 h-full flex flex-col overflow-x-auto">
                 {/* Fixed Header */}
-                <div className="flex-shrink-0 overflow-x-auto border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700">
+                <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700">
                   <div style={{ display: 'flex', minWidth: 'fit-content' }}>
                     {COLUMN_CONFIG.filter(col => visibleColumns[col.id]).map(col => (
                       <div
@@ -759,7 +761,7 @@ const DatasetViewer = ({
                 </div>
 
                 {/* Virtual Scrolling Body */}
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto" style={{ overflowX: 'hidden' }}>
                   <FixedSizeList
                     height={containerHeight - 45}
                     itemCount={sortedReviews.length}
@@ -773,7 +775,7 @@ const DatasetViewer = ({
                       return (
                         <div
                           style={style}
-                          className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-200 dark:border-gray-700 overflow-x-auto"
+                          className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-200 dark:border-gray-700"
                           onClick={() => toggleReview(index)}
                         >
                           <div style={{ display: 'flex', minWidth: 'fit-content' }}>

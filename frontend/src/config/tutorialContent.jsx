@@ -1,25 +1,21 @@
-// frontend/src/config/tutorialContent.js
+// frontend/src/config/tutorialContent.jsx
 /**
- * Tutorial Content for React Joyride
+ * Tutorial Content for React Joyride - FULLY LOCALIZED VERSION
  * 
- * Step format:
- * - target: CSS selector for element to highlight
- * - content: Tutorial text (supports JSX)
- * - placement: 'top' | 'bottom' | 'left' | 'right' | 'center'
- * - disableBeacon: true (for first step to show immediately)
- * - spotlightClicks: true (allow clicking highlighted element)
+ * All tutorial content now uses translation keys.
+ * Step builder functions accept a translation function (t) as parameter.
  */
 
 // ============================================================
 // SCREEN-LEVEL TUTORIAL (Task 1 only)
 // ============================================================
-const SCREEN_STEPS = [
+const getScreenStepsContent = (t) => [
   {
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">👋 Welcome to the Task Screen!</h3>
-        <p>This screen has everything you need to complete your task. Let me show you around!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.welcome.title')}</h3>
+        <p>{t('tutorial.screen.welcome.description')}</p>
       </div>
     ),
     placement: 'center',
@@ -29,8 +25,8 @@ const SCREEN_STEPS = [
     target: '.task-description-section',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">📋 Task Description</h3>
-        <p>Here you'll find your role, goal, and what output is expected. Click the arrow to collapse/expand this section.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.taskDescription.title')}</h3>
+        <p>{t('tutorial.screen.taskDescription.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -39,8 +35,8 @@ const SCREEN_STEPS = [
     target: '.dataset-viewer-container',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">📊 Dataset Viewer</h3>
-        <p>This is your data source - customer reviews you'll analyze. You can scroll through all available reviews here.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.datasetViewer.title')}</h3>
+        <p>{t('tutorial.screen.datasetViewer.description')}</p>
       </div>
     ),
     placement: 'top',
@@ -49,8 +45,8 @@ const SCREEN_STEPS = [
     target: '.view-mode-buttons',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔄 Switch View Modes</h3>
-        <p>Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.viewModes.title')}</h3>
+        <p>{t('tutorial.screen.viewModes.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -59,8 +55,8 @@ const SCREEN_STEPS = [
     target: '.filter-buttons',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔍 Filter Reviews</h3>
-        <p>Filter reviews by sentiment: All, Positive (4-5 stars), Neutral (3 stars), or Negative (1-2 stars).</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.filterReviews.title')}</h3>
+        <p>{t('tutorial.screen.filterReviews.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -69,77 +65,56 @@ const SCREEN_STEPS = [
     target: '.resize-handle',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">↔️ Resize Panels</h3>
-        <p>Drag this handle left or right to adjust the panel sizes. Give yourself more space where you need it!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.resizePanels.title')}</h3>
+        <p>{t('tutorial.screen.resizePanels.description')}</p>
       </div>
     ),
-    placement: 'left',
-    spotlightClicks: true,
-  },
-  {
-    target: '.popout-button',
-    content: (
-      <div>
-        <h3 className="text-lg font-bold mb-2">🗳 Pop-out Viewer</h3>
-        <p>Click this button to open the dataset viewer in a fullscreen modal for better visibility.</p>
-      </div>
-    ),
-    placement: 'left',
-  },
-  {
-    target: '.complete-task-button',
-    content: (
-      <div>
-        <h3 className="text-lg font-bold mb-2">✅ Complete Task</h3>
-        <p>When you're done with your analysis, click this button to proceed to the next step.</p>
-      </div>
-    ),
-    placement: 'bottom',
+    placement: 'top',
   },
 ];
 
 // ============================================================
 // WORKFLOW BUILDER TUTORIAL
 // ============================================================
-const WORKFLOW_BUILDER_STEPS = [
+const getWorkflowBuilderStepsContent = (t) => [
   {
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔧 Workflow Builder</h3>
-        <p>Build your analysis workflow by connecting tools together. You have full control over the process!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.welcome.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.welcome.description')}</p>
       </div>
     ),
     placement: 'center',
     disableBeacon: true,
   },
   {
-    target: '.tools-panel',
+    target: '.workflow-tools',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🧰 Available Tools</h3>
-        <p>Here are all the tools you can use. Each tool performs a specific analysis task. Drag them onto the canvas to start!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.availableTools.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.availableTools.description')}</p>
       </div>
     ),
     placement: 'right',
   },
   {
-    target: '.react-flow__renderer',
+    target: '.workflow-canvas',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🖱️ Drag & Drop</h3>
-        <p>Drag tools from the left panel onto this canvas. You can add as many tools as you need for your analysis.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.workflowCanvas.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.workflowCanvas.description')}</p>
       </div>
     ),
     placement: 'top',
     spotlightClicks: true,
   },
   {
-    target: '.react-flow__renderer',
+    target: '.workflow-canvas',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔗 Connect Tools</h3>
-        <p>After adding tools, click and drag from the small circle on the right side of a tool to connect it to another tool. This defines the flow of data.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.connectTools.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.connectTools.description')}</p>
       </div>
     ),
     placement: 'top',
@@ -148,8 +123,8 @@ const WORKFLOW_BUILDER_STEPS = [
     target: '.workflow-canvas',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">⚙️ Configure Tools</h3>
-        <p>Click on a tool to configure its settings. Each tool has different options you can customize.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.configureTools.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.configureTools.description')}</p>
       </div>
     ),
     placement: 'top',
@@ -159,8 +134,8 @@ const WORKFLOW_BUILDER_STEPS = [
     target: '.execute-button',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">▶️ Execute Workflow</h3>
-        <p>Once your workflow is ready, click the Execute button to run it. You'll see results in real-time!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.executeWorkflow.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.executeWorkflow.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -169,8 +144,8 @@ const WORKFLOW_BUILDER_STEPS = [
     target: '.clear-button',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🗑️ Clear & Reset</h3>
-        <p>Use the Clear button to remove all tools and start fresh if needed.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.clearWorkflow.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.clearWorkflow.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -179,8 +154,8 @@ const WORKFLOW_BUILDER_STEPS = [
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">💾 Auto-Save</h3>
-        <p>Your workflow is automatically saved as you work, so you won't lose any progress!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.autoSave.title')}</h3>
+        <p>{t('tutorial.workflowBuilder.autoSave.description')}</p>
       </div>
     ),
     placement: 'center',
@@ -190,13 +165,13 @@ const WORKFLOW_BUILDER_STEPS = [
 // ============================================================
 // AI ASSISTANT TUTORIAL
 // ============================================================
-const AI_ASSISTANT_STEPS = [
+const getAIAssistantStepsContent = (t) => [
   {
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🤖 AI Assistant</h3>
-        <p>Chat with the AI to analyze your data. The AI will autonomously execute tasks and use tools to help you!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.welcome.title')}</h3>
+        <p>{t('tutorial.aiAssistant.welcome.description')}</p>
       </div>
     ),
     placement: 'center',
@@ -206,18 +181,9 @@ const AI_ASSISTANT_STEPS = [
     target: '.chat-input-container',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">💬 Chat Interface</h3>
-        <p>Describe what you want to analyze or ask questions about the data. The AI will understand and help you.</p>
-      </div>
-    ),
-    placement: 'top',
-  },
-  {
-    target: '.chat-input-container',
-    content: (
-      <div>
-        <h3 className="text-lg font-bold mb-2">🎯 Be Specific</h3>
-        <p>Try to be clear about what you need. For example: "Find the top 3 negative themes" or "Analyze sentiment distribution".</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.chatInterface.title')}</h3>
+        <p>{t('tutorial.aiAssistant.chatInterface.description')}</p>
+        <p className="mt-2 text-sm opacity-80">{t('tutorial.aiAssistant.chatInterface.example')}</p>
       </div>
     ),
     placement: 'top',
@@ -227,8 +193,8 @@ const AI_ASSISTANT_STEPS = [
     target: '.chat-messages-container',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔄 AI Takes Action</h3>
-        <p>The AI will automatically use the right tools and process data to answer your questions. You'll see what it's doing in the chat.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.aiTakesAction.title')}</h3>
+        <p>{t('tutorial.aiAssistant.aiTakesAction.description')}</p>
       </div>
     ),
     placement: 'top',
@@ -237,8 +203,8 @@ const AI_ASSISTANT_STEPS = [
     target: '.chat-messages',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔍 Review Results</h3>
-        <p>The AI will show you analysis results, insights, and data. You can ask follow-up questions to dig deeper!</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.reviewResults.title')}</h3>
+        <p>{t('tutorial.aiAssistant.reviewResults.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -247,8 +213,8 @@ const AI_ASSISTANT_STEPS = [
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">🔁 Iterate & Refine</h3>
-        <p>Keep chatting to refine your analysis. Ask for more details, different perspectives, or additional insights.</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.iterateRefine.title')}</h3>
+        <p>{t('tutorial.aiAssistant.iterateRefine.description')}</p>
       </div>
     ),
     placement: 'center',
@@ -257,8 +223,13 @@ const AI_ASSISTANT_STEPS = [
     target: 'body',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">💡 Example Questions</h3>
-        <p>Try: "What are customers complaining about?", "Show me positive feedback", or "Create a summary report".</p>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.tipsForSuccess.title')}</h3>
+        <ul className="list-disc list-inside space-y-1 text-sm">
+          <li>{t('tutorial.aiAssistant.tipsForSuccess.tip1')}</li>
+          <li>{t('tutorial.aiAssistant.tipsForSuccess.tip2')}</li>
+          <li>{t('tutorial.aiAssistant.tipsForSuccess.tip3')}</li>
+          <li>{t('tutorial.aiAssistant.tipsForSuccess.tip4')}</li>
+        </ul>
       </div>
     ),
     placement: 'center',
@@ -266,55 +237,69 @@ const AI_ASSISTANT_STEPS = [
 ];
 
 // ============================================================
-// STEP BUILDER FUNCTIONS
+// STEP BUILDER FUNCTIONS - NOW ACCEPT TRANSLATION FUNCTION
 // ============================================================
 
 /**
  * Get steps for Task 1 (Full tutorial: screen + task)
+ * @param {string} condition - 'workflow_builder' or 'ai_assistant'
+ * @param {function} t - Translation function
  */
-export function getTask1Steps(condition) {
+export function getTask1Steps(condition, t) {
   const taskSteps = condition === 'workflow_builder' 
-    ? WORKFLOW_BUILDER_STEPS 
-    : AI_ASSISTANT_STEPS;
+    ? getWorkflowBuilderStepsContent(t)
+    : getAIAssistantStepsContent(t);
   
-  return [...SCREEN_STEPS, ...taskSteps];
+  return [...getScreenStepsContent(t), ...taskSteps];
 }
 
 /**
  * Get steps for Task 2 (Task-only tutorial: no screen features)
+ * Ensures first step shows immediately with disableBeacon
+ * @param {string} condition - 'workflow_builder' or 'ai_assistant'
+ * @param {function} t - Translation function
  */
-export function getTask2Steps(condition) {
+export function getTask2Steps(condition, t) {
   const taskSteps = condition === 'workflow_builder' 
-    ? WORKFLOW_BUILDER_STEPS 
-    : AI_ASSISTANT_STEPS;
+    ? getWorkflowBuilderStepsContent(t)
+    : getAIAssistantStepsContent(t);
   
-  // For Task 2, make first step show immediately (disableBeacon)
-  return taskSteps;
+  // Ensure first step shows immediately without beacon
+  return taskSteps.map((step, index) => ({
+    ...step,
+    disableBeacon: index === 0 ? true : step.disableBeacon
+  }));
 }
 
 /**
  * Get screen-only steps (for replay button on Task 1)
+ * @param {function} t - Translation function
  */
-export function getScreenSteps() {
-  return SCREEN_STEPS;
+export function getScreenSteps(t) {
+  return getScreenStepsContent(t);
 }
 
 /**
  * Get task-only steps (for replay button on both tasks)
+ * @param {string} condition - 'workflow_builder' or 'ai_assistant'
+ * @param {function} t - Translation function
  */
-export function getTaskSteps(condition) {
+export function getTaskSteps(condition, t) {
   return condition === 'workflow_builder' 
-    ? WORKFLOW_BUILDER_STEPS 
-    : AI_ASSISTANT_STEPS;
+    ? getWorkflowBuilderStepsContent(t)
+    : getAIAssistantStepsContent(t);
 }
 
 /**
  * Get all steps based on task number and condition
+ * @param {number} taskNumber - 1 or 2
+ * @param {string} condition - 'workflow_builder' or 'ai_assistant'
+ * @param {function} t - Translation function
  */
-export function getTutorialSteps(taskNumber, condition) {
+export function getTutorialSteps(taskNumber, condition, t) {
   if (taskNumber === 1) {
-    return getTask1Steps(condition);
+    return getTask1Steps(condition, t);
   } else {
-    return getTask2Steps(condition);
+    return getTask2Steps(condition, t);
   }
 }

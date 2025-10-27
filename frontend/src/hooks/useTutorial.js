@@ -8,42 +8,65 @@
  * - State persistence in sessionStorage
  * - Analytics tracking integration
  * - Joyride callback handling
+ * - DOM ready check before starting
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTracking } from './useTracking';
+import { useSessionStore } from '../store/sessionStore';
+import { useTranslation } from './useTranslation'; 
 import { getTutorialSteps, getScreenSteps, getTaskSteps } from '../config/tutorialContent';
 
-const STORAGE_KEY = 'tutorial_state';
-
 // ============================================================
-// STORAGE HELPERS
+// DOM READY CHECK
 // ============================================================
 
-function getTutorialState() {
-  try {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {
-      screenTutorialShown: false,
-      task1TutorialShown: false,
-      task2TutorialShown: false,
-    };
-  } catch (error) {
-    console.error('Failed to load tutorial state:', error);
-    return {
-      screenTutorialShown: false,
-      task1TutorialShown: false,
-      task2TutorialShown: false,
-    };
+/**
+ * Check if all tutorial targets exist in DOM
+ */
+function checkTargetsExist(steps) {
+  const missingTargets = [];
+  
+  steps.forEach(step => {
+    // Skip 'body' target - always exists
+    if (step.target === 'body') return;
+    
+    // Check if target exists
+    const element = document.querySelector(step.target);
+    if (!element) {
+      missingTargets.push(step.target);
+    }
+  });
+  
+  if (missingTargets.length > 0) {
+    console.warn('Tutorial targets not mounted:', missingTargets);
+    return false;
   }
+  
+  return true;
 }
 
-function saveTutorialState(state) {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.error('Failed to save tutorial state:', error);
+/**
+ * Wait for targets to be mounted in DOM
+ * Returns true if all targets exist, false if timeout
+ */
+async function waitForTargets(steps, maxWaitMs = 3000) {
+  const checkInterval = 100;
+  const maxAttempts = maxWaitMs / checkInterval;
+  let attempts = 0;
+  
+  while (attempts < maxAttempts) {
+    if (checkTargetsExist(steps)) {
+      console.log(`✅ All tutorial targets mounted after ${attempts * checkInterval}ms`);
+      return true;
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, checkInterval));
+    attempts++;
   }
+  
+  console.error(`❌ Tutorial targets not mounted after ${maxWaitMs}ms timeout`);
+  return false;
 }
 
 // ============================================================
@@ -55,34 +78,49 @@ export function useTutorial(taskNumber, condition) {
   const [steps, setSteps] = useState([]);
   const [tutorialType, setTutorialType] = useState(null);
   const { track } = useTracking();
+  const { t } = useTranslation();
 
-  // Load state on mount
-  const [tutorialState, setTutorialStateLocal] = useState(getTutorialState);
+  const tutorialState = useSessionStore(state => state.tutorialState);
+  const updateTutorialState = useSessionStore(state => state.updateTutorialState);
+  const markScreenTutorialShown = useSessionStore(state => state.markScreenTutorialShown);
+  const markTaskTutorialShown = useSessionStore(state => state.markTaskTutorialShown);
+  const resetAllTutorials = useSessionStore(state => state.resetAllTutorials);
 
   // Track if auto-show has already been triggered
   const autoShowTriggeredRef = useRef(false);
 
-  // Save state whenever it changes
-  useEffect(() => {
-    saveTutorialState(tutorialState);
-  }, [tutorialState]);
-
   /**
    * Start a tutorial
    */
-  const startTutorial = useCallback((type, customSteps = null) => {
+  const startTutorial = useCallback(async (type, customSteps = null) => {
     let tutorialSteps;
     
     if (customSteps) {
       tutorialSteps = customSteps;
     } else if (type === 'full') {
-      tutorialSteps = getTutorialSteps(taskNumber, condition);
+      tutorialSteps = getTutorialSteps(taskNumber, condition, t);
     } else if (type === 'screen') {
-      tutorialSteps = getScreenSteps();
+      tutorialSteps = getScreenSteps(t);
     } else if (type === 'task') {
-      tutorialSteps = getTaskSteps(condition);
+      tutorialSteps = getTaskSteps(condition, t);
     } else {
       console.error('Invalid tutorial type:', type);
+      return;
+    }
+
+    console.log(`🎓 Starting ${type} tutorial for Task ${taskNumber} (${condition})...`);
+
+    // Wait for targets to be available in DOM
+    const targetsReady = await waitForTargets(tutorialSteps);
+    
+    if (!targetsReady) {
+      console.error('❌ Tutorial cancelled - targets not available');
+      track('TUTORIAL_FAILED_TO_START', {
+        taskNumber,
+        tutorialType: type,
+        condition,
+        reason: 'targets_not_mounted'
+      });
       return;
     }
 
@@ -96,7 +134,7 @@ export function useTutorial(taskNumber, condition) {
       condition,
       stepCount: tutorialSteps.length
     });
-  }, [taskNumber, condition, track]);
+  }, [taskNumber, condition, t, track]);
 
   /**
    * Handle Joyride callbacks
@@ -128,18 +166,11 @@ export function useTutorial(taskNumber, condition) {
 
       // Update state based on tutorial type
       if (tutorialType === 'full' || tutorialType === 'screen') {
-        setTutorialStateLocal(prev => ({
-          ...prev,
-          screenTutorialShown: true
-        }));
+        markScreenTutorialShown();
       }
 
       if (tutorialType === 'full' || tutorialType === 'task') {
-        const key = taskNumber === 1 ? 'task1TutorialShown' : 'task2TutorialShown';
-        setTutorialStateLocal(prev => ({
-          ...prev,
-          [key]: true
-        }));
+        markTaskTutorialShown(taskNumber);
       }
     } else if (status === 'skipped') {
       setRun(false);
@@ -155,21 +186,14 @@ export function useTutorial(taskNumber, condition) {
 
       // Mark as shown even if skipped
       if (tutorialType === 'full' || tutorialType === 'screen') {
-        setTutorialStateLocal(prev => ({
-          ...prev,
-          screenTutorialShown: true
-        }));
+        markScreenTutorialShown();
       }
 
       if (tutorialType === 'full' || tutorialType === 'task') {
-        const key = taskNumber === 1 ? 'task1TutorialShown' : 'task2TutorialShown';
-        setTutorialStateLocal(prev => ({
-          ...prev,
-          [key]: true
-        }));
+        markTaskTutorialShown(taskNumber);
       }
     }
-  }, [taskNumber, condition, tutorialType, steps, track]);
+  }, [taskNumber, condition, tutorialType, steps, track, markScreenTutorialShown, markTaskTutorialShown]);
 
   /**
    * Show screen tutorial manually
@@ -184,22 +208,6 @@ export function useTutorial(taskNumber, condition) {
   const showTaskTutorial = useCallback(() => {
     startTutorial('task');
   }, [startTutorial]);
-
-  /**
-   * Reset all tutorials (for testing)
-   */
-  const resetTutorials = useCallback(() => {
-    const newState = {
-      screenTutorialShown: false,
-      task1TutorialShown: false,
-      task2TutorialShown: false,
-    };
-    setTutorialStateLocal(newState);
-    saveTutorialState(newState);
-    autoShowTriggeredRef.current = false;
-    
-    track('TUTORIAL_RESET', { taskNumber, condition });
-  }, [taskNumber, condition, track]);
 
   /**
    * Auto-show tutorial on mount
@@ -236,7 +244,7 @@ export function useTutorial(taskNumber, condition) {
     // Manual controls
     showScreenTutorial,
     showTaskTutorial,
-    resetTutorials,
+    resetTutorials: resetAllTutorials,
     
     // State
     tutorialState,

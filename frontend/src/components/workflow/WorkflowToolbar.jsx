@@ -1,4 +1,4 @@
-// frontend/src/components/WorkflowToolbar.jsx
+// frontend/src/components/workflow/WorkflowToolbar.jsx
 import React, { memo } from 'react';
 import { Play as PlayIcon, Save as SaveIcon, RotateCcw as RotateIcon, Settings as SettingsIcon } from 'lucide-react';
 import { ICONS } from '../../constants/icons';
@@ -58,7 +58,7 @@ const WorkflowToolbar = memo(({
         return t('workflow.builder.statusDetails.createPath');
       }
       if (workflowValidation.details.includes('nodes connected properly')) {
-        const nodeCount = workflowValidation.details.match(/\d+/)?.[0] || nodes.length;
+        const nodeCount = workflowValidation.details.match(/\d+/)?.[0] || '0';
         return t('workflow.builder.statusDetails.nodesConnected', { count: nodeCount });
       }
       return workflowValidation.details;
@@ -68,16 +68,11 @@ const WorkflowToolbar = memo(({
   };
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-            {t('workflow.builder.title')}
-          </h1>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            {nodes.length} nodes, {edges.length} connections
-          </span>
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
+    <div className="absolute top-0 left-0 right-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3">
+        {/* Status Indicator */}
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
             workflowValidation.isValid 
               ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700' 
               : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-700'
@@ -93,7 +88,7 @@ const WorkflowToolbar = memo(({
         <div className="flex items-center gap-2">
           <button 
             onClick={onSave}
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="save-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title={t('workflow.builder.toolbar.save')}
           >
             <SaveIcon size={16} />
@@ -101,14 +96,14 @@ const WorkflowToolbar = memo(({
           </button>
           <button 
             onClick={onClear}
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="clear-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title={t('workflow.builder.toolbar.clear')}
           >
             <RotateIcon size={16} />
             {t('workflow.builder.toolbar.clear')}
           </button>              
           <button 
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="settings-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title={t('workflow.builder.toolbar.settings')}
           >
             <SettingsIcon size={16} />
@@ -117,7 +112,7 @@ const WorkflowToolbar = memo(({
           <button
             onClick={onExecute}                
             disabled={!workflowValidation.isValid}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            className={`execute-button flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
               workflowValidation.isValid 
                 ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600' 
                 : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed'

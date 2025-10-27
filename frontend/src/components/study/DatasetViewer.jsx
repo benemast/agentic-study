@@ -2,11 +2,11 @@
 /**
  * Dataset Viewer - VIRTUAL SCROLLING VERSION (Carefully Optimized)
  * 
- * Optimizations:
- * ✅ Virtual Scrolling (react-window) - Renders only visible items
- * ✅ Debounced Inputs - No lag during typing
- * ✅ Better Memoization - Faster filtering/sorting
- * ✅ useTransition - Non-blocking UI updates
+ * Features:
+ * Virtual Scrolling (react-window) - Renders only visible items
+ * Debounced Inputs - No lag during typing
+ * Memoization - Faster filtering/sorting
+ * useTransition - Non-blocking UI updates
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, useTransition } from 'react';
@@ -49,18 +49,18 @@ const useDebounce = (value, delay) => {
 // COLUMN DEFINITIONS
 // ============================================================
 const COLUMN_CONFIG = [
-  { id: 'row_number', label: '#', defaultVisible: true, sortable: false },
-  { id: 'review_id', label: 'Review ID', defaultVisible: true, sortable: true },
-  { id: 'customer_id', label: 'Customer ID', defaultVisible: true, sortable: true },
-  { id: 'product_id', label: 'Product ID', defaultVisible: true, sortable: true },
-  { id: 'product_title', label: 'Product', defaultVisible: true, sortable: true },
-  { id: 'product_category', label: 'Category', defaultVisible: false, sortable: true },
-  { id: 'star_rating', label: 'Rating', defaultVisible: true, sortable: true },
-  { id: 'review_headline', label: 'Headline', defaultVisible: true, sortable: true },
-  { id: 'review_body', label: 'Review', defaultVisible: true, sortable: true },
-  { id: 'helpful_votes', label: 'Helpful', defaultVisible: true, sortable: true },
-  { id: 'total_votes', label: 'Total Votes', defaultVisible: false, sortable: true },
-  { id: 'verified_purchase', label: 'Verified', defaultVisible: true, sortable: true }
+  { id: 'row_number', label: '#', width: 'w-16', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
+  { id: 'review_id', label: 'Review ID', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'customer_id', label: 'Customer ID', width: 'w-28', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'product_id', label: 'Product ID', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'product_title', label: 'Product', width: 'w-48', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'product_category', label: 'Category', width: 'w-28', defaultVisible: false, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'star_rating', label: 'Rating', width: 'w-20', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
+  { id: 'review_headline', label: 'Headline', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'review_body', label: 'Review', width: '', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
+  { id: 'helpful_votes', label: 'Helpful', width: 'w-24', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
+  { id: 'total_votes', label: 'Total Votes', width: 'w-24', defaultVisible: false, sortable: true, filterable: true, dataType: 'int64' },
+  { id: 'verified_purchase', label: 'Verified', width: 'w-20', defaultVisible: true, sortable: true, filterable: true, dataType: 'boolean' }
 ];
 
 // ============================================================
@@ -507,7 +507,10 @@ const DatasetViewer = ({
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               {/* View Mode Toggle */}
-              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <div 
+                data-tour="view-mode-toggle"
+                className="view-mode-buttons flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1"
+              >
                 <button
                   onClick={() => setViewMode('cards')}
                   className={`px-3 py-1 rounded transition-colors ${
@@ -560,7 +563,8 @@ const DatasetViewer = ({
               {!isModal && (
                 <button
                   onClick={() => setIsModalOpen(true)}
-                  className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg"
+                  data-tour="pop-out-dataviewer-button"
+                  className="pop-out-dataviewer-button p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -571,7 +575,10 @@ const DatasetViewer = ({
           </div>
 
           {/* Filter Buttons */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div 
+            data-tour="filter-buttons"
+            className="filter-buttons flex flex-wrap items-center gap-2"
+          >
             <button
               onClick={() => handleFilterChange('all')}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -877,4 +884,5 @@ const DatasetViewer = ({
   );
 };
 
+export {COLUMN_CONFIG, DatasetViewer}
 export default DatasetViewer;

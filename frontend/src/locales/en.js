@@ -397,6 +397,10 @@ export const en = {
         title: '🔍 Filter Reviews',
         description: 'Filter reviews by sentiment: All, Positive (4-5 stars), Neutral (3 stars), or Negative (1-2 stars).',
       },
+      popOutViwer:{
+        title: '🔲 Pop-Out Viewer',
+        description: 'Click this button to open the dataset viewer in a larger modal window. Perfect for when you need to focus on the data or view it in more detail!',
+      },
       resizePanels: {
         title: '↔️ Resize Panels',
         description: 'Drag this handle left or right to adjust the panel sizes. Make the data viewer larger or give more space to your work area!',

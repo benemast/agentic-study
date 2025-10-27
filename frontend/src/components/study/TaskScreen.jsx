@@ -26,6 +26,7 @@ import { useReviewData } from '../../hooks/useReviewData';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useTheme } from '../../hooks/useTheme';
 import { useTutorial } from '../../hooks/useTutorial';
+import { useJoyridePositionFix } from '../../hooks/useJoyridePositionFix';
 
 // ============================================================
 // JOYRIDE STYLES
@@ -44,12 +45,13 @@ const getJoyrideStyles = (isDarkMode) => ({
     spotlightShadow: isDarkMode 
       ? '0 0 20px rgba(0, 0, 0, 0.8)' 
       : '0 0 20px rgba(0, 0, 0, 0.5)',
-    zIndex: 10000,
+    zIndex: 10002,
   },
   tooltip: {
     borderRadius: 12,
     fontSize: 15,
     padding: 20,
+    zIndex: 10003,
   },
   tooltipContainer: {
     textAlign: 'left',
@@ -82,23 +84,16 @@ const getJoyrideStyles = (isDarkMode) => ({
   },
   overlay: {
     backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.5)',
-    zIndex: 9999,
+    zIndex: 10000,
+    mixBlendMode: 'normal',
   },
   spotlight: {
     backgroundColor: 'transparent',
     border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
     borderRadius: 4,
-     zIndex: 9998,
+    zIndex: 10001,
   },
 });
-
-const joyrideLocale = {
-  back: '← Previous',
-  close: 'Close',
-  last: 'Got it! ✓',
-  next: 'Next →',
-  skip: 'Skip tutorial',
-};
 
 // ============================================================
 // RESIZABLE SPLIT PANEL COMPONENT
@@ -143,7 +138,10 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
     <div 
       ref={containerRef} 
       className="flex h-full relative"
-      style={{ userSelect: isDragging ? 'none' : 'auto' }}
+      style={{ 
+        userSelect: isDragging ? 'none' : 'auto',
+        overflow: 'visible'
+      }}
     >
       {/* Left Panel */}
       <div 
@@ -155,6 +153,7 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
 
       {/* Resize Handle */}
       <div
+        data-tour="resize-handle"
         className={`resize-handle w-1 bg-gray-300 dark:bg-gray-600 hover:bg-blue-500 dark:hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors ${
           isDragging ? 'bg-blue-500 dark:bg-blue-400' : ''
         }`}
@@ -193,7 +192,7 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
-        title={isCollapsed ? t('task.description.expand') : t('task.description.collapse') }
+        title={isCollapsed ? t('task.description.expand') : t('task.description.collapse')}
       >
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {t('task.description.title', 'Task Description')}
@@ -323,16 +322,18 @@ const TutorialButtons = ({ onScreenTutorial, onTaskTutorial, taskNumber }) => {
 const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   const { track } = useTracking();
   const { t } = useTranslation();
-  const { theme, toggleTheme, setTheme } = useTheme();
+  const { theme } = useTheme();
 
   const isDarkMode = theme === 'dark';
-  
-  
 
-  // Get theme-aware Joyride styles
+  // ============================================================
+  // JOYRIDE SETUP
+  // ============================================================
+  
+  // Theme-aware Joyride styles
   const joyrideStyles = useMemo(() => getJoyrideStyles(isDarkMode), [isDarkMode]);
   
-  // ✅ NEW: Internationalized Joyride locale
+  // Internationalized Joyride locale
   const joyrideLocale = useMemo(() => ({
     back: t('tutorial.locale.back', '← Previous'),
     close: t('tutorial.locale.close', 'Close'),
@@ -345,12 +346,35 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   const {
     run,
     steps,
-    handleJoyrideCallback,
+    handleJoyrideCallback: originalCallback,
     showScreenTutorial,
     showTaskTutorial,
   } = useTutorial(taskNumber, taskConfig.condition);
-  
-  // Stabilize options object to prevent re-triggers (React best practice)
+
+  // ✅ CUSTOM POSITIONING HOOK - Bypasses Popper.js
+  useJoyridePositionFix(run, steps);
+
+  // ✅ ENHANCED CALLBACK - Tracks step changes for position fix
+  const handleJoyrideCallback = useCallback((data) => {
+    // Update floater's data attribute for step tracking
+    if (data.type === 'step:after') {
+      requestAnimationFrame(() => {
+        const floater = document.querySelector('.__floater');
+        if (floater) {
+          floater.setAttribute('data-step-index', data.index);
+        }
+      });
+    }
+
+    // Call the original callback
+    originalCallback(data);
+  }, [originalCallback]);
+
+
+  // ============================================================
+  // REVIEW DATA
+  // ============================================================
+
   const reviewOptions = useMemo(() => ({
     excludeMalformed: false,
     limit: 2000
@@ -368,6 +392,10 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
     taskNumber,
     options: reviewOptions
   });
+
+  // ============================================================
+  // STATE
+  // ============================================================
 
   const [showCompletionPrompt, setShowCompletionPrompt] = useState(false);
   const [taskStartTime] = useState(Date.now());
@@ -407,27 +435,85 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   }, [taskNumber, taskConfig.condition, track]);
 
   // ============================================================
+  // DEBUG LOGGING (DEV ONLY)
+  // ============================================================
+  
+  useEffect(() => {
+    if (import.meta.env.DEV && run) {
+      console.log('Tutorial started with steps:', steps.length);
+      steps.forEach((step, index) => {
+        if (step.target !== 'body') {
+          const element = document.querySelector(step.target);
+          if (element) {
+            const rect = element.getBoundingClientRect();
+            console.log(`Step ${index} target "${step.target}":`, {
+              found: true,
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height,
+              visible: rect.width > 0 && rect.height > 0
+            });
+          } else {
+            console.warn(`Step ${index} target "${step.target}": NOT FOUND`);
+          }
+        }
+      });
+    }
+  }, [run, steps]);
+
+  useEffect(() => {
+    if (run) {
+      // Prevent body scroll
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+      
+      return () => {
+        // Restore scroll
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+      };
+    }
+  }, [run]);
+
+  // ============================================================
   // RENDER
   // ============================================================
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
-      {/* Joyride Tutorial */}
+     <div 
+        className="task-screen-container h-screen flex flex-col bg-gray-50 dark:bg-gray-900" 
+        style={{ 
+          overflow: 'hidden',
+          position: 'relative'
+        }}
+      >
+      {/* Joyride Tutorial with Custom Positioning */}
       <JoyridePortal
         steps={steps}
         run={run}
         continuous
-        scrollToFirstStep
+        scrollToFirstStep={false}
         showProgress
         showSkipButton
-        disableScrolling
+        disableScrolling={true}
+        spotlightClicks={false}
+        disableOverlay={false}
         callback={handleJoyrideCallback}
         styles={joyrideStyles}
         locale={joyrideLocale}
         floaterProps={{
-          disableAnimation: false,
+          disableAnimation: true,
+          hideArrow: false,
+          offset: 10,
           styles: {
             floater: {
               filter: 'none',
+              zIndex: 10003,
+            },
+            arrow: {
+              length: 8,
+              spread: 16,
             },
           },
         }}

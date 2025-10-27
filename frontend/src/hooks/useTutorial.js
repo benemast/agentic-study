@@ -11,7 +11,7 @@
  * - DOM ready check before starting
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTracking } from './useTracking';
 import { useSessionStore } from '../store/sessionStore';
 import { useTranslation } from './useTranslation'; 
@@ -25,47 +25,69 @@ import { getTutorialSteps, getScreenSteps, getTaskSteps } from '../config/tutori
  * Check if all tutorial targets exist in DOM
  */
 function checkTargetsExist(steps) {
-  const missingTargets = [];
+  const missing = [];
   
   steps.forEach(step => {
-    // Skip 'body' target - always exists
     if (step.target === 'body') return;
     
-    // Check if target exists
     const element = document.querySelector(step.target);
     if (!element) {
-      missingTargets.push(step.target);
+      missing.push(step.target);
     }
   });
   
-  if (missingTargets.length > 0) {
-    console.warn('Tutorial targets not mounted:', missingTargets);
-    return false;
-  }
-  
-  return true;
+  return {
+    allFound: missing.length === 0,
+    missing
+  };
 }
 
 /**
  * Wait for targets to be mounted in DOM
  * Returns true if all targets exist, false if timeout
  */
-async function waitForTargets(steps, maxWaitMs = 3000) {
-  const checkInterval = 100;
+async function waitForTargets(steps, maxWaitMs = 3000) { // ✅ Increased to 5 seconds
+  const checkInterval = 100; // ✅ Increased to 200ms
   const maxAttempts = maxWaitMs / checkInterval;
   let attempts = 0;
   
   while (attempts < maxAttempts) {
-    if (checkTargetsExist(steps)) {
+    const missingTargets = [];
+    
+    for (const step of steps) {
+      // Skip 'body' target - always exists
+      if (step.target === 'body') continue;
+      
+      // Check if target exists
+      const element = document.querySelector(step.target);
+      if (!element) {
+        missingTargets.push(step.target);
+      }
+    }
+    
+    if (missingTargets.length === 0) {
       console.log(`✅ All tutorial targets mounted after ${attempts * checkInterval}ms`);
       return true;
+    }
+    
+    // Log progress every second
+    if (attempts % 5 === 0 && attempts > 0) {
+      console.log(`⏳ Waiting for targets (${attempts * checkInterval}ms):`, missingTargets);
     }
     
     await new Promise(resolve => setTimeout(resolve, checkInterval));
     attempts++;
   }
   
-  console.error(`❌ Tutorial targets not mounted after ${maxWaitMs}ms timeout`);
+  // Final check - log which targets are still missing
+  const stillMissing = [];
+  steps.forEach(step => {
+    if (step.target !== 'body' && !document.querySelector(step.target)) {
+      stillMissing.push(step.target);
+    }
+  });
+  
+  console.error(`❌ Timeout waiting for targets after ${maxWaitMs}ms:`, stillMissing);
   return false;
 }
 
@@ -92,49 +114,75 @@ export function useTutorial(taskNumber, condition) {
   /**
    * Start a tutorial
    */
-  const startTutorial = useCallback(async (type, customSteps = null) => {
-    let tutorialSteps;
-    
-    if (customSteps) {
-      tutorialSteps = customSteps;
-    } else if (type === 'full') {
-      tutorialSteps = getTutorialSteps(taskNumber, condition, t);
-    } else if (type === 'screen') {
-      tutorialSteps = getScreenSteps(t);
-    } else if (type === 'task') {
-      tutorialSteps = getTaskSteps(condition, t);
-    } else {
-      console.error('Invalid tutorial type:', type);
-      return;
+  const startTutorial = useCallback(async (type) => {
+    // Prevent starting if already running
+    if (run) {
+      console.warn('Tutorial already running, ignoring start request');
+    return;
     }
-
-    console.log(`🎓 Starting ${type} tutorial for Task ${taskNumber} (${condition})...`);
-
-    // Wait for targets to be available in DOM
-    const targetsReady = await waitForTargets(tutorialSteps);
+    
+    // Get steps based on type
+    let tutorialSteps = type === 'full'
+        ? getTutorialSteps(taskNumber, condition, t)
+        : type === 'screen'
+        ? getScreenSteps(t)
+        : getTaskSteps(condition, t);
+    
+    // Filter out steps with missing targets
+    const availableSteps = tutorialSteps.filter(step => {
+        if (step.target === 'body') return true;
+        const exists = document.querySelector(step.target) !== null;
+        if (!exists) {
+          console.warn(`⚠️ Skipping tutorial step - target not found: ${step.target}`);
+        }
+        return exists;
+    });
+  
+    if (availableSteps.length === 0) {
+        console.error('❌ No tutorial targets available');
+        track('TUTORIAL_FAILED_TO_START', {
+            taskNumber,
+            tutorialType: type,
+            condition,
+            reason: 'no_targets_available'
+        });
+        return;
+    }
+  
+    // Check if remaining targets exist
+    const targetsReady = await waitForTargets(availableSteps);
     
     if (!targetsReady) {
-      console.error('❌ Tutorial cancelled - targets not available');
-      track('TUTORIAL_FAILED_TO_START', {
-        taskNumber,
-        tutorialType: type,
-        condition,
-        reason: 'targets_not_mounted'
-      });
-      return;
+        console.error('❌ Tutorial cancelled - targets not available');
+        track('TUTORIAL_FAILED_TO_START', {
+            taskNumber,
+            tutorialType: type,
+            condition,
+            reason: 'targets_not_mounted'
+        });
+        return;
     }
-
+    
     setSteps(tutorialSteps);
     setTutorialType(type);
     setRun(true);
-
+    
     track('TUTORIAL_STARTED', {
-      taskNumber,
-      tutorialType: type,
-      condition,
-      stepCount: tutorialSteps.length
+        taskNumber,
+        tutorialType: type,
+        condition,
+        stepCount: tutorialSteps.length
     });
-  }, [taskNumber, condition, t, track]);
+    }, []);
+
+    // Then wrap in useMemo for step generation
+    const currentSteps = useMemo(() => {
+    return tutorialType === 'full'
+        ? getTutorialSteps(taskNumber, condition, t)
+        : tutorialType === 'screen'
+        ? getScreenSteps(t)
+        : getTaskSteps(condition, t);
+    }, [tutorialType, taskNumber, condition, t]);
 
   /**
    * Handle Joyride callbacks
@@ -213,25 +261,37 @@ export function useTutorial(taskNumber, condition) {
    * Auto-show tutorial on mount
    */
   useEffect(() => {
-    // Prevent running multiple times
+    // Only run once per mount
     if (autoShowTriggeredRef.current || run) return;
+    
+    const shouldShow = taskNumber === 1
+        ? (!tutorialState.screenTutorialShown && !tutorialState.task1TutorialShown)
+        : (taskNumber === 2 && !tutorialState.task2TutorialShown);
+    
+    if (!shouldShow) return;
+    
+    autoShowTriggeredRef.current = true;
+    
+    // Use requestAnimationFrame for better timing
+    requestAnimationFrame(() => {
+        const tutorialType = taskNumber === 1 ? 'full' : 'task';
+        startTutorial(tutorialType);
+    });
+    }, [taskNumber]);
 
-    if (taskNumber === 1) {
-      // Task 1: Show full tutorial if not shown
-      if (!tutorialState.screenTutorialShown && !tutorialState.task1TutorialShown) {
-        autoShowTriggeredRef.current = true;
-        // Small delay to ensure DOM is ready
-        setTimeout(() => startTutorial('full'), 500);
-      }
-    } else if (taskNumber === 2) {
-      // Task 2: Show task-only tutorial if not shown
-      if (!tutorialState.task2TutorialShown) {
-        autoShowTriggeredRef.current = true;
-        // Small delay to ensure DOM is ready
-        setTimeout(() => startTutorial('task'), 500);
-      }
-    }
-  }, [taskNumber, tutorialState.screenTutorialShown, tutorialState.task1TutorialShown, tutorialState.task2TutorialShown, run, startTutorial]);
+  useEffect(() => {
+    // Cleanup tutorial on unmount
+    return () => {
+        if (run) {
+        setRun(false);
+        track('TUTORIAL_INTERRUPTED', {
+            taskNumber,
+            tutorialType,
+            reason: 'component_unmount'
+        });
+        }
+    };
+    }, [run, taskNumber, tutorialType, track]);
 
   return {
     // Joyride props

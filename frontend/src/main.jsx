@@ -11,6 +11,9 @@ import * as Sentry from '@sentry/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+// Styles
+import './styles/joyride-fix.css';
 import './index.css';
 
 // Import both apps

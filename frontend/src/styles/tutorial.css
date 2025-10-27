@@ -1,0 +1,21 @@
+/* Minimal tutorial styles - let Joyride handle positioning */
+
+/* Just customize appearance, not position */
+.__floater {
+  max-width: 420px !important;
+}
+
+/* Tooltip styling */
+.__floater__body {
+  padding: 24px !important;
+}
+
+/* Button styling */
+.react-joyride__tooltip button {
+  padding: 8px 16px !important;
+}
+
+/* Spotlight */
+.react-joyride__spotlight {
+  border-radius: 4px !important;
+}

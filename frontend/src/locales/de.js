@@ -398,6 +398,10 @@ export const de = {
         title: '🔍 Bewertungen filtern',
         description: 'Filtern Sie Bewertungen nach Stimmung: Alle, Positiv (4-5 Sterne), Neutral (3 Sterne) oder Negativ (1-2 Sterne).',
       },
+      popOutViwer:{
+        title: '🔲 Viewer ausklappen',
+        description: 'Klicken Sie auf diese Schaltfläche, um den Datensatz-Viewer in einem größeren Modal-Fenster zu öffnen. Perfekt, wenn Sie sich auf die Daten konzentrieren oder diese detaillierter betrachten möchten!',
+      },
       resizePanels: {
         title: '↔️ Panels anpassen',
         description: 'Ziehen Sie diesen Griff nach links oder rechts, um die Panel-Größen anzupassen. Vergrößern Sie den Daten-Viewer oder geben Sie mehr Platz für Ihren Arbeitsbereich!',

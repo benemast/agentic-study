@@ -7,7 +7,7 @@
  */
 
 // ============================================================
-// SCREEN-LEVEL TUTORIAL (Task 1 only)
+// SCREEN-LEVEL TUTORIAL
 // ============================================================
 const getScreenStepsContent = (t) => [
   {
@@ -42,7 +42,7 @@ const getScreenStepsContent = (t) => [
     placement: 'top',
   },
   {
-    target: '.view-mode-buttons',
+    target: '[data-tour="view-mode-toggle"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.viewModes.title')}</h3>
@@ -52,11 +52,20 @@ const getScreenStepsContent = (t) => [
     placement: 'bottom',
   },
   {
-    target: '.filter-buttons',
+    target: '[data-tour="filter-buttons"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.filterReviews.title')}</h3>
         <p>{t('tutorial.screen.filterReviews.description')}</p>
+      </div>
+    ),
+    placement: 'bottom',
+  },{
+    target: '[data-tour="pop-out-dataviewer-button"]',
+    content: (
+      <div>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.popOutViwer.title')}</h3>
+        <p>{t('tutorial.screen.popOutViwer.description')}</p>
       </div>
     ),
     placement: 'bottom',
@@ -131,7 +140,7 @@ const getWorkflowBuilderStepsContent = (t) => [
     spotlightClicks: true,
   },
   {
-    target: '.execute-button',
+    target: '[data-tour="execute-workflow-button"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.executeWorkflow.title')}</h3>

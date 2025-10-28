@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, List, Set
 from datetime import datetime
 import logging
 
-from app.config import settings
+from app.configs.config import settings
 
 logger = logging.getLogger(__name__)
 

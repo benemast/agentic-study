@@ -8,7 +8,7 @@ from contextlib import contextmanager
 import logging
 import asyncio
 
-from app.config import settings
+from app.configs.config import settings
 from app.models.execution import ExecutionCheckpoint, ExecutionLog
 from .checkpoint_buffer import checkpoint_buffer
 from .redis_hash_manager import redis_hash_state 

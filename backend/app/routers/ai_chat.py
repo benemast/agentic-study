@@ -11,7 +11,7 @@ import asyncio
 import httpx
 
 from app.database import get_db
-from app.config import settings
+from app.configs.config import settings
 from app.models.session import Session as SessionModel
 from app.models.ai_chat import ChatMessage, ChatConversation
 from app.schemas.ai_chat import (

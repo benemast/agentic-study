@@ -1,4 +1,4 @@
-# backend/app/config.py
+# backend/app/configs/config.py
 """
 Centralized configuration with validation
 """
@@ -12,7 +12,7 @@ import os
 class Settings(BaseSettings):
     """Application settings with validation"""
     
-    _base_dir = Path(__file__).resolve().parent.parent
+    _base_dir = Path(__file__).resolve().parent.parent.parent
     _api_keys: dict = PrivateAttr(default_factory=dict)
     
     # ============================================================
@@ -174,7 +174,29 @@ class Settings(BaseSettings):
         ge=0.0, # greater than or equal
         le=1.0  # less than or equal
     )
-        
+
+    # LangSmith
+    langsmith_enabled: bool = Field(
+        default=True,
+        description="Global setting"
+    )
+    langsmith_tracing: bool = Field(
+        default=True,
+        description="Enables tracing via LangSmith"
+    )
+    langsmith_endpoint: str = Field(
+        default=None,
+        description="LangSmith API endpoint"
+    )
+    langsmith_api_key: Optional[str] = Field(
+        default="https://eu.api.smith.langchain.com",
+        description="API key used with LangSmith"
+    )
+    langsmith_project: str = Field(
+        default="agentic-study",
+        description="Project name for organizing traces"    
+    )
+
     # Redis (optional)
     redis_enabled: bool = Field(
         default=True,

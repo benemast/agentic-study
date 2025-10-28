@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from contextlib import contextmanager, asynccontextmanager
 import logging
 
-from app.config import settings
-from app.logging_config import setup_slow_query_logging 
+from app.configs.config import settings
+from app.configs.logging_config import setup_slow_query_logging 
 
 # Configure logging
 logger = logging.getLogger(__name__)

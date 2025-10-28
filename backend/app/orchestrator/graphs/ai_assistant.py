@@ -11,7 +11,7 @@ from datetime import datetime
 from .shared_state import SharedWorkflowState, AgentDecision
 from ..tools.registry import tool_registry
 from ..llm.decision_maker import decision_maker
-from app.config import settings
+from app.configs.config import settings
 from app.database import get_db_context
 
 logger = logging.getLogger(__name__)

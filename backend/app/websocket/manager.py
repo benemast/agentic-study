@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from collections import defaultdict
 
-from app.config import settings
+from app.configs import settings
 from .batch_manager import ws_batch_manager, WebSocketBatchManager
 
 logger = logging.getLogger(__name__)

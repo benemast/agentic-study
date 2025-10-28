@@ -1,4 +1,4 @@
-# backend/app/logging_config.py
+# backend/app/configs/logging_config.py
 """
 Comprehensive logging configuration for the application
 

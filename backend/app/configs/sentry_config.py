@@ -1,4 +1,4 @@
-# backend/app/sentry_config.py
+# backend/app/configs/sentry_config.py
 """
 Sentry configuration and initialization
 Centralized error tracking setup with enhanced context
@@ -323,7 +323,7 @@ async def sentry_exception_handler(request: Request, exc: Exception):
     logger.error(traceback.format_exc())
     
     # Check if in debug mode
-    from app.config import settings
+    from app.configs import settings
     
     return JSONResponse(
         status_code=500,

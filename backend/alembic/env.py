@@ -10,7 +10,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import your app's models and config
-from app.config import settings
+from app.configs import settings
 from app.models.session import Base
 from app.models.demographics import Demographics
 from app.models.ai_chat import ChatMessage, ChatConversation, ChatAnalytics

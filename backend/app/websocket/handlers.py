@@ -15,7 +15,7 @@ from app.models.ai_chat import ChatMessage, ChatConversation
 from app.models.reviews import ShoesReview, WirelessReview, get_review_model
 from app.schemas.reviews import batch_to_study_format
 from app.websocket.manager import ws_manager
-from app.config import settings
+from app.configs import settings
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO) 

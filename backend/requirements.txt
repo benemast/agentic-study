@@ -38,6 +38,9 @@ langchain==0.3.9
 langchain-openai==0.2.9
 langchain-core==0.3.21
 
+# LangSmith - for LangGraph debugging and tracing
+langsmith>=0.1.0
+
 # Additional AI/ML tools
 openai==1.55.3
 tenacity==9.0.0

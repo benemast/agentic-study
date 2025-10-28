@@ -180,35 +180,155 @@ class LoadReviewsTool(BaseTool):
 
 class FilterReviewsTool(BaseTool):
     """
-    Filter reviews based on review-specific criteria
+    Dynamic filter tool that can filter on any field with type-appropriate operators
     
-    Filters reviews by:
-    - Star rating range
-    - Helpful votes threshold
-    - Verified purchase status
-    - Text content (contains keywords)
-    - Product ID
+    Supports:
+    - String fields: contains, equals, not_equals, starts_with, ends_with
+    - Numeric fields: ==, !=, >, <, >=, <=
+    - Boolean fields: == True/False
+    
+    Available fields from LoadReviewsTool:
+    - review_id (str)
+    - product_id (str)
+    - product_title (str)
+    - product_category (str)
+    - review_headline (str)
+    - review_body (str)
+    - star_rating (int, 1-5)
+    - verified_purchase (bool)
+    - helpful_votes (int, >=0)
+    - total_votes (int, >=0)
+    - customer_id (int, >0)
     """
+    
+    # Field type definitions for validation and operator selection
+    FIELD_TYPES = {
+        # String fields
+        'review_id': 'string',
+        'product_id': 'string',
+        'product_title': 'string',
+        'product_category': 'string',
+        'review_headline': 'string',
+        'review_body': 'string',
+        # Numeric fields
+        'star_rating': 'numeric',
+        'helpful_votes': 'numeric',
+        'total_votes': 'numeric',
+        'customer_id': 'numeric',
+        # Boolean fields
+        'verified_purchase': 'boolean',
+    }
     
     def __init__(self):
         super().__init__("Filter Reviews")
     
+    def _apply_string_filter(self, value: str, operator: str, target: Any) -> bool:
+        """Apply string comparison operators"""
+        if value is None:
+            return False
+        
+        value_str = str(value).lower()
+        target_str = str(target).lower()
+        
+        if operator == 'contains':
+            return target_str in value_str
+        elif operator == 'equals':
+            return value_str == target_str
+        elif operator == 'not_equals':
+            return value_str != target_str
+        elif operator == 'starts_with':
+            return value_str.startswith(target_str)
+        elif operator == 'ends_with':
+            return value_str.endswith(target_str)
+        else:
+            logger.warning(f"Unknown string operator: {operator}, defaulting to 'contains'")
+            return target_str in value_str
+    
+    def _apply_numeric_filter(self, value: Any, operator: str, target: Any) -> bool:
+        """Apply numeric comparison operators"""
+        try:
+            num_value = float(value) if value is not None else None
+            num_target = float(target)
+            
+            if num_value is None:
+                return False
+            
+            if operator == 'equals' or operator == '==':
+                return num_value == num_target
+            elif operator == 'not_equals' or operator == '!=':
+                return num_value != num_target
+            elif operator == 'greater' or operator == '>':
+                return num_value > num_target
+            elif operator == 'less' or operator == '<':
+                return num_value < num_target
+            elif operator == 'greater_or_equal' or operator == '>=':
+                return num_value >= num_target
+            elif operator == 'less_or_equal' or operator == '<=':
+                return num_value <= num_target
+            else:
+                logger.warning(f"Unknown numeric operator: {operator}, defaulting to '=='")
+                return num_value == num_target
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Error comparing numeric values: {e}")
+            return False
+    
+    def _apply_boolean_filter(self, value: Any, operator: str, target: Any) -> bool:
+        """Apply boolean comparison"""
+        if operator not in ['equals', '==']:
+            logger.warning(f"Boolean fields only support 'equals' operator, got: {operator}")
+        
+        # Convert target to boolean
+        if isinstance(target, str):
+            target_bool = target.lower() in ['true', '1', 'yes']
+        else:
+            target_bool = bool(target)
+        
+        return bool(value) == target_bool
+    
+    def _apply_filter_condition(self, record: Dict[str, Any], field: str, operator: str, value: Any) -> bool:
+        """Apply a single filter condition to a record"""
+        if field not in self.FIELD_TYPES:
+            logger.warning(f"Unknown field: {field}. Skipping filter.")
+            return True  # Don't filter out if field unknown
+        
+        field_type = self.FIELD_TYPES[field]
+        record_value = record.get(field)
+        
+        if field_type == 'string':
+            return self._apply_string_filter(record_value, operator, value)
+        elif field_type == 'numeric':
+            return self._apply_numeric_filter(record_value, operator, value)
+        elif field_type == 'boolean':
+            return self._apply_boolean_filter(record_value, operator, value)
+        
+        return True
+    
     async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Filter reviews based on criteria
+        Filter reviews dynamically based on field type
         
         Args:
             input_data: {
                 'data': {
                     'records': List[Dict] - Reviews from LoadReviewsTool
                 },
-                'min_rating': int (1-5, optional),
-                'max_rating': int (1-5, optional),
-                'min_helpful_votes': int (optional),
-                'verified_only': bool (optional),
-                'contains_text': str (optional) - filter reviews containing this text,
-                'product_id': str (optional) - filter by specific product
+                'filters': List[Dict] - List of filter conditions, each with:
+                    - 'field': str - Field name to filter on
+                    - 'operator': str - Comparison operator (type-dependent)
+                    - 'value': Any - Value to compare against
             }
+            
+            OR (backward compatible - single filter):
+                'field': str,
+                'operator': str,
+                'value': Any
+            
+        Example filters:
+            [
+                {'field': 'star_rating', 'operator': '>=', 'value': 4},
+                {'field': 'product_title', 'operator': 'contains', 'value': 'wireless'},
+                {'field': 'verified_purchase', 'operator': 'equals', 'value': True}
+            ]
             
         Returns:
             Dictionary with filtered reviews
@@ -226,74 +346,54 @@ class FilterReviewsTool(BaseTool):
                     'data': None
                 }
             
-            # Extract filter criteria
-            min_rating = input_data.get('min_rating')
-            max_rating = input_data.get('max_rating')
-            min_helpful_votes = input_data.get('min_helpful_votes')
-            verified_only = input_data.get('verified_only')
-            contains_text = input_data.get('contains_text')
-            product_id = input_data.get('product_id')
+            # Parse filter conditions
+            filters = []
             
-            logger.info(f"Filtering {len(records)} reviews with criteria")
+            # Check if using new format (list of filters)
+            if 'filters' in input_data and isinstance(input_data['filters'], list):
+                filters = input_data['filters']
+            # Backward compatibility: single filter
+            elif 'field' in input_data and 'operator' in input_data and 'value' in input_data:
+                filters = [{
+                    'field': input_data['field'],
+                    'operator': input_data['operator'],
+                    'value': input_data['value']
+                }]
+            else:
+                return {
+                    'success': False,
+                    'error': 'No filter conditions provided. Use "filters" array or single "field", "operator", "value"',
+                    'data': None
+                }
             
-            # Apply filters
+            if not filters:
+                return {
+                    'success': False,
+                    'error': 'Filter list is empty',
+                    'data': None
+                }
+            
+            logger.info(f"Filtering {len(records)} reviews with {len(filters)} condition(s)")
+            
+            # Apply all filter conditions (AND logic)
             filtered_records = records
-            
-            # Filter by star rating
-            if min_rating is not None:
+            for filter_condition in filters:
+                field = filter_condition.get('field')
+                operator = filter_condition.get('operator')
+                value = filter_condition.get('value')
+                
+                if not all([field, operator, value is not None]):
+                    logger.warning(f"Incomplete filter condition: {filter_condition}")
+                    continue
+                
                 filtered_records = [
-                    r for r in filtered_records 
-                    if r.get('star_rating', 0) >= min_rating
+                    record for record in filtered_records
+                    if self._apply_filter_condition(record, field, operator, value)
                 ]
-            
-            if max_rating is not None:
-                filtered_records = [
-                    r for r in filtered_records 
-                    if r.get('star_rating', 5) <= max_rating
-                ]
-            
-            # Filter by helpful votes
-            if min_helpful_votes is not None:
-                filtered_records = [
-                    r for r in filtered_records 
-                    if r.get('helpful_votes', 0) >= min_helpful_votes
-                ]
-            
-            # Filter by verified purchase
-            if verified_only:
-                filtered_records = [
-                    r for r in filtered_records 
-                    if r.get('verified_purchase', False)
-                ]
-            
-            # Filter by text content
-            if contains_text:
-                search_text = contains_text.lower()
-                filtered_records = [
-                    r for r in filtered_records 
-                    if search_text in r.get('review_body', '').lower() 
-                    or search_text in r.get('review_headline', '').lower()
-                ]
-            
-            # Filter by product ID
-            if product_id:
-                filtered_records = [
-                    r for r in filtered_records 
-                    if r.get('product_id') == product_id
-                ]
+                
+                logger.debug(f"After filtering by {field} {operator} {value}: {len(filtered_records)} records remain")
             
             execution_time = int((time.time() - start_time) * 1000)
-            
-            filters_applied = {
-                'min_rating': min_rating,
-                'max_rating': max_rating,
-                'min_helpful_votes': min_helpful_votes,
-                'verified_only': verified_only,
-                'contains_text': contains_text,
-                'product_id': product_id
-            }
-            # Remove None values
-            filters_applied = {k: v for k, v in filters_applied.items() if v is not None}
             
             logger.info(
                 f"Filtered {len(records)} → {len(filtered_records)} reviews "
@@ -307,13 +407,14 @@ class FilterReviewsTool(BaseTool):
                     'records': filtered_records,
                     'original_count': len(records),
                     'filtered_count': len(filtered_records),
-                    'filters_applied': filters_applied
+                    'filters_applied': filters
                 },
                 'execution_time_ms': execution_time,
                 'metadata': {
                     'tool': self.name,
                     'records_removed': len(records) - len(filtered_records),
-                    'records_remaining': len(filtered_records)
+                    'records_remaining': len(filtered_records),
+                    'available_fields': list(self.FIELD_TYPES.keys())
                 }
             }
             

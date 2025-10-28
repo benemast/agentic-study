@@ -31,12 +31,20 @@ class DecisionMaker:
     - Fallback strategies
     """
     
-    def __init__(self, confidence_threshold: float = 0.6):
+    def __init__(self, confidence_threshold: float = 0.6, enable_streaming: bool = True):
 
         from ..tools.registry import tool_registry
         self.confidence_threshold = confidence_threshold
         self.validator = tool_validator
         self.registry = tool_registry
+        self.enable_streaming = enable_streaming
+        
+        # For WebSocket updates during streaming
+        self.websocket_manager = None
+    
+    def set_websocket_manager(self, ws_manager):
+        """Set WebSocket manager for real-time updates"""
+        self.websocket_manager = ws_manager
     
     async def get_next_decision(
         self,
@@ -65,11 +73,36 @@ class DecisionMaker:
         system_prompt = self._build_system_prompt(state)
         
         try:
+            # Create streaming callback if enabled
+            on_chunk = None
+            if self.enable_streaming and self.websocket_manager:
+                session_id = state.get('session_id')
+                execution_id = state.get('execution_id')
+                
+                async def stream_thinking(chunk: str):
+                    """Send thinking chunks to frontend"""
+                    try:
+                        await self.websocket_manager.send_to_session(
+                            session_id,
+                            {
+                                'type': 'agent_thinking',
+                                'execution_id': execution_id,
+                                'chunk': chunk,
+                                'timestamp': datetime.utcnow().isoformat()
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send thinking chunk: {e}")
+                
+                on_chunk = stream_thinking
+            
             # Get decision from LLM
             response = await llm_client.get_structured_decision(
                 prompt=prompt,
                 system_prompt=system_prompt,
-                expected_fields=['action', 'reasoning', 'tool_name', 'confidence']
+                expected_fields=['action', 'reasoning', 'tool_name', 'confidence'],
+                stream=self.enable_streaming,
+                on_chunk=on_chunk
             )
             
             # Parse and validate decision
@@ -110,8 +143,8 @@ Currently Available Tools:
 
 Decision format (JSON):
 {{
-  "action": "gather|filter|clean|sort|combine|analyze|generate|output|finish",
-  "tool_name": "specific_tool_id (e.g., gather_data, sentiment_analysis)",
+  "action": "load|filter|clean|sort|combine|analyze|generate|output|finish",
+  "tool_name": "specific_tool_id (e.g., load_reviews, sentiment_analysis)",
   "reasoning": "Clear explanation of why this is the right next step",
   "tool_params": {{}},
   "confidence": 0.0-1.0,
@@ -126,91 +159,54 @@ Guidelines:
 5. Output results when task is complete
 6. Be efficient - don't repeat unnecessary steps
 7. Always explain your reasoning clearly
-8. Only use tools that are currently available (listed above)"""
+8. Use actual tool IDs from the available tools list above"""
     
     def _build_decision_prompt(
         self,
-        task: str,
+        task_description: str,
         state: Dict[str, Any],
         memory: List[Dict[str, Any]]
     ) -> str:
-        """Build detailed decision prompt with context"""
+        """Build detailed prompt for decision making"""
         
-        # Analyze current state
+        # Current state summary
         working_data = state.get('working_data', {})
         records = working_data.get('records', [])
         step_number = state.get('step_number', 0)
-        errors = state.get('errors', [])
         
-        # Build state summary
-        state_summary = self._summarize_state(working_data)
-        
-        # Build action history
-        action_history = self._summarize_history(memory)
-        
-        # Check for recent errors
-        error_context = ""
-        if errors:
-            recent_errors = errors[-2:]
-            error_context = f"\n⚠️ Recent errors: {[e.get('error', 'unknown') for e in recent_errors]}"
-        
-        prompt = f"""Task Goal: {task}
+        state_summary = f"""
+Task: {task_description}
 
-Current State (Step {step_number}):
-{state_summary}{error_context}
+Current State:
+- Step: {step_number}
+- Records available: {len(records)}
+- Has sentiment analysis: {'sentiment' in str(working_data)}
+- Has insights: {'insights' in working_data}
 
-Action History:
-{action_history}
-
-Analysis Required:
-1. What has been accomplished so far?
-2. What is the next logical step toward completing the task?
-3. Which available tool is best suited for this step?
-4. What parameters (if any) should be used?
-5. Are there alternative approaches to consider?
-
-Provide your decision in JSON format with clear reasoning."""
+"""
         
-        return prompt
-    
-    def _summarize_state(self, working_data: Dict[str, Any]) -> str:
-        """Create concise state summary"""
-        records = working_data.get('records', [])
-        
-        summary_lines = [
-            f"- Records: {len(records)} available"
-        ]
-        
-        if records:
-            # Check what's been done to the data
-            sample = records[0] if records else {}
-            
-            if 'sentiment' in sample:
-                summary_lines.append("- Sentiment: ✓ Analyzed")
-            else:
-                summary_lines.append("- Sentiment: ✗ Not analyzed")
-            
-            if 'insights' in working_data:
-                summary_lines.append("- Insights: ✓ Generated")
-            else:
-                summary_lines.append("- Insights: ✗ Not generated")
+        # Memory summary
+        if memory:
+            recent_history = self._format_memory(memory[-5:])  # Last 5 steps
+            state_summary += f"\nRecent History:\n{recent_history}\n"
         else:
-            summary_lines.append("- Status: No data yet - need to gather")
+            state_summary += "\nThis is the first step.\n"
         
-        return "\n".join(summary_lines)
+        # Decision request
+        decision_request = """
+Based on the current state and task goal, what should be the next action?
+
+Respond with a JSON object containing your decision and reasoning.
+"""
+        
+        return state_summary + decision_request
     
-    def _summarize_history(self, memory: List[Dict[str, Any]]) -> str:
-        """Summarize action history"""
-        if not memory:
-            return "None - this is the first step"
-        
-        # Show last 3 actions
-        recent = memory[-3:]
+    def _format_memory(self, memory: List[Dict[str, Any]]) -> str:
+        """Format memory for prompt"""
         history_lines = []
-        
-        for item in recent:
-            decision = item.get('decision', {})
-            step = item.get('step', '?')
+        for mem_entry in memory:
+            step = mem_entry.get('step', '?')
+            decision = mem_entry.get('decision', {})
             action = decision.get('action', 'unknown')
             tool = decision.get('tool_name', 'none')
             
@@ -249,29 +245,16 @@ Provide your decision in JSON format with clear reasoning."""
             tool_name_str = None
         
         # Validate tool parameters
+        # TODO: extend once tool parameters are finalized
         tool_params = response.get('tool_params', {})
-        if tool_name_str:
-            try:
-                tool_params = self.validator.validate_tool_params(tool_name_str, tool_params)
-            except ValueError as e:
-                logger.warning(f"Invalid tool params, using defaults: {e}")
-                tool_params = {}
         
-        # Check if tool can be executed
-        if tool_name_str:
-            can_execute, reason = self.validator.can_execute_tool(tool_name_str, state)
-            if not can_execute:
-                logger.warning(f"Tool {tool_name_str} cannot be executed: {reason}")
-                # Try to find alternative
-                tool_name_str = self._find_executable_tool(state)
-        
-        # Construct validated decision
+        # Build validated decision
         decision = AgentDecision(
             action=action,
             tool_name=tool_name_str,
             reasoning=response.get('reasoning', 'No reasoning provided'),
             tool_params=tool_params,
-            confidence=float(response.get('confidence', 0.5)),
+            confidence=float(response.get('confidence', 0.7)),
             alternatives_considered=response.get('alternatives_considered', [])
         )
         
@@ -283,36 +266,11 @@ Provide your decision in JSON format with clear reasoning."""
         state: Dict[str, Any]
     ) -> Optional[str]:
         """
-        Infer appropriate tool from action type using helper function
+        Infer appropriate tool from action type
         
-        Args:
-            action: Action type
-            state: Current state
-            
-        Returns:
-            Tool AI ID or None
+        Uses map_action_to_tool from tool_schemas
         """
         return map_action_to_tool(action, state)
-    
-    def _find_executable_tool(self, state: Dict[str, Any]) -> Optional[str]:
-        """
-        Find any tool that can be executed in current state
-        
-        Args:
-            state: Current workflow state
-            
-        Returns:
-            Tool AI ID or None
-        """
-        available_tools = self.validator.get_available_tools(state)
-        
-        # Return first available tool (prefer gather_data if available)
-        if 'gather_data' in available_tools:
-            return 'gather_data'
-        elif available_tools:
-            return available_tools[0]
-        
-        return None
     
     def _get_safe_fallback_decision(
         self,
@@ -334,9 +292,9 @@ Provide your decision in JSON format with clear reasoning."""
         if not records:
             # No data yet - gather it
             return AgentDecision(
-                action=ActionType.GATHER,
-                tool_name='gather_data',
-                reasoning=f"Fallback: No data available, gathering first. Error: {error_reason}",
+                action=ActionType.LOAD,
+                tool_name='load_reviews',
+                reasoning=f"Fallback: No data available, loading first. Error: {error_reason}",
                 confidence=0.5
             )
         
@@ -349,11 +307,11 @@ Provide your decision in JSON format with clear reasoning."""
                 confidence=0.4
             )
         
-        elif not any('sentiment' in r for r in records):
+        elif not any('sentiment' in str(r) for r in records):
             # Have data but no sentiment
             return AgentDecision(
                 action=ActionType.ANALYZE,
-                tool_name='sentiment_analysis',
+                tool_name='review_sentiment_analysis',
                 reasoning=f"Fallback: Have data, analyzing sentiment. Error: {error_reason}",
                 confidence=0.5
             )
@@ -377,17 +335,17 @@ Provide your decision in JSON format with clear reasoning."""
             )
 
 
-# Global decision maker instance
-# decision_maker = DecisionMaker(confidence_threshold=0.6)
-
-# WITH:
+# Global decision maker instance with lazy initialization
 _decision_maker_instance = None
 
 def get_decision_maker() -> DecisionMaker:
     """Get singleton decision maker instance (lazy initialization)"""
     global _decision_maker_instance
     if _decision_maker_instance is None:
-        _decision_maker_instance = DecisionMaker(confidence_threshold=0.6)
+        _decision_maker_instance = DecisionMaker(
+            confidence_threshold=0.6,
+            enable_streaming=True
+        )
     return _decision_maker_instance
 
 # For backwards compatibility

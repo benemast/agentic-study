@@ -1,5 +1,5 @@
 # backend/app/orchestrator/tools/analysis_tools.py
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import time
 from app.config import settings
@@ -15,11 +15,13 @@ logger = logging.getLogger(__name__)
 
 class ReviewSentimentAnalysisTool:
     """
-    LLM-Powered Sentiment Analysis of Product Reviews
+    LLM-Powered Sentiment Analysis of Product Reviews with Streaming Progress
     
-    Leverages OpenAI via the existing LLM client to analyze review sentiment with:
+    Features:
     - Batch processing for efficiency (10 reviews per API call)
     - Structured JSON outputs for reliability
+    - Real-time batch progress updates via WebSocket
+    - "Thinking" indicators during LLM processing
     - Context-aware analysis (understands nuance, sarcasm)
     - Combined rating + text analysis
     - Confidence scoring and reasoning
@@ -34,7 +36,7 @@ class ReviewSentimentAnalysisTool:
     # Batch size for LLM calls (balance between cost and speed)
     BATCH_SIZE = 10
 
-     # Keyword lists for text analysis
+    # Keyword lists for text analysis fallback
     POSITIVE_KEYWORDS = {
         'excellent', 'amazing', 'great', 'perfect', 'love', 'best',
         'awesome', 'fantastic', 'wonderful', 'superb', 'outstanding',
@@ -52,16 +54,33 @@ class ReviewSentimentAnalysisTool:
     def __init__(self):
         self.name = "Review Sentiment Analysis"
         self.llm_client = llm_client  # Use the global LLM client
+        self.websocket_manager = None  # Injected by orchestrator
+    
+    def set_websocket_manager(self, ws_manager):
+        """
+        Set WebSocket manager for real-time progress updates
+        Called by orchestrator during initialization
+        """
+        self.websocket_manager = ws_manager
+        logger.info("WebSocket manager injected into ReviewSentimentAnalysisTool")
     
     async def _analyze_batch_with_llm(
         self, 
-        reviews_batch: List[Dict[str, Any]]
+        reviews_batch: List[Dict[str, Any]],
+        session_id: Optional[str] = None,
+        execution_id: Optional[int] = None,
+        batch_num: int = 1,
+        total_batches: int = 1
     ) -> List[Dict[str, Any]]:
         """
-        Analyze a batch of reviews using the LLM client
+        Analyze a batch of reviews using the LLM client with progress updates
         
         Args:
             reviews_batch: List of up to 10 reviews to analyze
+            session_id: Session ID for WebSocket updates
+            execution_id: Execution ID for tracking
+            batch_num: Current batch number (1-indexed)
+            total_batches: Total number of batches
             
         Returns:
             List of analyzed reviews with sentiment fields added
@@ -112,14 +131,50 @@ IMPORTANT: Include ALL reviews in your response, numbering them 1, 2, 3, etc."""
 
 Return JSON with sentiment analysis for each review."""
         
+        # Send batch start notification
+        if self.websocket_manager and session_id:
+            try:
+                await self.websocket_manager.send_to_session(session_id, {
+                    'type': 'sentiment_batch_start',
+                    'execution_id': execution_id,
+                    'batch_number': batch_num,
+                    'total_batches': total_batches,
+                    'reviews_in_batch': len(reviews_batch),
+                    'progress_percentage': int((batch_num - 1) / total_batches * 100)
+                })
+            except Exception as e:
+                logger.warning(f"Failed to send batch start notification: {e}")
+        
+        # Streaming callback for activity indication
+        chunk_count = [0]  # Use list to allow modification in nested function
+        last_update = [0]  # Track last update to avoid spam
+        
+        async def on_thinking_chunk(chunk: str):
+            """Callback for each streaming chunk - shows 'thinking' activity"""
+            chunk_count[0] += 1
+            # Send thinking update every 25 chunks (reduces message spam)
+            if chunk_count[0] - last_update[0] >= 25 and self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_to_session(session_id, {
+                        'type': 'sentiment_thinking',
+                        'execution_id': execution_id,
+                        'batch_number': batch_num,
+                        'chunks_received': chunk_count[0]
+                    })
+                    last_update[0] = chunk_count[0]
+                except Exception as e:
+                    logger.warning(f"Failed to send thinking notification: {e}")
+        
         try:
-            logger.info(f"Calling LLM for sentiment analysis of {len(reviews_batch)} reviews")
+            logger.info(f"Calling LLM for sentiment analysis batch {batch_num}/{total_batches}")
             
-            # Use existing LLM client with structured output
+            # Use streaming for progress indication (but keep JSON parsing)
             response = await self.llm_client.get_structured_decision(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                expected_fields=['reviews']
+                expected_fields=['reviews'],
+                stream=True,  # Enable streaming for progress
+                on_chunk=on_thinking_chunk  # Progress callback
             )
             
             # Map LLM results back to reviews
@@ -159,10 +214,35 @@ Return JSON with sentiment analysis for each review."""
                 
                 analyzed_reviews.append(analyzed_review)
             
+            # Send batch complete notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_to_session(session_id, {
+                        'type': 'sentiment_batch_complete',
+                        'execution_id': execution_id,
+                        'batch_number': batch_num,
+                        'reviews_analyzed': len(analyzed_reviews),
+                        'progress_percentage': int(batch_num / total_batches * 100)
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to send batch complete notification: {e}")
+            
             return analyzed_reviews
             
         except Exception as e:
-            logger.error(f"LLM sentiment analysis failed for batch: {e}", exc_info=True)
+            logger.error(f"LLM sentiment analysis failed for batch {batch_num}: {e}", exc_info=True)
+            
+            # Send error notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_to_session(session_id, {
+                        'type': 'sentiment_batch_error',
+                        'execution_id': execution_id,
+                        'batch_number': batch_num,
+                        'error': str(e)
+                    })
+                except Exception as ws_error:
+                    logger.warning(f"Failed to send error notification: {ws_error}")
             
             # Fallback: simple rating-based sentiment for all reviews
             return [
@@ -189,7 +269,7 @@ Return JSON with sentiment analysis for each review."""
     
     async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyze sentiment of reviews using OpenAI
+        Analyze sentiment of reviews using OpenAI with real-time progress updates
         
         Args:
             input_data: {
@@ -197,7 +277,8 @@ Return JSON with sentiment analysis for each review."""
                     'records': List[Dict] - Reviews to analyze (from LoadReviewsTool)
                         Each review should have: star_rating, review_body, review_headline
                 },
-                'aggregate_by_product': bool (optional) - Group by product_id
+                'aggregate_by_product': bool (optional) - Group by product_id,
+                'state': Dict (optional) - Workflow state with session_id and execution_id
             }
             
         Returns:
@@ -228,11 +309,29 @@ Return JSON with sentiment analysis for each review."""
             
             aggregate_by_product = input_data.get('aggregate_by_product', False)
             
+            # Get session info for WebSocket updates
+            state = input_data.get('state', {})
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+            
             logger.info(f"Starting LLM sentiment analysis for {len(reviews)} reviews")
             
             # Process reviews in batches
             analyzed_reviews = []
             total_batches = (len(reviews) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
+            
+            # Send overall start notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_to_session(session_id, {
+                        'type': 'sentiment_analysis_start',
+                        'execution_id': execution_id,
+                        'total_reviews': len(reviews),
+                        'total_batches': total_batches,
+                        'batch_size': self.BATCH_SIZE
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to send analysis start notification: {e}")
             
             for batch_idx in range(0, len(reviews), self.BATCH_SIZE):
                 batch = reviews[batch_idx:batch_idx + self.BATCH_SIZE]
@@ -240,8 +339,14 @@ Return JSON with sentiment analysis for each review."""
                 
                 logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} reviews)")
                 
-                # Analyze this batch with LLM
-                batch_results = await self._analyze_batch_with_llm(batch)
+                # Analyze this batch with progress updates
+                batch_results = await self._analyze_batch_with_llm(
+                    reviews_batch=batch,
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    batch_num=batch_num,
+                    total_batches=total_batches
+                )
                 analyzed_reviews.extend(batch_results)
                 
                 # Small delay between batches to avoid rate limits
@@ -324,6 +429,19 @@ Return JSON with sentiment analysis for each review."""
                 result_data['product_aggregates'] = product_summary
             
             execution_time = int((time.time() - start_time) * 1000)
+            
+            # Send completion notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_to_session(session_id, {
+                        'type': 'sentiment_analysis_complete',
+                        'execution_id': execution_id,
+                        'total_reviews_analyzed': total_reviews,
+                        'dominant_sentiment': dominant_sentiment,
+                        'execution_time_ms': execution_time
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to send completion notification: {e}")
             
             logger.info(
                 f"LLM sentiment analysis complete: "

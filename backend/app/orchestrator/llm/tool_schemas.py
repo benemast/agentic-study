@@ -3,7 +3,7 @@
 Tool schemas and validation for AI Assistant 
 integrated with centralized tool registry
 """
-from typing import Dict, Any, List, Optional
+from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 import logging
@@ -81,8 +81,96 @@ class LoadReviewsParams(BaseModel):
             if min_rating is not None and v < min_rating:
                 raise ValueError('max_rating must be >= min_rating')
         return v
+class FilterCondition(BaseModel):
+    """
+    Single filter condition
+    
+    Operators by field type:
+    - String: contains, equals, not_equals, starts_with, ends_with
+    - Numeric: ==, !=, >, <, >=, <=
+    - Boolean: equals (value must be True/False)
+    """
+    field: str = Field(
+        ...,
+        description="Field name to filter on (e.g., 'star_rating', 'product_title', 'verified_purchase')"
+    )
+    operator: str = Field(
+        ...,
+        description="Comparison operator - must match field type (e.g., '>=' for numeric, 'contains' for string)"
+    )
+    value: Any = Field(
+        ...,
+        description="Value to compare against"
+    )
+    
+    @field_validator('operator')
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        """Validate operator is supported"""
+        valid_operators = {
+            # String operators
+            'contains', 'equals', 'not_equals', 'starts_with', 'ends_with',
+            # Numeric operators
+            '==', '!=', '>', '<', '>=', '<=',
+            # Alternative numeric names
+            'greater', 'less', 'greater_or_equal', 'less_or_equal'
+        }
+        
+        if v not in valid_operators:
+            raise ValueError(f"Invalid operator: {v}. Must be one of: {', '.join(sorted(valid_operators))}")
+        
+        return v
 
-class FilterReviewsParams(BaseModel): ...
+
+class FilterReviewsParams(BaseModel):
+    """
+    Parameters for filter_reviews tool
+    
+    Filters reviews dynamically on any field with type-appropriate operators.
+    
+    Available fields:
+    - String: review_id, product_id, product_title, product_category, review_headline, review_body
+    - Numeric: star_rating (1-5), helpful_votes, total_votes, customer_id
+    - Boolean: verified_purchase
+    """
+    filters: List[FilterCondition] = Field(
+        ...,
+        description="List of filter conditions to apply (AND logic)",
+        min_length=1
+    )
+    
+    # Alternative: Support single filter (backward compatibility)
+    field: Optional[str] = Field(
+        None,
+        description="[Deprecated] Single field to filter - use 'filters' array instead"
+    )
+    operator: Optional[str] = Field(
+        None,
+        description="[Deprecated] Single operator - use 'filters' array instead"
+    )
+    value: Optional[Any] = Field(
+        None,
+        description="[Deprecated] Single value - use 'filters' array instead"
+    )
+    
+    @field_validator('filters')
+    @classmethod
+    def validate_filters_or_single(cls, v: List[FilterCondition], info) -> List[FilterCondition]:
+        """Ensure either filters array or single filter fields are provided"""
+        # If filters array is provided, use it
+        if v:
+            return v
+        
+        # Otherwise, check for single filter format (backward compatibility)
+        field = info.data.get('field')
+        operator = info.data.get('operator')
+        value = info.data.get('value')
+        
+        if field and operator and value is not None:
+            return [FilterCondition(field=field, operator=operator, value=value)]
+        
+        raise ValueError("Must provide either 'filters' array or 'field', 'operator', 'value'")
+    
 class SortReviewsParams(BaseModel): ...
 
 

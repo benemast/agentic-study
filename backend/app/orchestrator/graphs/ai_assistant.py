@@ -34,7 +34,46 @@ class AIAssistantGraph:
         self.max_steps = 10
         self.decision_maker = decision_maker
         self.registry = tool_registry
+
+        if self.websocket_manager:
+        # Give decision maker access to WebSocket for streaming decisions
+            if hasattr(self.decision_maker, 'set_websocket_manager'):
+                self.decision_maker.set_websocket_manager(self.websocket_manager)
+                logger.info("✅ WebSocket manager injected into DecisionMaker")
+        
+            # Inject WebSocket into tools that need it
+            self._inject_websocket_into_tools()
     
+    def _inject_websocket_into_tools(self):
+        """
+        Inject WebSocket manager into tools that support progress updates
+        
+        Tools with set_websocket_manager() method will receive the manager
+        for real-time progress notifications
+        """
+        # Import tools that need WebSocket
+        from app.orchestrator.tools.analysis_tools import ReviewSentimentAnalysisTool
+        
+        # List of tool classes that support WebSocket
+        websocket_tools = [
+            ReviewSentimentAnalysisTool,
+            # Add other tools here as they implement set_websocket_manager()
+        ]
+        
+        injected_count = 0
+        for tool_class in websocket_tools:
+            try:
+                # Create instance and inject
+                tool_instance = tool_class()
+                if hasattr(tool_instance, 'set_websocket_manager'):
+                    tool_instance.set_websocket_manager(self.websocket_manager)
+                    injected_count += 1
+                    logger.info(f"✅ WebSocket injected into {tool_class.__name__}")
+            except Exception as e:
+                logger.error(f"Failed to inject WebSocket into {tool_class.__name__}: {e}")
+        
+        logger.info(f"WebSocket manager injected into {injected_count} tool(s)")
+
     def build_graph(self) -> StateGraph:
         """
         Build autonomous agent graph

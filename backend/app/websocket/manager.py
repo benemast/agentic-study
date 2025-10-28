@@ -639,6 +639,53 @@ class WebSocketManager:
         
         await self.send_to_session(session_id, message, priority='normal')
     
+    async def send_insight_generation_start(
+        self,
+        session_id: str,
+        execution_id: int,
+        record_count: int
+    ):
+        """Send insight generation started event"""
+        message = {
+            'type': 'insight_generation_start',
+            'execution_id': execution_id,
+            'record_count': record_count,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        await self.send_to_session(session_id, message, priority='normal')
+
+    async def send_insight_thinking(
+        self,
+        session_id: str,
+        execution_id: int,
+        chunks_received: int
+    ):
+        """Send insight generation thinking progress"""
+        message = {
+            'type': 'insight_thinking',
+            'execution_id': execution_id,
+            'chunks_received': chunks_received,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        await self.send_to_session(session_id, message, priority='normal')
+
+    async def send_insight_generation_complete(
+        self,
+        session_id: str,
+        execution_id: int,
+        insights_count: int,
+        execution_time_ms: int
+    ):
+        """Send insight generation completed event"""
+        message = {
+            'type': 'insight_generation_complete',
+            'execution_id': execution_id,
+            'insights_count': insights_count,
+            'execution_time_ms': execution_time_ms,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        await self.send_to_session(session_id, message, priority='normal')
+
     # ==================== BATCH CONTROL ====================
     
     async def flush_session_batches(self, session_id: str) -> int:

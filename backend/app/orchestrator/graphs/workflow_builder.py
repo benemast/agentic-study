@@ -25,7 +25,63 @@ class WorkflowBuilderGraph:
         self.state_manager = state_manager
         self.websocket_manager = websocket_manager
         self.registry = tool_registry
+
+        if self.websocket_manager:
+        # Give decision maker access to WebSocket for streaming decisions
+            if hasattr(self.decision_maker, 'set_websocket_manager'):
+                self.decision_maker.set_websocket_manager(self.websocket_manager)
+                logger.info("✅ WebSocket manager injected into DecisionMaker")
+        
+            # Inject WebSocket into tools that need it
+            self._inject_websocket_into_tools()
     
+    def _inject_websocket_into_tools(self):
+        """
+        Inject WebSocket manager into tools that support progress updates
+        
+        CRITICAL: Workflow Builder uses the same tools as AI Assistant.
+        Tools like sentiment analysis and insight generation need WebSocket
+        access for real-time progress indicators.
+        
+        Implementation notes:
+        - Tools in registry are singletons (one instance per tool type)
+        - Injecting once makes WebSocket available to both graphs
+        - Uses registry to access shared tool instances
+        """
+        logger.info("Injecting WebSocket into Workflow Builder tools")
+        
+        # Tool AI IDs that need WebSocket (match your TOOL_DEFINITIONS in registry.py)
+        websocket_tool_ids = [
+            'review_sentiment_analysis',  # ReviewSentimentAnalysisTool
+            'generate_insights',          # GenerateInsightsTool
+        ]
+        
+        injected_count = 0
+        for ai_id in websocket_tool_ids:
+            try:
+                # Get tool definition from registry
+                tool_def = self.registry.get_tool_definition(ai_id=ai_id)
+                
+                if tool_def:
+                    # Get singleton instance
+                    tool_instance = tool_def.instance
+                    
+                    # Check if tool supports WebSocket injection
+                    if hasattr(tool_instance, 'set_websocket_manager'):
+                        # Inject WebSocket manager
+                        tool_instance.set_websocket_manager(self.websocket_manager)
+                        injected_count += 1
+                        logger.info(f"✅ WebSocket injected into {tool_def.display_name} (Workflow Builder)")
+                    else:
+                        logger.debug(f"⚠️ Tool {tool_def.display_name} doesn't support WebSocket")
+                else:
+                    logger.warning(f"⚠️ Tool not found in registry: {ai_id}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Failed to inject WebSocket into tool {ai_id}: {e}", exc_info=True)
+        
+        logger.info(f"Workflow Builder: WebSocket manager injected into {injected_count} tool(s)")
+
     def _create_node_handler(
         self, 
         node: Dict[str, Any], 

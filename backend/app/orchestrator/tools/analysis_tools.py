@@ -1,5 +1,5 @@
 # backend/app/orchestrator/tools/analysis_tools.py
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 import logging
 import time
 from app.config import settings
@@ -553,20 +553,43 @@ class SentimentAnalysisTool:
 
 
 class GenerateInsightsTool:
-    """Generate insights from analyzed data using LLM"""
+    """
+    Generate insights from analyzed data using LLM with STREAMING SUPPORT
+    
+    ✅ NEW FEATURES:
+    - Streaming LLM calls for reduced latency (TTFB < 1s)
+    - Real-time progress updates via WebSocket
+    - Thinking indicators during LLM processing
+    - Batch processing support (if needed)
+    
+    WebSocket Events:
+    - insight_generation_start: When generation begins
+    - insight_thinking: During LLM processing (throttled)
+    - insight_generation_complete: When done
+    """
     
     def __init__(self):
         self.name = "Generate Insights"
+        self.llm_client = llm_client
+        self.websocket_manager = None
+    
+    def set_websocket_manager(self, ws_manager):
+        """
+        Set WebSocket manager for real-time updates
+        Called by orchestrator during initialization
+        """
+        self.websocket_manager = ws_manager
+        logger.info("✅ WebSocket manager injected into GenerateInsightsTool")
     
     async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate insights from data
+        Generate insights with streaming support
         
         Args:
-            input_data: Contains 'data' to analyze
+            input_data: Contains 'data' to analyze and 'state' for WebSocket info
             
         Returns:
-            Data with insights
+            Data with insights added
         """
         start_time = time.time()
         
@@ -574,13 +597,71 @@ class GenerateInsightsTool:
             data = input_data.get('data', {})
             records = data.get('records', [])
             
+            # Get session info for WebSocket updates
+            state = input_data.get('state', {})
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+            
             logger.info(f"Generating insights from {len(records)} records")
             
-            # Simulate insight generation
-            # In real implementation: call OpenAI GPT to generate insights
-            insights = self._generate_mock_insights(data)
+            # Send start notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_insight_generation_start(
+                        session_id=session_id,
+                        execution_id=execution_id,
+                        record_count=len(records)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send start notification: {e}")
+            
+            # Create streaming callback for progress indication
+            chunk_count = [0]
+            last_update = [0]
+            
+            async def on_thinking_chunk(chunk: str):
+                """
+                Show thinking progress during LLM generation
+                Throttled to every 25 chunks to avoid WebSocket spam
+                """
+                chunk_count[0] += 1
+                
+                # Send thinking update every 25 chunks
+                if chunk_count[0] - last_update[0] >= 25 and self.websocket_manager and session_id:
+                    try:
+                        await self.websocket_manager.send_insight_thinking(
+                            session_id= session_id, 
+                            execution_id = execution_id,
+                            chunks_received = chunk_count[0]
+                        )
+                        last_update[0] = chunk_count[0]
+                    except Exception as e:
+                        logger.warning(f"Failed to send thinking notification: {e}")
+            
+            # Generate insights using LLM with streaming
+            insights = await self._generate_insights_with_llm(
+                data=data,
+                on_chunk=on_thinking_chunk
+            )
             
             execution_time = int((time.time() - start_time) * 1000)
+            
+
+            # Send completion notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_insight_generation_complete(
+                        session_id = session_id,
+                        execution_id = execution_id,
+                        insights_count = len(insights),
+                        execution_time_ms = execution_time
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send completion notification: {e}")
+            
+            logger.info(
+                f"✅ Insights generated: {len(insights)} insights in {execution_time}ms"
+            )
             
             return {
                 'success': True,
@@ -591,42 +672,157 @@ class GenerateInsightsTool:
                 'execution_time_ms': execution_time,
                 'metadata': {
                     'tool': self.name,
-                    'insights_generated': len(insights)
+                    'insights_generated': len(insights),
+                    'streaming_enabled': True
                 }
             }
             
         except Exception as e:
-            logger.error(f"Error in GenerateInsightsTool: {e}")
+            logger.error(f"Error in GenerateInsightsTool: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
                 'data': None
             }
     
-    def _generate_mock_insights(self, data: Dict[str, Any]) -> List[str]:
-        """Generate mock insights based on data"""
+    async def _generate_insights_with_llm(
+        self,
+        data: Dict[str, Any],
+        on_chunk: Optional[Callable] = None
+    ) -> List[str]:
+        """
+        Generate insights using streaming LLM
+        
+        Args:
+            data: Analysis data (records, sentiment summary, etc.)
+            on_chunk: Optional callback for streaming progress
+            
+        Returns:
+            List of insight strings
+        """
+        
+        # Build prompt from data
         records = data.get('records', [])
+        sentiment_summary = data.get('sentiment_summary', {})
+        
+        # Calculate key metrics for context
+        total_reviews = len(records)
+        positive_count = sentiment_summary.get('positive', 0)
+        neutral_count = sentiment_summary.get('neutral', 0)
+        negative_count = sentiment_summary.get('negative', 0)
+        
+        # Calculate percentages
+        positive_pct = (positive_count / max(total_reviews, 1)) * 100
+        neutral_pct = (neutral_count / max(total_reviews, 1)) * 100
+        negative_pct = (negative_count / max(total_reviews, 1)) * 100
+        
+        # Build rich prompt
+        prompt = f"""Analyze this product review data and generate 3-5 actionable business insights:
+
+**Data Summary:**
+- Total Reviews Analyzed: {total_reviews}
+- Sentiment Distribution:
+  - Positive: {positive_count} ({positive_pct:.1f}%)
+  - Neutral: {neutral_count} ({neutral_pct:.1f}%)
+  - Negative: {negative_count} ({negative_pct:.1f}%)
+
+**Task:**
+Generate insights that:
+1. Identify key trends or patterns
+2. Highlight opportunities for improvement
+3. Note strengths or positive feedback themes
+4. Suggest concrete actions based on the data
+5. Address any concerning patterns in negative reviews
+
+**Output Format (JSON):**
+{{
+  "insights": [
+    "Insight 1: [Specific, actionable insight]",
+    "Insight 2: [Specific, actionable insight]",
+    "Insight 3: [Specific, actionable insight]"
+  ]
+}}
+
+Make insights specific, data-driven, and actionable for product managers or business stakeholders.
+"""
+        
+        system_prompt = """You are an expert data analyst and business strategist specializing in e-commerce product reviews.
+
+Your role:
+- Generate actionable insights from review sentiment data
+- Focus on business value and concrete recommendations
+- Be specific and data-driven
+- Prioritize insights that drive decisions
+
+Output must be valid JSON with an 'insights' array."""
+        
+        logger.debug("Calling LLM for insight generation with streaming")
+        
+        # Use streaming LLM call for reduced latency
+        try:
+            response = await self.llm_client.get_structured_decision(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                expected_fields=['insights'],
+                stream=True,  # ✅ Enable streaming
+                on_chunk=on_chunk  # ✅ Progress updates
+            )
+            
+            insights = response.get('insights', [])
+            
+            if not insights:
+                logger.warning("LLM returned empty insights list")
+                # Fallback to basic insights
+                insights = self._generate_fallback_insights(data)
+            
+            return insights
+            
+        except Exception as e:
+            logger.error(f"LLM insight generation failed: {e}")
+            # Return fallback insights
+            return self._generate_fallback_insights(data)
+    
+    def _generate_fallback_insights(self, data: Dict[str, Any]) -> List[str]:
+        """
+        Generate basic insights without LLM (fallback)
+        
+        Args:
+            data: Analysis data
+            
+        Returns:
+            List of basic insights
+        """
+        records = data.get('records', [])
+        sentiment_summary = data.get('sentiment_summary', {})
         insights = []
         
         if not records:
             return ["No data available for analysis"]
         
-        # Calculate some basic stats
-        values = [r.get('value', 0) for r in records]
-        avg_value = sum(values) / len(values) if values else 0
+        # Calculate stats
+        total = len(records)
+        positive = sentiment_summary.get('positive', 0)
+        negative = sentiment_summary.get('negative', 0)
         
-        insights.append(f"Analyzed {len(records)} data points")
-        insights.append(f"Average value: {avg_value:.2f}")
+        positive_pct = (positive / total) * 100 if total > 0 else 0
+        negative_pct = (negative / total) * 100 if total > 0 else 0
         
-        # Sentiment insights if available
-        if 'sentiment_summary' in data:
-            sentiment = data['sentiment_summary']
-            total = sum(sentiment.values())
-            if total > 0:
-                positive_pct = (sentiment.get('positive', 0) / total) * 100
-                insights.append(f"Positive sentiment: {positive_pct:.1f}%")
+        # Generate basic insights
+        insights.append(f"Analyzed {total} product reviews")
         
-        insights.append("Key recommendation: Further analysis needed for detailed trends")
+        if positive_pct > 70:
+            insights.append(f"Strong positive sentiment ({positive_pct:.1f}%) indicates high customer satisfaction")
+        elif positive_pct > 50:
+            insights.append(f"Moderate positive sentiment ({positive_pct:.1f}%) suggests room for improvement")
+        
+        if negative_pct > 30:
+            insights.append(f"Significant negative feedback ({negative_pct:.1f}%) requires immediate attention")
+        elif negative_pct > 15:
+            insights.append(f"Notable negative feedback ({negative_pct:.1f}%) indicates areas for improvement")
+        
+        insights.append("Recommendation: Review detailed feedback for actionable improvements")
+        
+        return insights
         
         return insights
 

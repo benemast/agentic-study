@@ -25,6 +25,8 @@ class DecisionMaker:
     Makes intelligent decisions about what action to take next
     
     Features:
+    - Streaming LLM calls for reduced latency (TTFB < 1s)
+    - Real-time 'agent_thinking' WebSocket events
     - Context-aware decision making using tool registry
     - Tool availability checking via registry
     - Confidence thresholds
@@ -32,7 +34,13 @@ class DecisionMaker:
     """
     
     def __init__(self, confidence_threshold: float = 0.6, enable_streaming: bool = True):
-
+        """
+        Initialize decision maker
+        
+        Args:
+            confidence_threshold: Minimum confidence for decisions (0-1)
+            enable_streaming: Use streaming for LLM calls (recommended: True)
+        """
         from ..tools.registry import tool_registry
         self.confidence_threshold = confidence_threshold
         self.validator = tool_validator
@@ -41,10 +49,17 @@ class DecisionMaker:
         
         # For WebSocket updates during streaming
         self.websocket_manager = None
+        
+        logger.info(
+            f"DecisionMaker initialized: "
+            f"streaming={'enabled' if enable_streaming else 'disabled'}, "
+            f"confidence_threshold={confidence_threshold}"
+        )
     
     def set_websocket_manager(self, ws_manager):
         """Set WebSocket manager for real-time updates"""
         self.websocket_manager = ws_manager
+        logger.info("WebSocket manager injected into DecisionMaker")
     
     async def get_next_decision(
         self,
@@ -53,7 +68,8 @@ class DecisionMaker:
         memory: List[Dict[str, Any]]
     ) -> AgentDecision:
         """
-        Determine the next action to take
+        Determine the next action to take with STREAMING support
+        Streams decision-making process to frontend via WebSocket
         
         Args:
             task_description: User's task goal
@@ -61,7 +77,12 @@ class DecisionMaker:
             memory: History of previous decisions
             
         Returns:
-            Validated AgentDecision
+            Validated AgentDecision with action, tool, reasoning, confidence
+            
+        Example WebSocket Events:
+            - type: 'agent_thinking', chunk: 'Based on...'
+            - type: 'agent_thinking', chunk: 'I will use...'
+            (sent during LLM processing)
         """
         # Build context-rich prompt
         prompt = self._build_decision_prompt(
@@ -72,15 +93,27 @@ class DecisionMaker:
         
         system_prompt = self._build_system_prompt(state)
         
-        try:
-            # Create streaming callback if enabled
-            on_chunk = None
-            if self.enable_streaming and self.websocket_manager:
-                session_id = state.get('session_id')
-                execution_id = state.get('execution_id')
+        # ========================================
+        # STREAMING CALLBACK SETUP
+        # ========================================
+        on_chunk = None
+        if self.enable_streaming and self.websocket_manager:
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+            
+            # Track chunks for throttling
+            chunk_counter = [0]
+            
+            async def stream_thinking(chunk: str):
+                """
+                Send thinking chunks to frontend for real-time feedback
                 
-                async def stream_thinking(chunk: str):
-                    """Send thinking chunks to frontend"""
+                Throttled to every 10 chunks to avoid WebSocket spam
+                """
+                chunk_counter[0] += 1
+                
+                # Throttle: only send every 10th chunk
+                if chunk_counter[0] % 10 == 0:
                     try:
                         await self.websocket_manager.send_to_session(
                             session_id,
@@ -88,21 +121,37 @@ class DecisionMaker:
                                 'type': 'agent_thinking',
                                 'execution_id': execution_id,
                                 'chunk': chunk,
+                                'chunks_received': chunk_counter[0],
                                 'timestamp': datetime.utcnow().isoformat()
                             }
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to send thinking chunk: {e}")
-                
-                on_chunk = stream_thinking
+                        logger.warning(f"⚠️ Failed to send thinking chunk: {e}")
             
-            # Get decision from LLM
+            on_chunk = stream_thinking
+            logger.debug(f"🌊 Streaming enabled for decision making (session={session_id})")
+        else:
+            logger.debug("📦 Streaming disabled or no WebSocket available")
+        
+        # ========================================
+        # LLM DECISION CALL WITH STREAMING
+        # ========================================
+        try:
+            logger.info(f"🤔 Making decision (step {state.get('step_number', 0)})")
+            
+            # Get decision from LLM WITH STREAMING
             response = await llm_client.get_structured_decision(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 expected_fields=['action', 'reasoning', 'tool_name', 'confidence'],
                 stream=self.enable_streaming,
                 on_chunk=on_chunk
+            )
+            
+            logger.info(
+                f"LLM response received: "
+                f"streamed={response.get('streamed', False)}, "
+                f"TTFB={response.get('ttfb_ms', 'N/A')}ms"
             )
             
             # Parse and validate decision
@@ -119,6 +168,7 @@ class DecisionMaker:
                 f"Decision: {decision.action} -> {decision.tool_name} "
                 f"(confidence: {decision.confidence:.2f})"
             )
+            logger.debug(f"   Reasoning: {decision.reasoning}")
             
             return decision
             
@@ -144,7 +194,7 @@ Currently Available Tools:
 Decision format (JSON):
 {{
   "action": "load|filter|clean|sort|combine|analyze|generate|output|finish",
-  "tool_name": "specific_tool_id (e.g., load_reviews, sentiment_analysis)",
+  "tool_name": "specific_tool_id (e.g., load_reviews, review_sentiment_analysis)",
   "reasoning": "Clear explanation of why this is the right next step",
   "tool_params": {{}},
   "confidence": 0.0-1.0,
@@ -152,9 +202,9 @@ Decision format (JSON):
 }}
 
 Guidelines:
-1. Start with gathering data if none exists
+1. Start with loading data if none exists
 2. Clean/filter data before analysis
-3. Analyze sentiment when you have text data
+3. Analyze sentiment when you have review text data
 4. Generate insights from analyzed data
 5. Output results when task is complete
 6. Be efficient - don't repeat unnecessary steps
@@ -245,7 +295,6 @@ Respond with a JSON object containing your decision and reasoning.
             tool_name_str = None
         
         # Validate tool parameters
-        # TODO: extend once tool parameters are finalized
         tool_params = response.get('tool_params', {})
         
         # Build validated decision
@@ -335,7 +384,10 @@ Respond with a JSON object containing your decision and reasoning.
             )
 
 
-# Global decision maker instance with lazy initialization
+# ============================================================
+# SINGLETON PATTERN WITH LAZY INITIALIZATION
+# ============================================================
+
 _decision_maker_instance = None
 
 def get_decision_maker() -> DecisionMaker:

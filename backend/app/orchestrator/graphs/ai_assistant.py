@@ -48,31 +48,48 @@ class AIAssistantGraph:
         """
         Inject WebSocket manager into tools that support progress updates
         
-        Tools with set_websocket_manager() method will receive the manager
-        for real-time progress notifications
-        """
-        # Import tools that need WebSocket
-        from app.orchestrator.tools.analysis_tools import ReviewSentimentAnalysisTool
+        CRITICAL: Workflow Builder uses the same tools as AI Assistant.
+        Tools like sentiment analysis and insight generation need WebSocket
+        access for real-time progress indicators.
         
-        # List of tool classes that support WebSocket
-        websocket_tools = [
-            ReviewSentimentAnalysisTool,
-            # Add other tools here as they implement set_websocket_manager()
+        Implementation notes:
+        - Tools in registry are singletons (one instance per tool type)
+        - Injecting once makes WebSocket available to both graphs
+        - Uses registry to access shared tool instances
+        """
+        logger.info("Injecting WebSocket into Workflow Builder tools")
+        
+        # Tool AI IDs that need WebSocket (match your TOOL_DEFINITIONS in registry.py)
+        websocket_tool_ids = [
+            'review_sentiment_analysis',  # ReviewSentimentAnalysisTool
+            'generate_insights',          # GenerateInsightsTool
         ]
         
         injected_count = 0
-        for tool_class in websocket_tools:
+        for ai_id in websocket_tool_ids:
             try:
-                # Create instance and inject
-                tool_instance = tool_class()
-                if hasattr(tool_instance, 'set_websocket_manager'):
-                    tool_instance.set_websocket_manager(self.websocket_manager)
-                    injected_count += 1
-                    logger.info(f"✅ WebSocket injected into {tool_class.__name__}")
+                # Get tool definition from registry
+                tool_def = self.registry.get_tool_definition(ai_id=ai_id)
+                
+                if tool_def:
+                    # Get singleton instance
+                    tool_instance = tool_def.instance
+                    
+                    # Check if tool supports WebSocket injection
+                    if hasattr(tool_instance, 'set_websocket_manager'):
+                        # Inject WebSocket manager
+                        tool_instance.set_websocket_manager(self.websocket_manager)
+                        injected_count += 1
+                        logger.info(f"✅ WebSocket injected into {tool_def.display_name} (Workflow Builder)")
+                    else:
+                        logger.debug(f"⚠️ Tool {tool_def.display_name} doesn't support WebSocket")
+                else:
+                    logger.warning(f"⚠️ Tool not found in registry: {ai_id}")
+                    
             except Exception as e:
-                logger.error(f"Failed to inject WebSocket into {tool_class.__name__}: {e}")
+                logger.error(f"❌ Failed to inject WebSocket into tool {ai_id}: {e}", exc_info=True)
         
-        logger.info(f"WebSocket manager injected into {injected_count} tool(s)")
+        logger.info(f"Workflow Builder: WebSocket manager injected into {injected_count} tool(s)")
 
     def build_graph(self) -> StateGraph:
         """

@@ -1,34 +1,15 @@
 # backend/app/orchestrator/tools/data_tools.py
 from typing import Dict, Any, List
 import logging
-from datetime import datetime
 import time
-from sqlalchemy.orm import Session
+
+from app.orchestrator.tools.base_tool import BaseTool
 
 from app.database import get_db_context
 from app.models.reviews import get_review_model
 from app.schemas.reviews import to_study_format, ReviewFilterParams
 
 logger = logging.getLogger(__name__)
-
-
-class BaseTool:
-    """Base class for all tools with common functionality"""
-    
-    def __init__(self, name: str):
-        self.name = name
-    
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the tool - to be implemented by subclasses"""
-        raise NotImplementedError
-    
-    def _measure_execution(self, func, *args, **kwargs):
-        """Measure execution time of a function"""
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        execution_time = int((time.time() - start_time) * 1000)  # ms
-        return result, execution_time
-
 
 class LoadReviewsTool(BaseTool):
     """
@@ -48,7 +29,7 @@ class LoadReviewsTool(BaseTool):
     def __init__(self):
         super().__init__("Load Reviews")
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Load reviews based on filter parameters
         
@@ -303,7 +284,7 @@ class FilterReviewsTool(BaseTool):
         
         return True
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Filter reviews dynamically based on field type
         
@@ -459,7 +440,7 @@ class SortReviewsTool(BaseTool):
     def __init__(self):
         super().__init__("Sort Reviews")
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Sort reviews by specified field
         
@@ -551,76 +532,192 @@ class SortReviewsTool(BaseTool):
                 'execution_time_ms': int((time.time() - start_time) * 1000)
             }
 
-
-class CleanDataTool(BaseTool):
-    """Clean and normalize data"""
+class DataCleanerTool(BaseTool):
+    """
+    AI-powered data cleaner that pretends to use AI while using SQL filtering
+    
+    This tool creates the illusion of AI-powered data cleaning through:
+    - Streaming progress updates with "AI analysis" messaging
+    - Gradual processing simulation
+    - Actually filters by is_malformed flag in database
+    
+    Study Purpose: Red herring / perception test tool
+    """
     
     def __init__(self):
-        super().__init__("Clean Data")
+        super().__init__("AI Data Cleaner")
+        self.websocket_manager = None
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def set_websocket_manager(self, manager):
+        """Inject WebSocket manager for streaming updates"""
+        self.websocket_manager = manager
+        logger.info("✅ WebSocket manager injected into DataCleanerTool")
+    
+    async def _send_progress(
+        self, 
+        session_id: str, 
+        execution_id: int, 
+        step: str, 
+        progress: int,
+        details: str = None
+    ):
+        """Send progress update via WebSocket"""
+        if self.websocket_manager and session_id:
+            try:
+                await self.websocket_manager.send_tool_progress(
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    tool_name=self.name,
+                    step=step,
+                    progress=progress,
+                    details=details
+                )
+            except Exception as e:
+                logger.error(f"Failed to send progress update: {e}")
+    
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Clean data: remove nulls, normalize formats, etc.
+        Clean reviews using "AI" (actually SQL is_malformed filter)
         
         Args:
-            input_data: Contains 'data'
+            input_data: {
+                'data': {
+                    'records': List[Dict] - Reviews to "clean"
+                },
+                'session_id': str - For WebSocket updates (optional),
+                'execution_id': int - For WebSocket updates (optional)
+            }
             
         Returns:
-            Cleaned data
+            Dictionary with cleaned reviews (malformed ones removed)
         """
         start_time = time.time()
         
-        try:
-            data = input_data.get('data', {})
-            records = data.get('records', [])
-            
-            logger.info(f"Cleaning {len(records)} records")
-            
-            # Clean records
-            cleaned_records = []
-            issues_found = 0
-            
-            for record in records:
-                cleaned_record = {}
-                for key, value in record.items():
-                    # Remove None values
-                    if value is None:
-                        issues_found += 1
-                        continue
-                    
-                    # Normalize strings
-                    if isinstance(value, str):
-                        cleaned_record[key] = value.strip()
-                    else:
-                        cleaned_record[key] = value
-                
-                if cleaned_record:  # Only add non-empty records
-                    cleaned_records.append(cleaned_record)
-            
-            execution_time = int((time.time() - start_time) * 1000)
-            
-            return {
-                'success': True,
-                'data': {
-                    **data,
-                    'records': cleaned_records,
-                    'cleaned': True
-                },
-                'execution_time_ms': execution_time,
-                'metadata': {
-                    'tool': self.name,
-                    'issues_fixed': issues_found,
-                    'records_cleaned': len(cleaned_records)
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in CleanDataTool: {e}")
+        # Extract data
+        data = input_data.get('data', {})
+        records = data.get('records', [])
+        session_id = input_data.get('session_id')
+        execution_id = input_data.get('execution_id')
+        
+        if not records:
             return {
                 'success': False,
-                'error': str(e),
+                'error': 'No data provided for cleaning',
                 'data': None
             }
+        
+        logger.info(f"🤖 AI Data Cleaner: Processing {len(records)} reviews")
+        
+        # ========================================
+        # SIMULATE AI PROCESSING WITH STREAMING
+        # ========================================
+        
+        # Step 1: Initialization (10%)
+        await self._send_progress(
+            session_id, execution_id,
+            "Initializing AI models",
+            10,
+            "Loading neural network for data quality assessment..."
+        )
+        await asyncio.sleep(0.5)
+        
+        # Step 2: Data analysis (30%)
+        await self._send_progress(
+            session_id, execution_id,
+            "Analyzing data quality",
+            30,
+            f"AI analyzing {len(records)} reviews for quality indicators..."
+        )
+        await asyncio.sleep(0.8)
+        
+        # Step 3: Pattern detection (50%)
+        await self._send_progress(
+            session_id, execution_id,
+            "Detecting anomaly patterns",
+            50,
+            "Deep learning model identifying spam and malformed entries..."
+        )
+        await asyncio.sleep(0.7)
+        
+        # ========================================
+        # ACTUAL FILTERING (SQL-based)
+        # ========================================
+        
+        # Filter out malformed reviews based on is_malformed flag
+        cleaned_records = []
+        malformed_count = 0
+        issues_found = []
+        
+        for record in records:
+            # Check if review is marked as malformed in database
+            is_malformed = record.get('is_malformed', False)
+            
+            if is_malformed:
+                malformed_count += 1
+                # Track what type of issue (if available)
+                malformed_type = record.get('malformed_type', 'unknown')
+                issues_found.append(malformed_type)
+            else:
+                cleaned_records.append(record)
+        
+        # Step 4: Cleaning process (70%)
+        await self._send_progress(
+            session_id, execution_id,
+            "AI cleaning in progress",
+            70,
+            f"Removing {malformed_count} low-quality entries detected by AI..."
+        )
+        await asyncio.sleep(0.6)
+        
+        # Step 5: Validation (90%)
+        await self._send_progress(
+            session_id, execution_id,
+            "Validating cleaned dataset",
+            90,
+            f"AI verifying {len(cleaned_records)} high-quality reviews..."
+        )
+        await asyncio.sleep(0.4)
+        
+        # Step 6: Finalization (100%)
+        execution_time = int((time.time() - start_time) * 1000)
+        
+        await self._send_progress(
+            session_id, execution_id,
+            "Cleaning complete",
+            100,
+            f"AI cleaned {len(records)} → {len(cleaned_records)} reviews ({malformed_count} removed)"
+        )
+        
+        # Count issue types
+        from collections import Counter
+        issue_breakdown = dict(Counter(issues_found))
+        
+        logger.info(
+            f"✅ AI Data Cleaner: {len(records)} → {len(cleaned_records)} reviews "
+            f"({malformed_count} malformed removed in {execution_time}ms)"
+        )
+        
+        return {
+            'success': True,
+            'data': {
+                **data,
+                'records': cleaned_records,
+                'cleaned': True,
+                'ai_powered': True  # Hint to frontend
+            },
+            'execution_time_ms': execution_time,
+            'metadata': {
+                'tool': self.name,
+                'original_count': len(records),
+                'cleaned_count': len(cleaned_records),
+                'issues_removed': malformed_count,
+                'issue_types': issue_breakdown,
+                'quality_score': round((len(cleaned_records) / len(records)) * 100, 1),
+                'ai_confidence': 0.94,  # Fake AI confidence score
+                'cleaning_method': 'deep_learning_v2'  # Fake AI method name
+            }
+        }
+
 
 class CombineDataTool(BaseTool):
     """Combine multiple data sources"""
@@ -628,7 +725,7 @@ class CombineDataTool(BaseTool):
     def __init__(self):
         super().__init__("Combine Data")
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Combine data from multiple sources
         
@@ -674,3 +771,13 @@ class CombineDataTool(BaseTool):
                 'error': str(e),
                 'data': None
             }
+        
+
+__all__ = [
+    'LoadReviewsTool',
+    'FilterReviewsTool',
+    'SortReviewsTool',
+    'DataCleanerTool', 
+
+    'CombineDataTool'
+]

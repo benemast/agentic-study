@@ -9,19 +9,23 @@ from slowapi.errors import RateLimitExceeded
 import logging
 import traceback
 
-from app.config import settings
-from app.logging_config import setup_logging
-from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews
+from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews, monitoring
 from app.database import create_tables, check_database_connection, get_database_info
 from app.websocket.handlers import register_handlers
 
+from app.configs.config import settings
+from app.configs.logging_config import setup_logging
+
 # Import Sentry configuration
-from app.sentry_config import (
+from app.configs.sentry_config import (
     init_sentry,
     sentry_context_middleware,
     sentry_exception_handler,
     sentry_http_exception_handler,
 )
+
+from app.configs.langsmith_config import init_langsmith
+
 
 setup_logging(debug=settings.debug)
 # Configure logging
@@ -60,6 +64,13 @@ async def lifespan(app: FastAPI):
     # Register WebSocket handlers ONCE at startup
     register_handlers()
 
+    # 🆕 Initialize LangSmith tracing
+    langsmith_enabled = init_langsmith(settings)
+    if langsmith_enabled:
+        logger.info("✅ LangSmith tracing initialized successfully")
+    else:
+        logger.info("ℹ️  Running without LangSmith tracing")
+    
     logger.info("Agentic Study API started successfully")
     yield
     
@@ -138,6 +149,7 @@ app.include_router(orchestrator.router)
 app.include_router(websocket.router)
 app.include_router(sentry.router)
 app.include_router(reviews.router)
+app.include_router(monitoring.router)
 
 @app.get("/")
 async def root():

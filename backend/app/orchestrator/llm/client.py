@@ -1,12 +1,13 @@
 # backend/app/orchestrator/llm/client.py
 """
-Robust LLM Client with streaming support, retry logic, and error handling
+Robust LLM Client with circuit breaker, streaming support, and error handling
 """
 from typing import Dict, Any, Optional, List, Callable, Awaitable
 import asyncio
 import logging
 import json
 from datetime import datetime
+import time
 from openai import AsyncOpenAI
 from openai import APIError, RateLimitError, APITimeoutError
 from tenacity import (
@@ -18,7 +19,8 @@ from tenacity import (
 )
 from cachetools import TTLCache
 
-from app.config import settings
+from app.configs.config import settings
+from .circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 logger = logging.getLogger(__name__)
 
@@ -26,36 +28,46 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     """
     Robust LLM client with:
-    - Streaming for latency reduction (Time To First Byte)
-    - Real-time progress callbacks for user feedback
+    - Circuit breaker for fault tolerance
+    - Streaming for latency reduction
+    - Real-time progress callbacks
     - Structured output validation
     - TTL-based caching
     - Token usage tracking
     - Timeout protection
     - Retry with exponential backoff
-    - Multiple provider support
     """
     
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.model = settings.llm_model
         
+        # Circuit breaker for fault tolerance
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5,      # Open after 5 failures
+            timeout=60,               # Test recovery after 60s
+            half_open_max_calls=3,    # Allow 3 test calls
+            success_threshold=2       # Need 2 successes to close
+        )
+        
         # Metrics
         self.total_requests = 0
         self.total_tokens = 0
         self.total_errors = 0
         self.total_streaming_requests = 0
+        self.circuit_breaker_rejections = 0
         
-        # Improved cache with TTL (1 hour) and size limit (100 entries)
+        # Cache with TTL (1 hour) and size limit (100 entries)
         self.cache = TTLCache(maxsize=100, ttl=3600)
         
         logger.info(f"✅ LLM Client initialized with model: {self.model}")
         logger.info(f"✅ Streaming enabled: {settings.use_stream}")
+        logger.info(f"✅ Circuit breaker enabled: {self.circuit_breaker}")
     
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((RateLimitError, APITimeoutError, APIError)),
+        retry=retry_if_exception_type((RateLimitError, APITimeoutError)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
     async def chat_completion(
@@ -68,28 +80,71 @@ class LLMClient:
         timeout: float = 60.0
     ) -> Dict[str, Any]:
         """
-        Make chat completion request with retry logic (NON-STREAMING)
-        
-        Use this for: cached requests, simple responses
-        Prefer: chat_completion_stream() for latency-sensitive operations
+        Make chat completion request with circuit breaker protection
         
         Args:
-            messages: List of message dicts with 'role' and 'content'
-            temperature: Sampling temperature (0.0 - 2.0)
-            max_tokens: Maximum tokens in response
-            response_format: Optional response format (e.g., {"type": "json_object"})
-            cache_key: Optional cache key for repeated requests
-            timeout: Request timeout in seconds
+            messages: List of message dicts
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens
+            response_format: Optional response format
+            cache_key: Optional cache key
+            timeout: Request timeout
             
         Returns:
             Response dict with 'content', 'tokens', 'model', 'cached'
+            
+        Raises:
+            CircuitBreakerOpen: If circuit breaker is open
+            APIError: OpenAI API errors
         """
-        # Check cache
+        # Check cache first
         if cache_key and cache_key in self.cache:
             logger.info(f"Cache hit for key: {cache_key}")
             return {**self.cache[cache_key], 'cached': True}
         
         self.total_requests += 1
+        
+        # Execute with circuit breaker protection
+        try:
+            result = await self.circuit_breaker.call(
+                self._do_chat_completion,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+                timeout=timeout
+            )
+            
+            # Cache result
+            if cache_key:
+                self.cache[cache_key] = result
+            
+            return result
+            
+        except CircuitBreakerOpen as e:
+            # Circuit breaker rejected call
+            self.circuit_breaker_rejections += 1
+            logger.error(f"Circuit breaker rejection: {e.message}")
+            
+            # Return error response instead of raising
+            # This allows callers to implement fallback logic
+            return {
+                'content': None,
+                'error': 'circuit_breaker_open',
+                'error_message': e.message,
+                'circuit_breaker_state': self.circuit_breaker.get_state(),
+                'cached': False
+            }
+    
+    async def _do_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        response_format: Optional[Dict[str, str]],
+        timeout: float
+    ) -> Dict[str, Any]:
+        """Internal method for actual API call"""
         start_time = asyncio.get_event_loop().time()
         
         try:
@@ -107,57 +162,33 @@ class LLMClient:
             
             # Extract response
             content = completion.choices[0].message.content
-            finish_reason = completion.choices[0].finish_reason
+            tokens = completion.usage.total_tokens if completion.usage else 0
             
-            # Track tokens
-            tokens_used = completion.usage.total_tokens
-            self.total_tokens += tokens_used
-            
+            # Update metrics
+            self.total_tokens += tokens
             elapsed = asyncio.get_event_loop().time() - start_time
             
             logger.info(
-                f"LLM request completed: {tokens_used} tokens, "
-                f"{elapsed:.2f}s, finish_reason={finish_reason}"
+                f"✅ LLM completion: {tokens} tokens, {elapsed:.2f}s, "
+                f"model={completion.model}"
             )
             
-            result = {
+            return {
                 'content': content,
-                'tokens': tokens_used,
+                'tokens': tokens,
                 'model': completion.model,
-                'finish_reason': finish_reason,
-                'cached': False,
                 'latency_ms': int(elapsed * 1000),
+                'cached': False,
                 'streamed': False
             }
             
-            # Cache if requested
-            if cache_key:
-                self.cache[cache_key] = result
-            
-            return result
-            
         except asyncio.TimeoutError:
-            logger.error(f"LLM request timed out after {timeout}s")
+            logger.error(f"LLM request timeout after {timeout}s")
             self.total_errors += 1
             raise APITimeoutError(f"Request timed out after {timeout}s")
             
-        except RateLimitError as e:
-            logger.warning(f"Rate limit hit: {e}")
-            self.total_errors += 1
-            raise
-            
-        except APITimeoutError as e:
-            logger.warning(f"API timeout: {e}")
-            self.total_errors += 1
-            raise
-            
-        except APIError as e:
-            logger.error(f"API error: {e}")
-            self.total_errors += 1
-            raise
-            
         except Exception as e:
-            logger.error(f"Unexpected error in LLM call: {e}", exc_info=True)
+            logger.error(f"LLM API error: {e}", exc_info=True)
             self.total_errors += 1
             raise
     
@@ -170,109 +201,120 @@ class LLMClient:
         timeout: float = 120.0
     ) -> Dict[str, Any]:
         """
-        STREAMING chat completion with real-time callbacks
-        
-        OPTIMIZED FOR:
-        - Latency reduction (Time To First Byte < 1s)
-        - User feedback (progress indication via on_chunk)
-        - Performance (reduces perceived wait time by ~80-90%)
-        
-        STRATEGY:
-        - Start streaming immediately (low TTFB)
-        - Call on_chunk for each content delta (user feedback)
-        - Accumulate full response (reliability)
-        - Track tokens and performance
+        STREAMING chat completion with circuit breaker protection
         
         Args:
             messages: Chat messages
-            temperature: Sampling temperature (0-2)
-            max_tokens: Maximum tokens to generate
-            on_chunk: Async callback called for each content chunk
-            timeout: Request timeout in seconds
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens
+            on_chunk: Async callback for each content chunk
+            timeout: Request timeout
             
         Returns:
             Dict with full content, tokens, model, metrics
             
-        Example:
-            async def handle_chunk(chunk: str):
-                print(f"Received: {chunk}")
-                await websocket.send({'type': 'thinking', 'chunk': chunk})
-            
-            result = await client.chat_completion_stream(
-                messages=[{"role": "user", "content": "Hello"}],
-                on_chunk=handle_chunk
-            )
-            # Result: {'content': 'Hello! ...', 'tokens': 42, 'chunk_count': 15}
+        Raises:
+            CircuitBreakerOpen: If circuit breaker is open
         """
         self.total_requests += 1
         self.total_streaming_requests += 1
-        start_time = asyncio.get_event_loop().time()
         
-        full_content = ""
+        # Execute with circuit breaker protection
+        try:
+            result = await self.circuit_breaker.call(
+                self._do_chat_completion_stream,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                on_chunk=on_chunk,
+                timeout=timeout
+            )
+            
+            return result
+            
+        except CircuitBreakerOpen as e:
+            # Circuit breaker rejected call
+            self.circuit_breaker_rejections += 1
+            logger.error(f"Circuit breaker rejection (streaming): {e.message}")
+            
+            return {
+                'content': None,
+                'error': 'circuit_breaker_open',
+                'error_message': e.message,
+                'circuit_breaker_state': self.circuit_breaker.get_state(),
+                'streamed': False
+            }
+    
+    async def _do_chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        on_chunk: Optional[Callable[[str], Awaitable[None]]],
+        timeout: float
+    ) -> Dict[str, Any]:
+        """Internal method for streaming API call"""
+        start_time = time.time()
+        full_content = ''
+        chunk_count = 0
+        first_chunk_time = None
         tokens_used = 0
         model_used = None
         finish_reason = None
-        chunk_count = 0
-        first_chunk_time = None
         
         try:
-            # Create streaming completion with timeout
+            # Create streaming completion
             stream = await asyncio.wait_for(
                 self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    stream=True,
-                    stream_options={"include_usage": True}
+                    stream=True
                 ),
-                timeout=timeout
+                timeout=5  # Quick timeout for stream setup
             )
             
             # Process stream
             async for chunk in stream:
-                # Track TTFB (Time To First Byte)
-                if chunk_count == 0:
-                    first_chunk_time = asyncio.get_event_loop().time()
-                    ttfb_ms = int((first_chunk_time - start_time) * 1000)
-                    logger.info(f"⚡ TTFB: {ttfb_ms}ms (streaming)")
+                if not first_chunk_time:
+                    first_chunk_time = time.time()
                 
-                # Extract content from chunk
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content_chunk = chunk.choices[0].delta.content
-                    full_content += content_chunk
+                # Extract content
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    content = delta.content
+                    full_content += content
                     chunk_count += 1
                     
-                    # Call callback if provided
+                    # Call progress callback
                     if on_chunk:
                         try:
-                            await on_chunk(content_chunk)
+                            await on_chunk(content)
                         except Exception as e:
-                            logger.warning(f"Chunk callback error: {e}")
+                            logger.warning(f"Error in chunk callback: {e}")
                 
-                # Extract finish reason
+                # Extract metadata
+                if not model_used and hasattr(chunk, 'model'):
+                    model_used = chunk.model
+                
                 if chunk.choices and chunk.choices[0].finish_reason:
                     finish_reason = chunk.choices[0].finish_reason
                 
-                # Extract model (available in first chunk)
-                if chunk.model and not model_used:
-                    model_used = chunk.model
-                
-                # Extract usage (available in final chunk with include_usage=True)
+                # Extract token usage (if available)
                 if hasattr(chunk, 'usage') and chunk.usage:
                     tokens_used = chunk.usage.total_tokens
             
-            # Update total token count
-            self.total_tokens += tokens_used
-            
             # Calculate metrics
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = time.time() - start_time
             ttfb_ms = int((first_chunk_time - start_time) * 1000) if first_chunk_time else 0
+            
+            # Update global metrics
+            self.total_tokens += tokens_used
             
             logger.info(
                 f"✅ Streaming LLM completed: {tokens_used} tokens, "
-                f"{chunk_count} chunks, {elapsed:.2f}s, TTFB={ttfb_ms}ms, "
-                f"finish_reason={finish_reason}"
+                f"{chunk_count} chunks, {elapsed:.2f}s, TTFB={ttfb_ms}ms"
             )
             
             return {
@@ -280,11 +322,11 @@ class LLMClient:
                 'tokens': tokens_used,
                 'model': model_used or self.model,
                 'finish_reason': finish_reason,
-                'cached': False,
                 'latency_ms': int(elapsed * 1000),
                 'ttfb_ms': ttfb_ms,
                 'streamed': True,
-                'chunk_count': chunk_count
+                'chunk_count': chunk_count,
+                'cached': False
             }
             
         except asyncio.TimeoutError:
@@ -306,41 +348,20 @@ class LLMClient:
         on_chunk: Optional[Callable[[str], Awaitable[None]]] = None
     ) -> Dict[str, Any]:
         """
-        Get structured JSON response from LLM with OPTIMIZED STREAMING
+        Get structured JSON response with circuit breaker protection
         
-        STREAMING STRATEGY:
-        - Streams content to reduce latency (TTFB < 1s)
-        - Provides user feedback via on_chunk callbacks
-        - Accumulates full response for reliable JSON parsing
-        - No partial JSON parsing (too unreliable)
-        
-        WHEN TO USE STREAMING:
-        - Decision making: ✅ stream=True, on_chunk=websocket_callback
-        - Insight generation: ✅ stream=True, on_chunk=progress_indicator
-        - Simple data queries: ❌ stream=False (fast enough without)
+        If circuit breaker is open, returns error dict instead of raising
+        Callers should check for 'error' key in response
         
         Args:
             prompt: User prompt
             system_prompt: System instruction
-            expected_fields: List of required fields in response
-            stream: Whether to use streaming (default: False for compatibility)
-            on_chunk: Optional callback for streaming chunks (progress updates)
+            expected_fields: List of required fields
+            stream: Whether to use streaming
+            on_chunk: Optional callback for streaming chunks
             
         Returns:
-            Parsed JSON dict
-            
-        Example:
-            # With streaming and progress updates
-            async def show_thinking(chunk: str):
-                await websocket.send({'type': 'thinking', 'chunk': chunk})
-            
-            decision = await client.get_structured_decision(
-                prompt="What should I do next?",
-                system_prompt="You are an agent.",
-                stream=True,  # Enable streaming
-                on_chunk=show_thinking  # Show progress
-            )
-            # Returns: {'action': 'gather_data', 'reasoning': '...'}
+            Parsed JSON dict or error dict with 'error' key
         """
         messages = [
             {"role": "system", "content": system_prompt},
@@ -349,35 +370,30 @@ class LLMClient:
         
         # Choose streaming or non-streaming
         if stream and on_chunk:
-            # STREAMING PATH (with callback for progress)
-            # Best for: decision making, long operations, user feedback
-            logger.debug("🌊 Using streaming mode with progress callbacks")
             response = await self.chat_completion_stream(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500,
-                on_chunk=on_chunk  # Forward progress updates
+                on_chunk=on_chunk
             )
         elif stream:
-            # STREAMING PATH (no callback)
-            # Best for: latency reduction without progress updates
-            logger.debug("🌊 Using streaming mode (no callbacks)")
             response = await self.chat_completion_stream(
                 messages=messages,
                 temperature=0.3,
-                max_tokens=500,
-                on_chunk=None
+                max_tokens=500
             )
         else:
-            # NON-STREAMING PATH (legacy compatibility)
-            # Best for: cached requests, very fast operations
-            logger.debug("📦 Using non-streaming mode")
             response = await self.chat_completion(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=500,
-                response_format={"type": "json_object"}  # Helps with JSON
+                response_format={"type": "json_object"}
             )
+        
+        # Check for circuit breaker error
+        if 'error' in response:
+            logger.error(f"Circuit breaker blocked structured decision: {response['error_message']}")
+            return response  # Return error dict for caller to handle
         
         # Parse JSON from complete response
         try:
@@ -388,51 +404,49 @@ class LLMClient:
                 missing = [f for f in expected_fields if f not in result]
                 if missing:
                     logger.warning(f"Missing expected fields: {missing}")
-                    # Add defaults for missing fields
                     for field in missing:
                         result[field] = None
             
-            # Log success with metrics
             logger.debug(
-                f"✅ Structured decision parsed: "
-                f"{len(result)} fields, "
-                f"streamed={response.get('streamed', False)}, "
-                f"TTFB={response.get('ttfb_ms', 0)}ms"
+                f"✅ Structured decision parsed: {len(result)} fields, "
+                f"streamed={response.get('streamed', False)}"
             )
             
             return result
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM JSON response: {e}")
-            logger.error(f"Raw content (first 500 chars): {response['content'][:500]}...")
-            raise ValueError(f"LLM returned invalid JSON: {e}")
+            logger.error(f"Failed to parse JSON: {e}\nContent: {response['content'][:200]}")
+            return {
+                'error': 'json_parse_error',
+                'error_message': f"Failed to parse LLM response as JSON: {str(e)}",
+                'raw_content': response['content'][:500]
+            }
     
     def get_metrics(self) -> Dict[str, Any]:
-        """
-        Get client performance metrics
+        """Get client metrics"""
+        cb_state = self.circuit_breaker.get_state()
         
-        Returns:
-            Dict with request counts, streaming stats, tokens, errors
-        """
-        streaming_pct = (self.total_streaming_requests / max(self.total_requests, 1)) * 100
-        error_rate = self.total_errors / max(self.total_requests, 1)
-
         return {
             'total_requests': self.total_requests,
-            'streaming_requests': self.total_streaming_requests,
-            'non_streaming_requests': self.total_requests - self.total_streaming_requests,
-            'streaming_percentage': round(streaming_pct, 2),
+            'total_streaming_requests': self.total_streaming_requests,
             'total_tokens': self.total_tokens,
             'total_errors': self.total_errors,
+            'circuit_breaker_rejections': self.circuit_breaker_rejections,
             'cache_size': len(self.cache),
-            'cache_hit_rate': 'N/A',  # Could track cache hits separately
-            'error_rate': round(error_rate, 4)
+            'circuit_breaker': cb_state
         }
     
-    def clear_cache(self):
-        """Clear response cache"""
-        self.cache.clear()
-        logger.info("LLM cache cleared")
+    def get_circuit_breaker_state(self) -> Dict[str, Any]:
+        """Get circuit breaker state"""
+        return self.circuit_breaker.get_state()
+    
+    async def force_circuit_breaker_open(self):
+        """Manually open circuit breaker (for testing/maintenance)"""
+        await self.circuit_breaker.force_open()
+    
+    async def force_circuit_breaker_close(self):
+        """Manually close circuit breaker (use with caution!)"""
+        await self.circuit_breaker.force_close()
 
 
 # Global LLM client instance

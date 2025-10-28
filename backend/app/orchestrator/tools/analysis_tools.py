@@ -2,10 +2,9 @@
 from typing import Dict, Any, List, Optional, Callable
 import logging
 import time
-from app.config import settings
 from collections import Counter
-import asyncio
-import re
+
+from app.orchestrator.tools.base_tool import BaseTool
 
 # Import the LLM client from existing infrastructure
 from app.orchestrator.llm.client import llm_client
@@ -13,7 +12,7 @@ from app.orchestrator.llm.client import llm_client
 logger = logging.getLogger(__name__)
 
 
-class ReviewSentimentAnalysisTool:
+class ReviewSentimentAnalysisTool(BaseTool):
     """
     LLM-Powered Sentiment Analysis of Product Reviews with Streaming Progress
     
@@ -267,7 +266,7 @@ Return JSON with sentiment analysis for each review."""
         else:
             return 'negative'
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze sentiment of reviews using OpenAI with real-time progress updates
         
@@ -474,13 +473,14 @@ Return JSON with sentiment analysis for each review."""
                 'execution_time_ms': int((time.time() - start_time) * 1000)
             }
 
-class SentimentAnalysisTool:
+
+class SentimentAnalysisTool(BaseTool):
     """Analyze sentiment of text data"""
     
     def __init__(self):
         self.name = "Sentiment Analysis"
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze sentiment of text records
         
@@ -552,7 +552,7 @@ class SentimentAnalysisTool:
             }
 
 
-class GenerateInsightsTool:
+class GenerateInsightsTool(BaseTool):
     """
     Generate insights from analyzed data using LLM with STREAMING SUPPORT
     
@@ -581,7 +581,7 @@ class GenerateInsightsTool:
         self.websocket_manager = ws_manager
         logger.info("✅ WebSocket manager injected into GenerateInsightsTool")
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate insights with streaming support
         
@@ -827,13 +827,404 @@ Output must be valid JSON with an 'insights' array."""
         return insights
 
 
-class ShowResultsTool:
+class ShowResultsTool(BaseTool):
+    """
+    Final output tool - condenses and presents workflow results
+    
+    This tool MUST be the last tool in every workflow, just like LoadReviewsTool
+    must be the first. It intelligently summarizes all transformations and
+    analyses performed by previous tools.
+    
+    Features:
+    - Pipeline summary (tools used in order)
+    - Data transformation summary (changes at each step)
+    - Key insights extraction
+    - Actionable recommendations
+    - Readable formatting for participants
+    """
+    
+    def __init__(self):
+        self.name = "Show Results"
+    
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format and present final results from all previous tools
+        
+        Args:
+            input_data: {
+                'data': Current dataset with all transformations,
+                'session_id': Session identifier (optional),
+                'execution_id': Workflow execution ID (optional)
+            }
+            
+        Returns:
+            Comprehensive formatted results with:
+            - Executive summary
+            - Pipeline overview
+            - Data summary
+            - Key insights
+            - Final dataset
+        """
+        start_time = time.time()
+        
+        try:
+            data = input_data.get('data', {})
+            
+            logger.info("📊 ShowResults: Formatting final output")
+            
+            # Build comprehensive results
+            formatted_results = {
+                'executive_summary': self._create_executive_summary(data),
+                'pipeline_summary': self._create_pipeline_summary(data),
+                'data_summary': self._create_data_summary(data),
+                'key_insights': self._extract_key_insights(data),
+                'recommendations': self._generate_recommendations(data),
+                'final_dataset': {
+                    'records': data.get('records', []),
+                    'record_count': len(data.get('records', []))
+                },
+                'metadata': {
+                    'processed_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'workflow_complete': True,
+                    'output_format': 'enhanced_v1'
+                }
+            }
+            
+            execution_time = int((time.time() - start_time) * 1000)
+            
+            logger.info(
+                f"✅ ShowResults: Formatted {len(data.get('records', []))} "
+                f"records with {len(formatted_results.get('key_insights', []))} insights "
+                f"in {execution_time}ms"
+            )
+            
+            return {
+                'success': True,
+                'data': formatted_results,
+                'execution_time_ms': execution_time,
+                'metadata': {
+                    'tool': self.name,
+                    'output_ready': True,
+                    'is_final_output': True  # Flag this as final tool
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error in ShowResultsTool: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e),
+                'data': None
+            }
+    
+    def _create_executive_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create high-level executive summary
+        
+        This is the TL;DR for participants - what they need to know immediately
+        """
+        records = data.get('records', [])
+        
+        summary = {
+            'total_records': len(records),
+            'data_loaded': data.get('category', 'reviews'),
+            'transformations_applied': self._count_transformations(data),
+            'analysis_complete': bool(data.get('insights') or data.get('sentiment_summary'))
+        }
+        
+        # Add sentiment if available
+        if 'sentiment_summary' in data:
+            sentiment = data['sentiment_summary']
+            total = sum(sentiment.values()) or 1
+            summary['sentiment_overview'] = {
+                'positive_pct': round((sentiment.get('positive', 0) / total) * 100, 1),
+                'neutral_pct': round((sentiment.get('neutral', 0) / total) * 100, 1),
+                'negative_pct': round((sentiment.get('negative', 0) / total) * 100, 1),
+                'overall_tone': self._determine_overall_tone(sentiment)
+            }
+        
+        return summary
+    
+    def _create_pipeline_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Summarize the tool pipeline that was executed
+        
+        Shows participants what transformations their data went through
+        """
+        pipeline = {
+            'steps_executed': [],
+            'data_flow': []
+        }
+        
+        # Track tools that were used (based on data flags/metadata)
+        initial_count = data.get('total', len(data.get('records', [])))
+        current_count = len(data.get('records', []))
+        
+        # Step 1: Data Loading (always first)
+        pipeline['steps_executed'].append({
+            'step': 1,
+            'tool': 'Load Reviews',
+            'action': f"Loaded {initial_count} reviews",
+            'records_in': 0,
+            'records_out': initial_count
+        })
+        
+        step_num = 2
+        
+        # Detect filtering
+        if 'filters_applied' in data or 'filtered_count' in data:
+            filtered_count = data.get('filtered_count', current_count)
+            removed = initial_count - filtered_count if initial_count > filtered_count else 0
+            pipeline['steps_executed'].append({
+                'step': step_num,
+                'tool': 'Filter Reviews',
+                'action': f"Filtered data ({removed} records removed)",
+                'records_in': initial_count,
+                'records_out': filtered_count
+            })
+            initial_count = filtered_count
+            step_num += 1
+        
+        # Detect sorting
+        if 'sorted_by' in data:
+            pipeline['steps_executed'].append({
+                'step': step_num,
+                'tool': 'Sort Reviews',
+                'action': f"Sorted by {data.get('sorted_by')} ({data.get('sort_order', 'desc')})",
+                'records_in': current_count,
+                'records_out': current_count
+            })
+            step_num += 1
+        
+        # Detect cleaning
+        if data.get('cleaned'):
+            issues_fixed = data.get('issues_removed', 0)
+            pipeline['steps_executed'].append({
+                'step': step_num,
+                'tool': 'Clean Data' if not data.get('ai_powered') else 'AI Data Cleaner',
+                'action': f"Cleaned data ({issues_fixed} issues fixed)",
+                'records_in': current_count,
+                'records_out': current_count
+            })
+            step_num += 1
+        
+        # Detect sentiment analysis
+        if 'sentiment_summary' in data or any('sentiment' in str(r) for r in data.get('records', [])[:5]):
+            pipeline['steps_executed'].append({
+                'step': step_num,
+                'tool': 'Sentiment Analysis',
+                'action': f"Analyzed sentiment of {current_count} reviews",
+                'records_in': current_count,
+                'records_out': current_count
+            })
+            step_num += 1
+        
+        # Detect insights generation
+        if 'insights' in data:
+            insight_count = len(data.get('insights', []))
+            pipeline['steps_executed'].append({
+                'step': step_num,
+                'tool': 'Generate Insights',
+                'action': f"Generated {insight_count} insights",
+                'records_in': current_count,
+                'records_out': current_count
+            })
+            step_num += 1
+        
+        # Final step: Show Results (always last)
+        pipeline['steps_executed'].append({
+            'step': step_num,
+            'tool': 'Show Results',
+            'action': f"Formatted {current_count} records for output",
+            'records_in': current_count,
+            'records_out': current_count
+        })
+        
+        # Create data flow summary
+        pipeline['data_flow'] = {
+            'initial_records': initial_count if 'total' in data else len(data.get('records', [])),
+            'final_records': current_count,
+            'records_removed': max(0, (initial_count if 'total' in data else current_count) - current_count),
+            'transformation_count': len(pipeline['steps_executed']) - 2  # Exclude Load and Show
+        }
+        
+        return pipeline
+    
+    def _create_data_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create detailed data summary
+        
+        Statistical overview of the final dataset
+        """
+        records = data.get('records', [])
+        
+        if not records:
+            return {
+                'record_count': 0,
+                'message': 'No records in final dataset'
+            }
+        
+        summary = {
+            'record_count': len(records),
+            'data_type': data.get('category', 'reviews'),
+        }
+        
+        # Analyze rating distribution (if available)
+        ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
+        if ratings:
+            summary['rating_distribution'] = {
+                '5_star': ratings.count(5),
+                '4_star': ratings.count(4),
+                '3_star': ratings.count(3),
+                '2_star': ratings.count(2),
+                '1_star': ratings.count(1),
+                'average_rating': round(sum(ratings) / len(ratings), 2)
+            }
+        
+        # Analyze helpful votes (if available)
+        helpful_votes = [r.get('helpful_votes', 0) for r in records]
+        if helpful_votes:
+            summary['helpfulness'] = {
+                'total_helpful_votes': sum(helpful_votes),
+                'avg_helpful_votes': round(sum(helpful_votes) / len(helpful_votes), 2),
+                'max_helpful_votes': max(helpful_votes)
+            }
+        
+        # Sentiment distribution (if available)
+        if 'sentiment_summary' in data:
+            summary['sentiment_distribution'] = data['sentiment_summary']
+        
+        # Verified purchase ratio
+        verified = sum(1 for r in records if r.get('verified_purchase'))
+        summary['verified_purchase_ratio'] = round(verified / len(records), 2) if records else 0
+        
+        return summary
+    
+    def _extract_key_insights(self, data: Dict[str, Any]) -> List[str]:
+        """
+        Extract key insights from the data and previous analyses
+        
+        Prioritized list of the most important findings
+        """
+        insights = []
+        records = data.get('records', [])
+        
+        # Add pre-generated insights if available
+        if 'insights' in data:
+            insights.extend(data.get('insights', []))
+        
+        # Generate additional insights from data patterns
+        if records:
+            # Rating insights
+            ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
+            if ratings:
+                avg_rating = sum(ratings) / len(ratings)
+                if avg_rating >= 4.0:
+                    insights.append(f"Strong customer satisfaction with average rating of {avg_rating:.2f}/5.0")
+                elif avg_rating < 3.0:
+                    insights.append(f"Concerning low average rating of {avg_rating:.2f}/5.0 requires attention")
+            
+            # Sentiment insights (if available)
+            if 'sentiment_summary' in data:
+                sentiment = data['sentiment_summary']
+                total = sum(sentiment.values()) or 1
+                negative_pct = (sentiment.get('negative', 0) / total) * 100
+                
+                if negative_pct > 25:
+                    insights.append(f"{negative_pct:.1f}% negative sentiment - investigate common complaints")
+            
+            # Verification insights
+            verified = sum(1 for r in records if r.get('verified_purchase'))
+            verified_pct = (verified / len(records)) * 100
+            if verified_pct < 50:
+                insights.append(f"Only {verified_pct:.1f}% are verified purchases - authenticity concerns may exist")
+        
+        # If no insights generated, provide default
+        if not insights:
+            insights.append(f"Analyzed {len(records)} reviews - review detailed data for patterns")
+        
+        return insights[:5]  # Return top 5 insights
+    
+    def _generate_recommendations(self, data: Dict[str, Any]) -> List[str]:
+        """
+        Generate actionable recommendations based on results
+        
+        What should participants do with these insights?
+        """
+        recommendations = []
+        records = data.get('records', [])
+        
+        if not records:
+            return ["No data available for recommendations"]
+        
+        # Sentiment-based recommendations
+        if 'sentiment_summary' in data:
+            sentiment = data['sentiment_summary']
+            total = sum(sentiment.values()) or 1
+            negative_pct = (sentiment.get('negative', 0) / total) * 100
+            positive_pct = (sentiment.get('positive', 0) / total) * 100
+            
+            if negative_pct > 30:
+                recommendations.append("Priority: Analyze negative reviews to identify product/service improvements")
+                recommendations.append("Implement customer service response plan for dissatisfied customers")
+            
+            if positive_pct > 70:
+                recommendations.append("Leverage positive reviews in marketing materials")
+                recommendations.append("Identify and promote features mentioned in positive feedback")
+        
+        # Rating-based recommendations
+        ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
+        if ratings:
+            low_ratings = [r for r in ratings if r <= 2]
+            if len(low_ratings) > len(ratings) * 0.2:  # >20% low ratings
+                recommendations.append("Review 1-2 star feedback for product quality issues")
+        
+        # Data quality recommendations
+        if data.get('cleaned'):
+            recommendations.append("Data cleaning was applied - verify data integrity in source systems")
+        
+        # Default recommendation
+        if not recommendations:
+            recommendations.append("Review detailed results and export data for further analysis")
+            recommendations.append("Consider segmentation analysis by rating or product features")
+        
+        return recommendations[:5]  # Top 5 recommendations
+    
+    def _count_transformations(self, data: Dict[str, Any]) -> int:
+        """Count how many transformation steps were applied"""
+        count = 0
+        
+        if 'filters_applied' in data or 'filtered_count' in data:
+            count += 1
+        if 'sorted_by' in data:
+            count += 1
+        if data.get('cleaned'):
+            count += 1
+        if 'sentiment_summary' in data:
+            count += 1
+        if 'insights' in data:
+            count += 1
+        
+        return count
+    
+    def _determine_overall_tone(self, sentiment_summary: Dict[str, int]) -> str:
+        """Determine overall sentiment tone"""
+        total = sum(sentiment_summary.values()) or 1
+        positive_pct = (sentiment_summary.get('positive', 0) / total) * 100
+        negative_pct = (sentiment_summary.get('negative', 0) / total) * 100
+        
+        if positive_pct > 60:
+            return "Positive"
+        elif negative_pct > 40:
+            return "Negative"
+        else:
+            return "Mixed"
     """Format and prepare results for output"""
     
     def __init__(self):
         self.name = "Show Results"
     
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Format results for presentation
         

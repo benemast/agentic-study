@@ -147,6 +147,23 @@ class WorkflowBuilderGraph:
                 # Execute tool
                 result = await tool.run(input_data)
 
+                # error_handler
+                if not result.get('success'):
+                    error_type = result.get('error')
+                    
+                    if error_type == 'timeout':
+                        # Tool timed out - record and continue or fail
+                        logger.error(f"Tool timeout: {node_label}")
+                        
+                        # Option 1: Fail execution
+                        state['status'] = 'error'
+                        state['errors'].append({
+                            'step': state['step_number'],
+                            'tool': node_label,
+                            'error': 'timeout',
+                            'message': result['error_message']
+                        })
+
                 if result.get('success'):
                     # Update working data in state
                     state['working_data'] = result.get('data', state['working_data'])

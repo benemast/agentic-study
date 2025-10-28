@@ -25,8 +25,8 @@ from .data_tools import (
     LoadReviewsTool,
     FilterReviewsTool,
     SortReviewsTool,
+    DataCleanerTool,
     
-    CleanDataTool,
     CombineDataTool
 )
 
@@ -38,24 +38,24 @@ from .analysis_tools import (
 )
 
 __all__ = [
-    # ✅ PRIMARY EXPORTS - Use these!
-    'tool_registry',        # Global registry instance
-    'ToolRegistry',         # Registry class
-    'ToolDefinition',       # Tool definition class
-    'TOOL_DEFINITIONS',     # List of all tool definitions
+    'tool_registry',
+    'ToolRegistry',
+    'ToolDefinition',
+    'TOOL_DEFINITIONS',
     
     # Individual tool classes (for testing/advanced use)
     'BaseTool',
+
     'LoadReviewsTool',
     'FilterReviewsTool',
     'SortReviewsTool',
-    'ReviewSentimentAnalysisTool',
+    'DataCleanerTool',
 
-    'CleanDataTool',
-    'CombineDataTool',
-    'SentimentAnalysisTool',
+    'ReviewSentimentAnalysisTool',
     'GenerateInsightsTool',
+
+    'CombineDataTool',
     'ShowResultsTool',
 ]
 
-__version__ = '2.0.0'  # Incremented for tool registry introduction
+__version__ = '1.0.2' 

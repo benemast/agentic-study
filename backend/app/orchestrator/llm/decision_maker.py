@@ -8,6 +8,8 @@ import logging
 import json
 from datetime import datetime
 
+from ..degradation import graceful_degradation
+
 from .client import llm_client
 from .tool_schemas import (
     AgentDecision, 
@@ -18,7 +20,6 @@ from .tool_schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class DecisionMaker:
     """
@@ -84,6 +85,17 @@ class DecisionMaker:
             - type: 'agent_thinking', chunk: 'I will use...'
             (sent during LLM processing)
         """
+
+        # GET DEGRADATION CONFIG
+        config = graceful_degradation.get_config()
+
+        # Use config settings
+        if not config.llm_decisions_enabled:
+            # Use rule-based fallback instead of LLM
+            logger.info("Degradation: Using rule-based decision (no LLM)")
+            return self._get_safe_fallback_decision(state, "System degraded")
+
+
         # Build context-rich prompt
         prompt = self._build_decision_prompt(
             task_description,

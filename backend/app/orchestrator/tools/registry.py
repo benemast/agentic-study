@@ -20,19 +20,18 @@ from .data_tools import (
     FilterReviewsTool,
     SortReviewsTool,
     LoadReviewsTool,
-
-    CleanDataTool,
+    DataCleanerTool,
+    
     CombineDataTool
 )
 from .analysis_tools import (
     ReviewSentimentAnalysisTool,
-
     GenerateInsightsTool,
+
     ShowResultsTool
 )
 
 logger = logging.getLogger(__name__)
-
 
 class ToolDefinition:
     """
@@ -139,14 +138,14 @@ TOOL_DEFINITIONS = [
 
     
     ToolDefinition(
-        tool_class=CleanDataTool,
+        tool_class=DataCleanerTool,
         workflow_id='clean-data',
         ai_id='clean_data',
-        display_name='Clean Data',
-        description='Clean and normalize data records (remove nulls, standardize formats).',
+        display_name='AI Data Cleaner',
+        description='Use AI to automatically detect and remove low-quality, spam, or malformed reviews while ensuring data integrity.',
         category='data',
         requires_data=True,
-        parameter_schema_name=None  # No parameters
+        parameter_schema_name=None
     ),
     
     

@@ -1,16 +1,21 @@
 # backend/app/orchestrator/service.py
 from typing import Dict, Any, Optional
+from fastapi import HTTPException
+from openai import APIError, APITimeoutError, RateLimitError
 from sqlalchemy.orm import Session
 from datetime import datetime
 import logging
 import traceback
 
+
 from app.models.execution import ExecutionCheckpoint, WorkflowExecution
+from app.orchestrator.llm.circuit_breaker import CircuitBreakerOpen
 from .state_manager import HybridStateManager
 from .graphs.workflow_builder import WorkflowBuilderGraph
 from .graphs.ai_assistant import AIAssistantGraph
 
 from app.websocket.manager import ws_manager
+from .degradation import graceful_degradation
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,8 @@ class OrchestrationService:
     
     def __init__(self):
         self.state_manager = HybridStateManager()
-        self.ws_manager = ws_manager
+        self.ws_manager = ws_manager        
+        self.degradation = graceful_degradation
         logger.info("✅ Orchestration service initialized")
     
     async def execute_workflow(
@@ -85,6 +91,14 @@ class OrchestrationService:
         """
         logger.info(f"Starting execution: id={execution_id}, session={session_id}, condition={condition}")
         
+        allowed, reason = self.degradation.should_allow_execution()
+        if not allowed:
+            logger.error(f"Execution blocked: {reason}")
+            raise HTTPException(
+                status_code=503,
+                detail=reason
+            )
+
         # Fetch existing execution record
         execution = db.query(WorkflowExecution).filter(
             WorkflowExecution.id == execution_id
@@ -155,6 +169,8 @@ class OrchestrationService:
             execution.steps_completed = final_state.get('step_number', 0)
             execution.execution_time_ms = final_state.get('total_time_ms', 0)
             
+            self.degradation.report_success()
+
             # Get checkpoint count
             from app.database import get_db_context
             with get_db_context() as checkpoint_db:
@@ -185,7 +201,21 @@ class OrchestrationService:
             
         except Exception as e:
             logger.exception(f"Execution {execution.id} failed: {e}")
+
+            """
+            TODO: Not quite sure how to corerctly implement this yet!
+            Classify error severity for degradation
             
+            if isinstance(logging.error, (CircuitBreakerOpen, APITimeoutError)):
+                return 'high'
+            elif isinstance(logging.error, (APIError, RateLimitError)):
+                return 'critical'
+            elif isinstance(logging.error, TimeoutError):
+                return 'normal'
+            else:
+                return 'normal'
+            """
+
             # Update execution with error (rollback-safe)
             try:
                 execution.status = 'failed'

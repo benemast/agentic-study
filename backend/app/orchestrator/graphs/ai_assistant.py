@@ -242,6 +242,56 @@ class AIAssistantGraph:
         """
         Execute the action decided by the planner
         """
+        step_number = state.get('step_number', 0)
+        tool_ai_id = state['metadata'].get('next_tool')
+        agent_memory = state.get('agent_memory', [])
+        
+        # Get tool definition
+        tool_def = self.registry.get_tool_definition(ai_id=tool_ai_id)
+
+        if not tool_def:
+            logger.error(f"Invalid tool: {tool_ai_id}")
+            return state
+        
+        # VALIDATE FIRST TOOL
+        if step_number == 1:  # First step
+            if not tool_def.is_required_first:
+                error_msg = (
+                    f"First tool must be 'Load Reviews', but agent chose '{tool_def.display_name}'. "
+                    "Forcing correct tool."
+                )
+                logger.warning(error_msg)
+                
+                # Override with correct tool
+                tool_ai_id = 'load_reviews'
+                tool_def = self.registry.get_tool_definition(ai_id='load_reviews')
+                state['metadata']['next_tool'] = 'load_reviews'
+                state['warnings'].append(error_msg)
+        
+        # VALIDATE LAST TOOL (if agent says finish)
+        next_action = state['metadata'].get('next_action')
+        if next_action == 'finish':
+            # Check if we've used ShowResults
+            used_show_results = any(
+                mem.get('decision', {}).get('tool_name') == 'show_results'
+                for mem in agent_memory
+            )
+            
+            if not used_show_results:
+                error_msg = (
+                    "Agent tried to finish without using 'Show Results'. "
+                    "Forcing Show Results execution."
+                )
+                logger.warning(error_msg)
+                
+                # Override to use ShowResults
+                tool_ai_id = 'show_results'
+                tool_def = self.registry.get_tool_definition(ai_id='show_results')
+                state['metadata']['next_tool'] = 'show_results'
+                state['metadata']['next_action'] = 'output'
+                state['warnings'].append(error_msg)
+                
+
         step_start_time = time.time()
         action = state['metadata'].get('next_action')
         tool_ai_id = state['metadata'].get('next_tool')

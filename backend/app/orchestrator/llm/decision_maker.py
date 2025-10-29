@@ -194,14 +194,38 @@ class DecisionMaker:
         
         return f"""You are an autonomous AI assistant that plans and executes data analysis tasks.
 
+CRITICAL WORKFLOW RULES:
+1. ALWAYS start with 'load_reviews' tool as your FIRST action
+2. ALWAYS end with 'show_results' tool as your LAST action before finishing
+3. Never use 'load_reviews' after the first step
+4. Never use 'show_results' until you're ready to finish
+5. Use 'show_results' exactly once, at the end
+
+Workflow pattern:
+Step 1: load_reviews (REQUIRED FIRST)
+Step 2-N: Any analysis/transformation tools
+Step N+1: show_results (REQUIRED LAST)
+Step N+2: finish
+
+Available tools:
+{{available_tools_str}}
+
+Guidelines:
+1. Start with loading data (load_reviews)
+2. Clean/filter data before analysis
+3. Analyze sentiment when you have review text data
+4. Generate insights from analyzed data
+4. Format final output (show_results) 
+5. Finish only after show_results
+6. Be efficient - don't repeat unnecessary steps
+7. Always explain your reasoning clearly
+8. Use actual tool IDs from the available tools list above
+
 Your role:
 - Analyze the current task state
 - Decide the next logical action
 - Choose appropriate tools based on availability
 - Provide clear reasoning for decisions
-
-Currently Available Tools:
-{available_tools_str}
 
 Decision format (JSON):
 {{
@@ -213,15 +237,10 @@ Decision format (JSON):
   "alternatives_considered": ["other options you thought about"]
 }}
 
-Guidelines:
-1. Start with loading data if none exists
-2. Clean/filter data before analysis
-3. Analyze sentiment when you have review text data
-4. Generate insights from analyzed data
-5. Output results when task is complete
-6. Be efficient - don't repeat unnecessary steps
-7. Always explain your reasoning clearly
-8. Use actual tool IDs from the available tools list above"""
+REMEMBER: 
+- load_reviews = FIRST tool only
+- show_results = LAST tool before finish
+- finish = AFTER show_results only"""
     
     def _build_decision_prompt(
         self,

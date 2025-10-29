@@ -1,6 +1,6 @@
 # backend/app/orchestrator/graphs/workflow_builder.py
 from langgraph.graph import StateGraph, END
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, List
 import logging
 import time
 from datetime import datetime
@@ -26,12 +26,7 @@ class WorkflowBuilderGraph:
         self.websocket_manager = websocket_manager
         self.registry = tool_registry
 
-        if self.websocket_manager:
-        # Give decision maker access to WebSocket for streaming decisions
-            if hasattr(self.decision_maker, 'set_websocket_manager'):
-                self.decision_maker.set_websocket_manager(self.websocket_manager)
-                logger.info("✅ WebSocket manager injected into DecisionMaker")
-        
+        if self.websocket_manager:        
             # Inject WebSocket into tools that need it
             self._inject_websocket_into_tools()
     
@@ -272,6 +267,122 @@ class WorkflowBuilderGraph:
         
         return node_handler
 
+    def _validate_workflow_structure(
+        self,
+        nodes: List[Dict],
+        edges: List[Dict]
+    ) -> tuple[bool, List[str]]:
+        """
+        Validate workflow structure before execution
+        
+        Rules:
+        1. Must have at least 2 nodes (Load + Show)
+        2. First node must be LoadReviews
+        3. Last node must be ShowResults
+        4. All tools must exist in registry
+        
+        Returns:
+            (is_valid, list_of_errors)
+        """
+        errors = []
+        
+        # Check minimum nodes
+        if len(nodes) < 2:
+            errors.append("Workflow must have at least 2 nodes (Load Reviews and Show Results)")
+            return False, errors
+        
+        # Build execution order from edges
+        execution_order = self._determine_execution_order(nodes, edges)
+        
+        if not execution_order:
+            errors.append("Could not determine workflow execution order - check connections")
+            return False, errors
+        
+        # Get first and last tools
+        first_node = execution_order[0]
+        last_node = execution_order[-1]
+        
+        first_tool_id = nodes[first_node]['data'].get('template_id')
+        last_tool_id = nodes[last_node]['data'].get('template_id')
+        
+        # Validate first tool
+        first_tool_def = self.registry._by_workflow_id.get(first_tool_id)
+        if not first_tool_def or not first_tool_def.is_required_first:
+            errors.append(
+                f"First tool must be 'Load Reviews', found: '{first_tool_def.display_name if first_tool_def else first_tool_id}'"
+            )
+        
+        # Validate last tool
+        last_tool_def = self.registry._by_workflow_id.get(last_tool_id)
+        if not last_tool_def or not last_tool_def.is_required_last:
+            errors.append(
+                f"Last tool must be 'Show Results', found: '{last_tool_def.display_name if last_tool_def else last_tool_id}'"
+            )
+        
+        # Check for misplaced position-constrained tools
+        for i, node_id in enumerate(execution_order):
+            node = next(n for n in nodes if n['id'] == node_id)
+            tool_id = node['data'].get('template_id')
+            tool_def = self.registry._by_workflow_id.get(tool_id)
+            
+            if tool_def:
+                # Check if FIRST tool is not first
+                if tool_def.is_required_first and i != 0:
+                    errors.append(
+                        f"'{tool_def.display_name}' must be the first tool (found at position {i+1})"
+                    )
+                
+                # Check if LAST tool is not last
+                if tool_def.is_required_last and i != len(execution_order) - 1:
+                    errors.append(
+                        f"'{tool_def.display_name}' must be the last tool (found at position {i+1})"
+                    )
+        
+        return len(errors) == 0, errors
+    
+    def _determine_execution_order(
+        self,
+        nodes: List[Dict],
+        edges: List[Dict]
+    ) -> List[str]:
+        """
+        Determine execution order using topological sort
+        
+        Returns:
+            List of node IDs in execution order
+        """
+        # Build adjacency list
+        graph = {node['id']: [] for node in nodes}
+        in_degree = {node['id']: 0 for node in nodes}
+        
+        for edge in edges:
+            source = edge['source']
+            target = edge['target']
+            if source in graph and target in graph:
+                graph[source].append(target)
+                in_degree[target] += 1
+        
+        # Find start nodes (in_degree == 0)
+        queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
+        
+        execution_order = []
+        
+        while queue:
+            node_id = queue.pop(0)
+            execution_order.append(node_id)
+            
+            for neighbor in graph[node_id]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+        
+        # Check if all nodes were processed
+        if len(execution_order) != len(nodes):
+            logger.error("Cycle detected in workflow or disconnected nodes")
+            return []
+        
+        return execution_order
+
     def build_graph(self, workflow_definition: Dict[str, Any]) -> StateGraph:
         """
         Build LangGraph from user-defined workflow
@@ -287,11 +398,13 @@ class WorkflowBuilderGraph:
         
         logger.info(f"Building workflow with {len(nodes)} nodes and {len(edges)} edges")
 
-        is_valid, errors = self.registry.validate_workflow_definition(workflow_definition)
+        is_valid, errors = self.registry._validate_workflow_structure(workflow_definition)
         if not is_valid:
-            error_msg = f"Invalid workflow: {', '.join(errors)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            error_message = "Workflow validation failed:\n" + "\n".join(f"  • {e}" for e in errors)
+            logger.error(error_message)
+            raise ValueError(error_message)
+        
+        logger.info("✅ Workflow validation passed")
         
         # Initialize graph
         graph = StateGraph(SharedWorkflowState)

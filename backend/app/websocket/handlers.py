@@ -1178,7 +1178,7 @@ async def handle_workflow_execute(session_id: str, message: dict):
             condition = message.get('condition', 'workflow_builder')
             
             # Subscribe to execution channel
-            await ws_manager.subscribe(session_id, 'execution')
+            ws_manager.subscribe(session_id, 'execution')
             
             # Start execution (this will send progress via WebSocket)
             execution = await orchestrator.execute_workflow(

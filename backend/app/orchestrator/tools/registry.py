@@ -33,6 +33,14 @@ from .analysis_tools import (
 
 logger = logging.getLogger(__name__)
 
+class ToolPosition(str, Enum):
+    """Tool position constraints"""
+    FIRST = "first"      # Must be first tool (e.g. LoadReviews)
+    LAST = "last"        # Must be last tool (e.g. ShowResults)
+    MIDDLE = "middle"    # Can be anywhere in middle
+    ANY = "any"          # No position constraint
+    NONE = "none"        # Do not consider this tool!
+
 class ToolDefinition:
     """
     Complete definition of a tool with all its metadata
@@ -49,7 +57,8 @@ class ToolDefinition:
         description: str,
         category: str,
         requires_data: bool = False,
-        parameter_schema_name: Optional[str] = None
+        parameter_schema_name: Optional[str] = None,
+        position_constraint: ToolPosition = ToolPosition.MIDDLE 
     ):
         """
         Define a tool with all its metadata
@@ -72,6 +81,7 @@ class ToolDefinition:
         self.category = category
         self.requires_data = requires_data
         self.parameter_schema_name = parameter_schema_name
+        self.position_constraint = position_constraint
         
         # Create single instance (singleton per tool type)
         self._instance = None
@@ -83,6 +93,16 @@ class ToolDefinition:
             self._instance = self.tool_class()
         return self._instance
     
+    @property
+    def is_required_first(self) -> bool:
+        """Check if tool must be first"""
+        return self.position_constraint == ToolPosition.FIRST
+    
+    @property
+    def is_required_last(self) -> bool:
+        """Check if tool must be last"""
+        return self.position_constraint == ToolPosition.LAST
+
     def to_dict(self) -> Dict[str, Any]:
         """Export tool metadata as dict"""
         return {
@@ -92,7 +112,8 @@ class ToolDefinition:
             'description': self.description,
             'category': self.category,
             'requires_data': self.requires_data,
-            'has_parameters': self.parameter_schema_name is not None
+            'has_parameters': self.parameter_schema_name is not None,
+            'position_constraint': self.position_constraint.value
         }
 
 
@@ -111,7 +132,8 @@ TOOL_DEFINITIONS = [
         description='Load product reviews from database with filtering options (category, rating, verified purchases)',
         category='data',
         requires_data=False,  # Can be used without prior data
-        parameter_schema_name='LoadReviewsParams'
+        parameter_schema_name='LoadReviewsParams',
+        position_constraint=ToolPosition.FIRST
     ),
     
     ToolDefinition(
@@ -122,7 +144,8 @@ TOOL_DEFINITIONS = [
         description='Filter reviews by rating, helpfulness, verified status, or text content',
         category='data',
         requires_data=True,
-        parameter_schema_name='FilterReviewsParams'
+        parameter_schema_name='FilterReviewsParams',
+        position_constraint=ToolPosition.MIDDLE
     ),
 
     ToolDefinition(
@@ -133,7 +156,8 @@ TOOL_DEFINITIONS = [
         description='Sort reviews by rating, helpfulness, engagement, or other fields',
         category='data',
         requires_data=True,
-        parameter_schema_name='SortReviewsParams'
+        parameter_schema_name='SortReviewsParams',
+        position_constraint=ToolPosition.MIDDLE
     ),
 
     
@@ -145,7 +169,8 @@ TOOL_DEFINITIONS = [
         description='Use AI to automatically detect and remove low-quality, spam, or malformed reviews while ensuring data integrity.',
         category='data',
         requires_data=True,
-        parameter_schema_name=None
+        parameter_schema_name=None,
+        position_constraint=ToolPosition.MIDDLE
     ),
     
     
@@ -157,7 +182,8 @@ TOOL_DEFINITIONS = [
         description='Combine or merge multiple datasets.',
         category='data',
         requires_data=True,
-        parameter_schema_name=None
+        parameter_schema_name=None,
+        position_constraint=ToolPosition.MIDDLE
     ),
 
     # ANALYSIS TOOLS
@@ -169,7 +195,8 @@ TOOL_DEFINITIONS = [
         description='Analyze sentiment of product reviews (positive/neutral/negative) based on ratings and text keywords',
         category='analysis',
         requires_data=True,  # Needs reviews from load_reviews
-        parameter_schema_name='ReviewSentimentAnalysisParams'
+        parameter_schema_name='ReviewSentimentAnalysisParams',
+        position_constraint=ToolPosition.MIDDLE
     ),
 
     ToolDefinition(
@@ -180,7 +207,8 @@ TOOL_DEFINITIONS = [
         description='Generate actionable insights and recommendations from analyzed data.',
         category='analysis',
         requires_data=True,
-        parameter_schema_name=None
+        parameter_schema_name=None,
+        position_constraint=ToolPosition.MIDDLE
     ),
     
     ToolDefinition(
@@ -191,7 +219,8 @@ TOOL_DEFINITIONS = [
         description='Format and display final results. Use when ready to output.',
         category='analysis',
         requires_data=True,
-        parameter_schema_name=None
+        parameter_schema_name=None,
+        position_constraint=ToolPosition.LAST
     ),
 ]
 

@@ -13,6 +13,12 @@ from app.database import get_db_context, get_async_db_context
 from app.models.session import Session as SessionModel, Interaction
 from app.models.ai_chat import ChatMessage, ChatConversation
 from app.models.reviews import ShoesReview, WirelessReview, get_review_model
+from app.models.execution import WorkflowExecution, ExecutionCheckpoint
+
+from app.schemas.orchestrator import (
+    ExecutionRequest, ExecutionResponse, ExecutionStatusResponse, 
+    ExecutionDetailResponse, CheckpointResponse
+)
 from app.schemas.reviews import batch_to_study_format
 from app.websocket.manager import ws_manager
 from app.configs import settings
@@ -1168,41 +1174,253 @@ async def handle_batch_request(session_id: str, message: dict):
 # ============================================================
 
 async def handle_workflow_execute(session_id: str, message: dict):
-    """Handle workflow execution request"""
+    """
+    Handle Workflow Builder execution request
+    
+    UPDATED: Now aligned with REST pattern
+    - Creates execution record FIRST
+    - Uses execute_workflow_with_id (new method)
+    - Launches async task (non-blocking)
+    """
     from app.orchestrator.service import orchestrator
+    from app.models.execution import WorkflowExecution
+    from app.database import get_db_context
     
     try:
+        # Extract workflow-specific data
+        workflow = message.get('workflow')
+        input_data = message.get('input_data', {})
+        condition = message.get('condition', 'workflow_builder')
+
+        # Validate workflow
+        if not workflow:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'execution_error',
+                'error': 'workflow is required for Workflow Builder'
+            })
+            return
+        
+        if not workflow.get('nodes'):
+            await ws_manager.send_to_session(session_id, {
+                'type': 'execution_error',
+                'error': 'workflow must contain nodes'
+            })
+            return
+        
+        logger.info(f"Starting Workflow Builder execution for session {session_id}")
+        
+        # Subscribe to execution channel
+        ws_manager.subscribe(session_id, 'execution')
+        
+        # ============================================================
+        # STEP 1: Create execution record FIRST (like REST does)
+        # ============================================================
         with get_db_context() as db:
-            workflow = message.get('workflow')
-            input_data = message.get('input_data', {})
-            condition = message.get('condition', 'workflow_builder')
-            
-            # Subscribe to execution channel
-            ws_manager.subscribe(session_id, 'execution')
-            
-            # Start execution (this will send progress via WebSocket)
-            execution = await orchestrator.execute_workflow(
-                db=db,
+            execution = WorkflowExecution(
                 session_id=session_id,
-                condition=condition,
-                task_data={
-                    'workflow': workflow,
-                    'input_data': input_data
-                }
+                condition='workflow_builder',  # ✅ HARDCODED - no ambiguity
+                status='pending',
+                workflow_definition=workflow,
+                task_description=None,
+                input_data=input_data,
+                execution_metadata=message.get('metadata', {})
             )
-            
+            db.add(execution)
+            db.commit()
+            db.refresh(execution)
+            execution_id = execution.id
+        
+        logger.info(f"Created execution record: {execution_id}")
+        
+        # ============================================================
+        # STEP 2: Launch async execution task (non-blocking)
+        # ============================================================
+        async def run_execution():
+            """Background execution task"""
+            try:
+                task_data = {
+                    'workflow': workflow,
+                    'task_description': None,
+                    'input_data': input_data,
+                    'metadata': message.get('metadata', {})
+                }
+                
+                # Use separate DB context for execution
+                with get_db_context() as bg_db:
+                    await orchestrator.execute_workflow_with_id(  # ✅ NEW METHOD
+                        db=bg_db,
+                        execution_id=execution_id,
+                        session_id=session_id,
+                        condition='workflow_builder',
+                        task_data=task_data
+                    )
+                
+                logger.info(f"Workflow execution completed: {execution_id}")
+                
+            except Exception as e:
+                logger.error(f"Workflow execution failed: {e}", exc_info=True)
+                
+                # Update execution with error
+                try:
+                    with get_db_context() as error_db:
+                        exec_record = error_db.query(WorkflowExecution).filter(
+                            WorkflowExecution.id == execution_id
+                        ).first()
+                        
+                        if exec_record:
+                            exec_record.status = 'failed'
+                            exec_record.error_message = str(e)
+                            exec_record.completed_at = datetime.now(timezone.utc)
+                            error_db.commit()
+                except Exception as update_error:
+                    logger.error(f"Failed to update error status: {update_error}")
+        
+        # Launch async task (non-blocking)
+        asyncio.create_task(run_execution())
+
+        # ============================================================
+        # STEP 3: Send immediate response (like REST does)
+        # ============================================================
         await ws_manager.send_to_session(session_id, {
             'type': 'execution_started',
-            'execution_id': execution.id
+            'execution_id': execution_id,
+            'status': 'pending',
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
+        
+        logger.info(f"Workflow execution started: {execution_id}")
     
     except Exception as e:
-        logger.error(f"Error starting execution: {e}")
+        logger.error(f"Error starting workflow execution: {e}", exc_info=True)
         await ws_manager.send_to_session(session_id, {
             'type': 'execution_error',
             'error': str(e)
         })
 
+# ============================================================
+# AI ASSISTANT OPERATIONS
+# ============================================================
+
+async def handle_agent_execute(session_id: str, message: dict):
+    """
+    Handle AI Assistant execution request
+    
+    NEW: Dedicated handler for AI Assistant (not reusing workflow handler)
+    - Creates execution record FIRST
+    - Uses execute_workflow_with_id (new method)
+    - Launches async task (non-blocking)
+    """
+    from app.orchestrator.service import orchestrator
+    from app.models.execution import WorkflowExecution
+    from app.database import get_db_context
+    
+    try:
+        # Extract agent-specific data
+        task_description = message.get('task_description')
+        input_data = message.get('input_data', {})
+        
+        # Validate task description
+        if not task_description:
+            await ws_manager.send_to_session(session_id, {
+                'type': 'execution_error',
+                'error': 'task_description is required for AI Assistant'
+            })
+            return
+        
+        logger.info(f"Starting AI Assistant execution for session {session_id}")
+        logger.info(f"Task: {task_description[:100]}...")  # Log first 100 chars
+        
+        # Subscribe to execution channel
+        ws_manager.subscribe(session_id, 'execution')
+        
+        # ============================================================
+        # STEP 1: Create execution record FIRST (like REST does)
+        # ============================================================
+        with get_db_context() as db:
+            execution = WorkflowExecution(
+                session_id=session_id,
+                condition='ai_assistant',  # ✅ HARDCODED - no ambiguity
+                status='pending',
+                workflow_definition=None,
+                task_description=task_description,
+                input_data=input_data,
+                execution_metadata=message.get('metadata', {})
+            )
+            db.add(execution)
+            db.commit()
+            db.refresh(execution)
+            execution_id = execution.id
+        
+        logger.info(f"Created execution record: {execution_id}")
+        
+        # ============================================================
+        # STEP 2: Launch async execution task (non-blocking)
+        # ============================================================
+        async def run_execution():
+            """Background execution task"""
+            try:
+                task_data = {
+                    'workflow': None,
+                    'task_description': task_description,
+                    'input_data': input_data,
+                    'metadata': message.get('metadata', {})
+                }
+                
+                # Use separate DB context for execution
+                with get_db_context() as bg_db:
+                    await orchestrator.execute_workflow_with_id(
+                        db=bg_db,
+                        execution_id=execution_id,
+                        session_id=session_id,
+                        condition='ai_assistant',
+                        task_data=task_data
+                    )
+                
+                logger.info(f"Agent execution completed: {execution_id}")
+                
+            except Exception as e:
+                logger.error(f"Agent execution failed: {e}", exc_info=True)
+                
+                # Update execution with error
+                try:
+                    with get_db_context() as error_db:
+                        exec_record = error_db.query(WorkflowExecution).filter(
+                            WorkflowExecution.id == execution_id
+                        ).first()
+                        
+                        if exec_record:
+                            exec_record.status = 'failed'
+                            exec_record.error_message = str(e)
+                            exec_record.completed_at = datetime.now(timezone.utc)
+                            error_db.commit()
+                except Exception as update_error:
+                    logger.error(f"Failed to update error status: {update_error}")
+        
+        # Launch async task (non-blocking)
+        asyncio.create_task(run_execution())
+        
+        # ============================================================
+        # STEP 3: Send immediate response (like REST does)
+        # ============================================================
+        await ws_manager.send_to_session(session_id, {
+            'type': 'execution_started',
+            'execution_id': execution_id,
+            'status': 'pending',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+        
+        logger.info(f"Agent execution started: {execution_id}")
+    
+    except Exception as e:
+        logger.error(f"Error starting agent execution: {e}", exc_info=True)
+        await ws_manager.send_to_session(session_id, {
+            'type': 'execution_error',
+            'error': str(e)
+        })
+
+# ============================================================
+# MISC EXECUTION HANDLERS
+# ============================================================
 
 async def handle_execution_cancel(session_id: str, message: dict):
     """Handle execution cancellation"""
@@ -1233,6 +1451,7 @@ async def handle_execution_cancel(session_id: str, message: dict):
             'type': 'error',
             'error': str(e)
         })
+
 
 # ============================================================
 # REVIEWS OPERATIONS
@@ -1537,9 +1756,14 @@ def register_handlers():
     ws_manager.register_handler('track_batch', handle_track_batch)
     ws_manager.register_handler('get_interactions', handle_get_interactions)
 
-     # Workflow Operations
+    # Workflow Operations
     ws_manager.register_handler('execute', handle_workflow_execute)
     ws_manager.register_handler('workflow_execute', handle_workflow_execute)
+
+    # AI Assistant Operations
+    ws_manager.register_handler('agent_execute', handle_agent_execute)
+
+    # MISC EXECUTION HANDLERS
     ws_manager.register_handler('execution_cancel', handle_execution_cancel)
 
     # Reviews Operations
@@ -1589,6 +1813,11 @@ def get_all_handlers():
         
         # Workflow handlers
         'workflow_execute': handle_workflow_execute,
+
+        # AI Assistant handlers
+        'agent_execute': handle_agent_execute,
+        
+        # Misc Execution handlers
         'execution_cancel': handle_execution_cancel,
         
         # Batch handler

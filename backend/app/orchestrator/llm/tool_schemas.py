@@ -60,10 +60,10 @@ class LoadReviewsParams(BaseModel):
         None,
         description="Only include verified purchases"
     )
-    limit: int = Field(
-        default=100,
+    limit: Optional[int] = Field(
+        None,
         ge=1,
-        le=1000,
+        le=10000,
         description="Maximum number of reviews to load"
     )
     offset: int = Field(
@@ -81,6 +81,8 @@ class LoadReviewsParams(BaseModel):
             if min_rating is not None and v < min_rating:
                 raise ValueError('max_rating must be >= min_rating')
         return v
+
+
 class FilterCondition(BaseModel):
     """
     Single filter condition
@@ -170,40 +172,230 @@ class FilterReviewsParams(BaseModel):
             return [FilterCondition(field=field, operator=operator, value=value)]
         
         raise ValueError("Must provide either 'filters' array or 'field', 'operator', 'value'")
+
+
+class SortReviewsParams(BaseModel):
+    """Parameters for sort_reviews tool"""
+    sort_by: str = Field(
+        ...,
+        description="Field: 'rating', 'helpfulness', 'engagement', etc."
+    )
+    descending: bool = Field(
+        default=True,
+        description="Sort direction: True for descending (high to low), False for ascending (low to high)"
+    )
     
-class SortReviewsParams(BaseModel): ...
+    @field_validator('sort_by')
+    @classmethod
+    def validate_sort_field(cls, v: str) -> str:
+        valid = ['rating', 'helpfulness', 'helpful', 'engagement', 
+                 'votes', 'star_rating', 'helpful_votes', 'total_votes']
+        if v.lower() not in valid:
+            raise ValueError(f"Invalid sort field: {v}")
+        return v.lower()
+
+
+class CleanDataParams(BaseModel):
+    """
+    Parameters for clean_data tool
+    
+    Configure data cleaning operations
+    """
+    remove_nulls: bool = Field(
+        default=True,
+        description="Remove records with null/empty values in key fields"
+    )
+    normalize_text: bool = Field(
+        default=True,
+        description="Standardize text formatting and remove special characters"
+    )
+    remove_duplicates: bool = Field(
+        default=False,
+        description="Remove duplicate reviews based on review ID"
+    )
 
 
 class ReviewSentimentAnalysisParams(BaseModel):
     """
     Parameters for review_sentiment_analysis tool
     
-    Analyzes sentiment of reviews loaded by load_reviews
+    Analyzes sentiment with optional theme extraction
     """
-    # This tool operates on data from the working state
-    # It needs reviews from a previous load_reviews call
+    # Theme extraction features (from frontend schema)
+    extract_themes: bool = Field(
+        default=True,
+        description="Extract recurring topics/themes from reviews"
+    )
+    theme_separation: Literal['combined', 'by_sentiment'] = Field(
+        default='combined',
+        description="How to organize themes: 'combined' (all together) or 'by_sentiment' (positive/negative separate)"
+    )
+    max_themes_per_category: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description="Maximum number of themes to extract per category"
+    )
+    include_percentages: bool = Field(
+        default=False,
+        description="Calculate percentage of reviews mentioning each theme"
+    )
+    
+    # Additional features (not in frontend but used internally)
     aggregate_by_product: bool = Field(
         default=False,
-        description="Group sentiment analysis by product_id"
+        description="Group sentiment analysis by product_id (internal use)"
+    )
+    batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of reviews to process per batch (internal use)"
     )
 
 
+class GenerateInsightsParams(BaseModel):
+    """
+    Parameters for generate_insights tool
+    
+    Generate actionable business recommendations with configurable focus
+    """
+    focus_area: List[Literal[
+        'competitive_positioning',
+        'customer_experience',
+        'marketing_messages',
+        'product_improvements'
+    ]] = Field(
+        ...,  # ✅ Required in frontend schema
+        description="Areas to focus recommendations on (can select multiple)"
+    )
+    max_recommendations: int = Field(
+        ...,  # ✅ Required in frontend schema
+        ge=1,
+        le=10,
+        description="Number of recommendations to generate"
+    )
+    
+    @field_validator('focus_area')
+    @classmethod
+    def validate_focus_area(cls, v: List[str]) -> List[str]:
+        """Validate focus area values"""
+        valid_areas = {
+            'competitive_positioning',
+            'customer_experience',
+            'marketing_messages',
+            'product_improvements'
+        }
+        
+        if v:
+            for area in v:
+                if area not in valid_areas:
+                    raise ValueError(f"Invalid focus area: {area}. Must be one of: {', '.join(valid_areas)}")
+        
+        return v
 
 
+class ShowResultsParams(BaseModel):
+    """
+    Parameters for show_results tool
+    
+    Configure which sections and metrics to include in final output
+    """
+    include_sections: List[Literal[
+        'executive_summary',
+        'themes',
+        'recommendations',
+        'statistics',
+        'data_preview'
+    ]] = Field(
+        default=['data_preview'],
+        description="Sections to include in the output report"
+    )
+    statistics_metrics: Optional[List[Literal[
+        'sentiment_distribution',
+        'review_summary',
+        'rating_distribution',
+        'verified_rate',
+        'theme_coverage',
+        'sentiment_consistency'
+    ]]] = Field(
+        default=None,
+        description="Specific statistics to display (only if 'statistics' section is included)"
+    )
+    show_visualizations: Optional[bool] = Field(
+        default=False,
+        description="Include visualization-ready data structures (only if 'statistics' section is included)"
+    )
+    max_data_items: Optional[int] = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description="Maximum number of items to show in data preview (only if 'data_preview' section is included)"
+    )
+    
+    @field_validator('statistics_metrics')
+    @classmethod
+    def validate_metrics_with_statistics(cls, v: Optional[List[str]], info) -> Optional[List[str]]:
+        """Only validate metrics if statistics section is included"""
+        include_sections = info.data.get('include_sections', [])
+        
+        # If statistics_metrics provided but statistics section not included, warn
+        if v and 'statistics' not in include_sections:
+            logger.warning(
+                "statistics_metrics provided but 'statistics' not in include_sections. "
+                "Metrics will be ignored."
+            )
+        
+        return v
+    
+    @field_validator('show_visualizations')
+    @classmethod
+    def validate_visualizations_with_statistics(cls, v: Optional[bool], info) -> Optional[bool]:
+        """Only validate visualizations if statistics section is included"""
+        include_sections = info.data.get('include_sections', [])
+        
+        # If show_visualizations enabled but statistics section not included, warn
+        if v and 'statistics' not in include_sections:
+            logger.warning(
+                "show_visualizations enabled but 'statistics' not in include_sections. "
+                "Visualizations will be ignored."
+            )
+        
+        return v
+    
+    @field_validator('max_data_items')
+    @classmethod
+    def validate_max_items_with_preview(cls, v: Optional[int], info) -> Optional[int]:
+        """Only validate max_data_items if data_preview section is included"""
+        include_sections = info.data.get('include_sections', [])
+        
+        # If max_data_items provided but data_preview section not included, warn
+        if v and 'data_preview' not in include_sections:
+            logger.warning(
+                "max_data_items provided but 'data_preview' not in include_sections. "
+                "Max items limit will be ignored."
+            )
+        
+        return v
+
+
+# ============================================================
+# PARAMETER SCHEMA MAPPING
+# ============================================================
 
 # Map parameter schemas to tool AI IDs
 PARAMETER_SCHEMAS = {
     'load_reviews': LoadReviewsParams,
     'filter_reviews': FilterReviewsParams,
     'sort_reviews': SortReviewsParams,
+    'clean_data': CleanDataParams,
     'review_sentiment_analysis': ReviewSentimentAnalysisParams,
+    'generate_insights': GenerateInsightsParams,
+    'show_results': ShowResultsParams,
 
-    # Tools without parameters return None
-    'clean_data': None,
-    'combine_data': None,
-    'sentiment_analysis': None,
-    'generate_insights': None,
-    'show_results': None,
+    # Tools without parameters
+    'combine_data': None,       # Legacy/unused
+    'sentiment_analysis': None, # Legacy/unused
 }
 
 # ============================================================
@@ -577,13 +769,18 @@ __all__ = [
     # Models
     'ActionType',
     'AgentDecision',
-    'GatherDataParams',
-    'FilterDataParams',
-    'SortDataParams',
+    'LoadReviewsParams',
+    'FilterReviewsParams',
+    'SortReviewsParams',
+    'CleanDataParams',
+    'ReviewSentimentAnalysisParams',
+    'GenerateInsightsParams',
+    'ShowResultsParams',
     
     # Validator
     'ToolValidator',
-    #'tool_validator',
+    'tool_validator',
+    'get_tool_validator',
     
     # Helper functions
     'map_action_to_tool',

@@ -6,7 +6,7 @@ from app.models.session import Base
 
 class WorkflowExecution(Base):
     """Track workflow/agent execution runs"""
-    __tablename__ = "workflow_executions"
+    __tablename__ = "executions"
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("sessions.session_id"), nullable=False, index=True)
@@ -59,7 +59,7 @@ class ExecutionCheckpoint(Base):
     __tablename__ = "execution_checkpoints"
     
     id = Column(Integer, primary_key=True, index=True)
-    execution_id = Column(Integer, ForeignKey("workflow_executions.id", ondelete="CASCADE"), nullable=False, index=True)
+    execution_id = Column(Integer, ForeignKey("executions.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Checkpoint identification
     step_number = Column(Integer, index=True)
@@ -97,7 +97,7 @@ class ExecutionLog(Base):
     __tablename__ = "execution_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    execution_id = Column(Integer, ForeignKey("workflow_executions.id", ondelete="CASCADE"), nullable=False, index=True)
+    execution_id = Column(Integer, ForeignKey("executions.id", ondelete="CASCADE"), nullable=False, index=True)
     
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     log_level = Column(String(20), index=True)  # 'DEBUG', 'INFO', 'WARNING', 'ERROR'

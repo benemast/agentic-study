@@ -13,7 +13,6 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 // Styles
-import './styles/joyride-fix.css';
 import './index.css';
 
 // Import both apps
@@ -23,33 +22,6 @@ import App from './App';
 //Import providers
 import SessionInitializer from './components/session/SessionInitializer';
 import { WebSocketProvider } from './providers/WebSocketProvider';
-
-/*
-
-const SentryApp = Sentry.withErrorBoundary(App, {
-  fallback: ({ error, componentStack, resetError }) => (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
-        <h2 className="text-xl font-bold text-red-600 mb-4">
-          Something went wrong
-        </h2>
-        <p className="text-gray-600 mb-4">
-          The application encountered an error. We've been notified and will fix it soon.
-        </p>
-        <button
-          onClick={resetError}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Try Again
-        </button>
-      </div>
-    </div>
-  ),
-  showDialog: false,
-});
-
-*/
-
 
 // Error Fallback for Study Flow (participant-facing)
 const StudyErrorFallback = ({ error, resetError }) => (

@@ -1,7 +1,7 @@
 // frontend/src/components/workflow/WorkflowToolbar.jsx
 import React, { memo } from 'react';
 import { Play as PlayIcon, Save as SaveIcon, RotateCcw as RotateIcon, Settings as SettingsIcon } from 'lucide-react';
-import { ICONS } from '../../constants/icons';
+import { ICONS } from '../../config/icons';
 import { useTranslation } from '../../hooks/useTranslation';
 
 const WorkflowToolbar = memo(({ 
@@ -68,7 +68,10 @@ const WorkflowToolbar = memo(({
   };
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+    <div 
+      data-tour="workflow-toolbar"
+      className="absolute top-0 left-0 right-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm"
+    >
       <div className="flex items-center justify-between px-4 py-3">
         {/* Status Indicator */}
         <div className="flex items-center gap-3">
@@ -85,15 +88,7 @@ const WorkflowToolbar = memo(({
             {getStatusMessage()}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={onSave}
-            className="save-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title={t('workflow.builder.toolbar.save')}
-          >
-            <SaveIcon size={16} />
-            {t('workflow.builder.toolbar.save')}
-          </button>
+        <div className="flex items-center gap-2">  
           <button 
             onClick={onClear}
             className="clear-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -101,15 +96,9 @@ const WorkflowToolbar = memo(({
           >
             <RotateIcon size={16} />
             {t('workflow.builder.toolbar.clear')}
-          </button>              
-          <button 
-            className="settings-button flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title={t('workflow.builder.toolbar.settings')}
-          >
-            <SettingsIcon size={16} />
-            {t('workflow.builder.toolbar.settings')}
-          </button>
+          </button>   
           <button
+            data-tour="execute-workflow-button"
             onClick={onExecute}                
             disabled={!workflowValidation.isValid}
             className={`execute-button flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${

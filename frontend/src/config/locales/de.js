@@ -1,4 +1,4 @@
-// frontend/src/locales/de.js
+// frontend/src/config/locales/de.js
 export const de = {
   // ========== COMMON ==========
   common: {
@@ -6,13 +6,17 @@ export const de = {
       pleaseSelect: 'Bitte auswählen...',
       selectOption: 'Bitte auswählen...',
       required: 'Dieses Feld ist erforderlich',
-      optional: '(optional)'
+      optional: '(optional)',
+      yes: 'Ja',
+      no: 'Nein'
     },
     
     validation: {
       required: 'Dieses Feld ist erforderlich',
       pleaseFillRequired: 'Bitte fülle alle erforderlichen Felder aus, bevor du fortfährst',
       invalidEmail: 'Bitte gib eine gültige E-Mail-Adresse ein',
+      minNum: 'Muss mindestens {{min}} sein',
+      maxNum: 'Darf maximal {{max}} sein',
       minLength: 'Muss mindestens {{min}} Zeichen lang sein',
       maxLength: 'Darf maximal {{max}} Zeichen lang sein',
       numberOnly: 'Bitte nur Zahlen eingeben'
@@ -191,7 +195,6 @@ export const de = {
     },
     
     privacyNote: 'Alle Antworten sind anonym und werden nur für Forschungszwecke verwendet. Du kannst alle optionalen Fragen überspringen, die du nicht beantworten möchtest.',
-    
     requiredNote: 'Mit [ASTERISK] markierte Angaben sind erforderlich.',
 
     basicInfo: {
@@ -365,6 +368,25 @@ export const de = {
       cancel: 'Abbrechen'
     }
   },
+  // ========== DATA VIEWER ==========
+  dataViewer: {
+    title: 'Datenansicht',
+    reviewsCount: 'Bewertungen',
+    openModal: 'Im Modal öffnen',
+    updating: 'Wird aktualisiert...',
+    noReviews: 'Es wurden keine Bewertungen gefunden.',
+    viewMode: {
+      cards: 'Kartenansicht',
+      table: 'Tabellenansicht'
+    },
+    filters: {
+      all: 'Alle',
+      positive: 'Positiv',
+      neutral: 'Neutral',
+      negative: 'Negativ',
+      allProducts: 'Alle Produkte'
+    }
+  },
   // ========== TUTORIAL ==========
   tutorial: {
     // Joyride locale (buttons)
@@ -400,47 +422,111 @@ export const de = {
       },
       popOutViwer:{
         title: '🔲 Viewer ausklappen',
-        description: 'Klicken Sie auf diese Schaltfläche, um den Datensatz-Viewer in einem größeren Modal-Fenster zu öffnen. Perfekt, wenn Sie sich auf die Daten konzentrieren oder diese detaillierter betrachten möchten!',
+        description: 'Klicken Sie auf diese Schaltfläche, um den Datensatz-Viewer in einem größeren Fenster zu öffnen. Perfekt, wenn Sie sich auf die Daten konzentrieren oder diese detaillierter betrachten möchten!',
       },
       resizePanels: {
         title: '↔️ Panels anpassen',
         description: 'Ziehen Sie diesen Griff nach links oder rechts, um die Panel-Größen anzupassen. Vergrößern Sie den Daten-Viewer oder geben Sie mehr Platz für Ihren Arbeitsbereich!',
       },
+      tutorialButtons: {
+        title: '📚 Restart Tutorials',
+        description: 'Should you need a refresher later on you can always restart this tutorial. The button on the left will focus on the features of this page overall, while the one on the right will give a refresher on the task specific elements!',
+      }
     },
     
     // Workflow Builder tutorial
     workflowBuilder: {
       welcome: {
-        title: '🔧 Workflow-Builder',
-        description: 'Erstellen Sie Ihre Analyse, indem Sie Tools miteinander verbinden. Jedes Tool verarbeitet Daten und gibt sie an den nächsten Schritt weiter!',
+        title: '🔧 Workflow Builder',
+        description: 'Erstelle deine Analyse, indem du Tools miteinander verbindest. Jedes Tool verarbeitet Daten und gibt sie an den nächsten Schritt weiter!',
       },
-      availableTools: {
-        title: '🧰 Verfügbare Tools',
-        description: 'Durchsuchen Sie alle verfügbaren Tools in der Seitenleiste. Jedes Tool hat eine spezifische Funktion zur Analyse Ihrer Daten.',
+      
+      // NEU: Sidebar-Bereich
+      sidebar: {
+        title: '📚 Tool-Bibliothek',
+        description: 'Diese Seitenleiste enthält alle verfügbaren Tools. Die Tools sind nach ihrer Funktion in Kategorien organisiert:',
+        input: 'Lade und importiere deine Daten',
+        processing: 'Filtere, bereinige und transformiere Daten',
+        analysis: 'Führe analytische Operationen durch',
+        output: 'Zeige und exportiere Ergebnisse',
+        finalRemark: 'Durchsuche verschiedene Knotentypen, um deinen Workflow zu erstellen.'
       },
-      workflowCanvas: {
+            
+      // NEU: Tooltip-Funktion
+      tooltips: {
+        title: '💬 Hover für Details',
+        description: 'Jedes Tool hat einen hilfreichen Tooltip, der erscheint, wenn du darüber schwebst. Diese Tooltips erklären, was das Tool macht und wie man es benutzt.',
+        tryText: 'Versuche, über "Bewertungen laden" zu schweben, um den Tooltip zu sehen!',
+      },
+      
+      // Canvas
+      canvas: {
         title: '🎨 Workflow-Canvas',
-        description: 'Ziehen Sie Tools aus der Seitenleiste auf diese Arbeitsfläche, um Ihren Workflow zu erstellen. Verbinden Sie sie, um den Datenfluss zu definieren.',
+        description: 'Dies ist dein Arbeitsbereich, in dem du Workflows erstellst, indem du Tools ziehst und verbindest.',
+        actionTitle: 'Tools hinzufügen',
+        actionText: 'Ziehe ein Tool aus der Seitenleiste und lege es auf dem Canvas ab, um es zu deinem Workflow hinzuzufügen.',
       },
-      connectTools: {
-        title: '🔗 Tools verbinden',
-        description: 'Klicken und ziehen Sie vom Ausgang eines Tools zum Eingang eines anderen, um sie zu verbinden. Dies definiert den Datenfluss.',
+      
+      // NEU: Toolbar-Bereich
+      toolbar: {
+        title: '🔧 Workflow-Toolbar',
+        description: 'Die Toolbar oben bietet Workflow-Steuerungen und Status:',
+        statusIndicator: 'Status-Anzeige',
+        statusDescription: 'Zeigt an, ob dein Workflow ausführungsbereit ist (grün) oder Korrekturen benötigt (gelb)',
+        saveButton: 'Speichern',
+        saveDescription: 'Speichere deinen Workflow manuell (speichert auch automatisch)',
+        clearButton: 'Leeren',
+        clearDescription: 'Entferne alle Knoten und beginne von vorne',
+        executeButton: 'Ausführen',
+        executeDescription: 'Führe deinen Workflow aus (nur aktiviert, wenn der Workflow gültig ist)',
       },
-      configureTools: {
-        title: '⚙️ Tools konfigurieren',
-        description: 'Klicken Sie auf ein Tool, um seine Einstellungen zu konfigurieren. Jedes Tool hat verschiedene Optionen, die Sie anpassen können.',
+      
+      // NEU: Knoten-Einstellungen
+      nodeSettings: {
+        title: '⚙️ Konfiguriere deine Tools',
+        description: 'Jedes Tool kann mit spezifischen Einstellungen konfiguriert werden. Diese Einstellungen erscheinen direkt auf dem Knoten.',
+        displayTitle: 'Einstellungs-Anzeige',
+        displayText: 'Konfigurierte Einstellungen werden in einer blauen Box auf jedem Knoten angezeigt, sodass du deine Auswahl auf einen Blick sehen kannst.',
+        editTitle: 'Einstellungen bearbeiten',
+        editText: 'Klicke auf das blaue Stift-Symbol auf einem Knoten, um den Konfigurationsdialog zu öffnen.',
       },
-      executeWorkflow: {
-        title: '▶️ Workflow ausführen',
-        description: 'Sobald Ihr Workflow bereit ist, klicken Sie auf die Schaltfläche "Ausführen", um ihn zu starten. Sie sehen die Ergebnisse in Echtzeit!',
+      
+      // Verbindungen
+      connections: {
+        title: '🔗 Verbinde deine Tools',
+        description: 'Verbinde Tools, um den Datenfluss durch deinen Workflow zu definieren:',
+        topHandle: 'Oberer Griff (▲) empfängt Eingabe von vorherigen Tools',
+        bottomHandle: 'Unterer Griff (▼) sendet Ausgabe an nächste Tools',
+        dragConnect: 'Klicke und ziehe von einem Griff zum anderen, um eine Verbindung zu erstellen',
+        validTitle: 'Gültige Verbindungen',
+        validText: 'Grüne Hervorhebungen zeigen gültige Verbindungsziele an. Ungültige Ziele werden nicht hervorgehoben.',
       },
-      clearWorkflow: {
-        title: '🗑️ Löschen & Zurücksetzen',
-        description: 'Verwenden Sie die Schaltfläche "Löschen", um alle Tools zu entfernen und bei Bedarf von vorne zu beginnen.',
+      
+      // NEU: Visuelles Feedback
+      visualFeedback: {
+        title: '🎨 Visuelle Verbindungsindikatoren',
+        description: 'Griff-Farben zeigen den Verbindungsstatus:',
+        greenValid: 'Grün - Gültiges Verbindungsziel (beim Verbinden)',
+        grayUnconnected: 'Grau - Nicht verbunden',
+        blueConnected: 'Blau - Bereits verbunden',
       },
-      autoSave: {
-        title: '💾 Automatisches Speichern',
-        description: 'Ihr Workflow wird automatisch gespeichert, während Sie arbeiten, sodass Sie keinen Fortschritt verlieren!',
+      
+      // Ausführen
+      execute: {
+        title: '▶️ Führe deinen Workflow aus',
+        description: 'Sobald dein Workflow vollständig ist, klicke auf Ausführen, um ihn zu starten und Ergebnisse zu sehen.',
+        requirementsTitle: 'Anforderungen',
+        requirementsText: 'Dein Workflow benötigt mindestens einen Eingabeknoten, einen Ausgabeknoten und einen gültigen Pfad, der sie verbindet.',
+      },
+      
+      // Tipps
+      tips: {
+        title: '💡 Tipps für den Erfolg',
+        startSimple: 'Beginne einfach: Bewertungen laden → Ergebnisse anzeigen ist ein gültiger Workflow!',
+        useTooltips: 'Verwende Tooltips: Fahre über Tools, um zu lernen, was sie tun',
+        checkSettings: 'Konfiguriere Einstellungen: Jedes Tool zeigt seine Einstellungen auf dem Knoten',
+        validateBefore: 'Überprüfe den Status: Stelle sicher, dass die Toolbar "Bereit" anzeigt, bevor du ausführst',
+        autoSave: 'Auto-Speicherung: Dein Fortschritt wird automatisch gespeichert, während du arbeitest',
       },
     },
     
@@ -568,15 +654,337 @@ export const de = {
         output: 'AUSGABE'
       },
       nodes: {
-        loadData: 'Daten laden',
-        filterData: 'Daten filtern',
-        cleanData: 'Daten bereinigen', 
-        sortData: 'Daten sortieren',
-        logicIf: 'Logik Wenn',
-        combineData: 'Daten kombinieren',
-        sentimentAnalysis: 'Sentiment-Analyse',
-        generateInsights: 'Erkenntnisse generieren',
-        showResults: 'Ergebnisse anzeigen'
+        // Data Tools
+        loadReviews: {
+          label: 'Bewertungen Laden',
+          type: 'Dateneingabe',
+          description: 'Produktbewertungen aus der Datenbank laden. Dies ist Ihr Ausgangspunkt - wählen Sie Bewertungen nach Kategorie, Bewertung oder verifiziertem Kaufstatus aus.',
+          config: {
+            category: {
+              label: 'Produktkategorie',
+              help: 'Wählen Sie, aus welcher Produktkategorie Bewertungen geladen werden sollen',
+              placeholder: 'Kategorie wählen',
+              options: {
+                shoes: 'Schuhe',
+                wireless: 'Kabellose Kopfhörer'
+              }
+            },
+            limit: {
+              label: 'Maximale Bewertungen',
+              help: 'Begrenzen Sie die Anzahl der zu ladenden Bewertungen (leer lassen für alle)',
+              placeholder: 'Keine Begrenzung'
+            }
+          }
+        },
+        
+        filterReviews: {
+          label: 'Bewertungen Filtern',
+          type: 'Datenverarbeitung',
+          description: 'Bewertungen nach bestimmten Kriterien wie Bewertungsbereich, verifizierten Käufen oder Schlüsselwörtern filtern. Grenzt Ihren Datensatz auf relevante Einträge ein.',
+          config: {
+            field: {
+              label: 'Filterspalte',
+              help: 'Wählen Sie, nach welcher Spalte gefiltert werden soll',
+              placeholder: 'Spalte wählen'
+            },
+            operator: {
+              label: 'Filterbedingung',
+              help: 'Wählen Sie, wie die Werte verglichen werden sollen',
+              placeholder: 'Bedingung wählen'
+            },
+            value: {
+              label: 'Filterwert',
+              help: 'Geben Sie den Wert zum Filtern ein',
+              placeholder: 'Wert eingeben'
+            }
+          }
+        },
+        
+        sortReviews: {
+          label: 'Bewertungen Sortieren',
+          type: 'Datenverarbeitung',
+          description: 'Bewertungen in einer bestimmten Reihenfolge nach Bewertung, Nützlichkeit, Engagement oder anderen Feldern anordnen. Hilft, Daten für eine bessere Analyse zu organisieren.',
+          config: {
+            sortBy: {
+              label: 'Sortieren Nach',
+              help: 'Wählen Sie, nach welcher Spalte sortiert werden soll',
+              placeholder: 'Spalte wählen'
+            },
+            descending: {
+              label: 'Sortierrichtung',
+              help: 'Sortierrichtung wählen',
+              options: {
+                true: 'Absteigend (Hoch zu Niedrig)',
+                false: 'Aufsteigend (Niedrig zu Hoch)'
+              }
+            }
+          }
+        },
+        
+        cleanData: {
+          label: 'Bewertungen Bereinigen',
+          type: 'Datenverarbeitung',
+          description: 'Erkennt und entfernt Spam-, fehlerhafte oder Bewertungen mit fehlenden Datenfeldern automatisch. Verbessert die Datenqualität vor der Analyse.',
+          config: {
+            removeNulls: {
+              label: 'Nullwerte Entfernen',
+              help: 'Datensätze mit Null-/Leerwerten in Schlüsselfeldern entfernen',
+              placeholder: 'Aktivieren, um Nullwerte zu entfernen'
+            },
+            normalizeText: {
+              label: 'Text Normalisieren',
+              help: 'Textformatierung standardisieren und Sonderzeichen entfernen',
+              placeholder: 'Aktivieren, um Text zu normalisieren'
+            },
+            removeDuplicates: {
+              label: 'Duplikate Entfernen',
+              help: 'Doppelte Bewertungen basierend auf Bewertungs-ID entfernen',
+              placeholder: 'Aktivieren, um Duplikate zu entfernen'
+            }
+          }
+        },
+
+        // Analysis Tools
+        reviewSentimentAnalysis: {
+          label: 'Sentiment-Analyse',
+          type: 'KI gestützte Analyse',
+          description: 'Schlüsselthemen und Sentiment-Muster aus Kundenbewertungen extrahieren. Identifiziert, was Kunden am meisten diskutieren und wie sie über bestimmte Produktaspekte denken.',
+          config: {
+            extractThemes: {
+              label: 'Schlüsselthemen Extrahieren',
+              help: 'Wiederkehrende Themen identifizieren, die Kunden diskutieren (z.B. Komfort, Haltbarkeit, Preis)',
+              placeholder: 'Themenextraktion aktivieren'
+            },
+            themeSeparation: {
+              label: 'Themenorganisation',
+              help: 'Wie sollen Themen kategorisiert werden?',
+              options: {
+                combined: 'Alle Themen Zusammen',
+                bySentiment: 'Positive/Negative Themen Trennen'
+              }
+            },
+            maxThemesPerCategory: {
+              label: 'Anzahl der Themen',
+              help: 'Wie viele Themen pro Kategorie extrahieren'
+            },
+            includePercentages: {
+              label: 'Themenprozentsätze Einschließen',
+              help: 'Häufigkeitsprozentsatz für jedes Thema berechnen',
+              placeholder: 'Aktivieren, um Prozentsätze anzuzeigen'
+            }
+          }
+        },
+        
+        generateInsights: {
+          label: 'Erkenntnisse Generieren',
+          type: 'KI gestützte Analyse',
+          description: 'Umsetzbare Geschäftsempfehlungen basierend auf Kundenfeedback-Analyse generieren. Übersetzt Muster in strategische nächste Schritte.',
+          config: {
+            focusArea: {
+              label: 'Empfehlungsfokus',
+              help: 'Welche Art von Empfehlungen priorisieren',
+              options: {
+                competitivePositioning: {
+                  label: 'Wettbewerbspositionierung',
+                  help: 'Vergleichen Sie Ihr Produkt mit Wettbewerbern und identifizieren Sie Marktchancen'
+                },
+                customerExperience: {
+                  label: 'Kundenerfahrung',
+                  help: 'Kundenzufriedenheit verbessern und Problempunkte angehen'
+                },
+                marketingMessages: {
+                  label: 'Marketingbotschaften',
+                  help: 'Effektive Botschaften basierend auf Kundensprache und Prioritäten erstellen'
+                },
+                productImprovements: {
+                  label: 'Produktverbesserungen',
+                  help: 'Spezifische Funktionen oder Qualitätsverbesserungen identifizieren, die Kunden wünschen'
+                }
+              }
+            },
+            maxRecommendations: {
+              label: 'Anzahl der Empfehlungen',
+              help: 'Maximale Anzahl zu generierender Empfehlungen'
+            }
+          }
+        },
+        
+        // Output Tool
+        showResults: {
+          label: 'Ergebnisse Anzeigen',
+          type: 'Ausgabe',
+          description: 'Die endgültige Ausgabe Ihres Workflows anzeigen. Dies ist Ihr Endpunkt - es präsentiert die verarbeiteten Daten, Analyseergebnisse und Erkenntnisse.',
+          note: 'Nur Daten, die von vorherigen Tools verfügbar sind, werden angezeigt. Nicht verfügbare Abschnitte werden markiert.',
+          config: {
+            includeSections: {
+              label: 'Berichtsabschnitte',
+              help: 'Wählen Sie Abschnitte aus, die in Ihrem Bericht enthalten sein sollen',
+              options: {
+                executiveSummary: {
+                  label: 'Zusammenfassung',
+                  help: 'Überblick über Ergebnisse und wichtige Erkenntnisse'
+                },
+                themes: {
+                  label: 'Schlüsselthemen',
+                  help: 'Extrahierte Themen mit Häufigkeiten und Sentiment-Analyse'
+                },
+                recommendations: {
+                  label: 'Empfehlungen',
+                  help: 'Umsetzbare Geschäftsempfehlungen basierend auf Analyse'
+                },
+                statistics: {
+                  label: 'Statistiken & Metriken',
+                  help: 'Quantitative Daten und Verteilungsmetriken'
+                },
+                dataPreview: {
+                  label: 'Datenvorschau',
+                  help: 'Stichprobe von Roh-Bewertungsdaten, die in der Analyse verwendet wurden'
+                }
+              }
+            },
+            statisticsMetrics: {
+              label: 'Anzuzeigende Statistiken',
+              help: 'Wählen Sie, welche Statistiken eingeschlossen werden sollen (nur angezeigt, wenn Statistikabschnitt aktiviert ist)',
+              options: {
+                sentimentDistribution: {
+                  label: 'Gesamtsentiment-Verteilung',
+                  help: 'Prozentuale Aufschlüsselung positiver, neutraler und negativer Bewertungen'
+                },
+                reviewSummary: {
+                  label: 'Gesamtbewertungen & Durchschnitt',
+                  help: 'Gesamtzahl der analysierten Bewertungen und Durchschnittsbewertung'
+                },
+                ratingDistribution: {
+                  label: 'Bewertungsverteilung',
+                  help: 'Anzahl und Prozentsatz der Bewertungen nach Bewertung (1-5 Sterne)'
+                },
+                verifiedRate: {
+                  label: 'Verifizierte Kaufrate',
+                  help: 'Prozentsatz der Bewertungen von verifizierten Käufen vs. nicht verifiziert'
+                },
+                themeCoverage: {
+                  label: 'Themenabdeckung',
+                  help: 'Prozentsatz der Bewertungen, die identifizierte Themen erwähnen'
+                },
+                sentimentConsistency: {
+                  label: 'Sentiment-Konsistenz',
+                  help: 'Korrelation zwischen Sternebewertungen und Sentiment-Klassifizierung'
+                }
+              }
+            },
+            showVisualizations: {
+              label: 'Visualisierungen Einschließen',
+              help: 'Diagramme und Grafiken anzeigen, wo anwendbar',
+              placeholder: 'Aktivieren, um Diagramme anzuzeigen'
+            },
+            maxDataItems: {
+              label: 'Maximale Elemente in Datenvorschau',
+              help: 'Anzahl der in der Datenvorschau-Tabelle angezeigten Elemente begrenzen'
+            }
+          }
+        },        
+        // Logic Tools
+        logicIf: {
+          label: 'Logik Wenn',
+          type: 'Bedingung',
+          description: 'Teilt den Workflow basierend auf einer Bedingung. Leitet Daten zu verschiedenen Pfaden, je nachdem, ob die Bedingung wahr oder falsch ist.'
+        },
+        combineData: {
+          label: 'Daten kombinieren',
+          type: 'Datenverarbeitung',
+          description: 'Daten aus mehreren Workflow-Zweigen zusammenführen. Bringt Ergebnisse aus verschiedenen Verarbeitungspfaden zusammen.'
+        },
+        
+        settings: {
+          // General
+          notConfigured: 'Nicht konfiguriert',
+          
+          // Sentiment Analysis Node
+          sentiment: {
+            extractThemes: 'Themen extrahieren',
+            separatedBySentiment: 'Nach Sentiment getrennt',
+            maxThemes: '{{count}} Thema/Themen',
+            withPercentages: 'Mit Prozentsätzen'
+          },
+          
+          // Generate Insights Node
+          insights: {
+            competitive_positioning: 'Wettbewerbspositionierung',
+            customer_experience: 'Kundenerfahrung',
+            marketing_messages: 'Marketingbotschaften',
+            product_improvements: 'Produktverbesserungen',
+            withMax: '{{areas}} (max {{max}})'
+          },
+          
+          // Show Results Node
+          results: {
+            sections: {
+              executive_summary: 'Zusammenfassung',
+              themes: 'Themen',
+              recommendations: 'Empfehlungen',
+              statistics: 'Statistiken',
+              data_preview: 'Daten'
+            },
+            withStats: '{{count}} Statistik(en)',
+            withCharts: 'Mit Diagrammen',
+            maxItems: 'Max {{max}} Elemente'
+          },
+          
+          // Filter node (existing, keep as-is)
+          filter: 'Filtern nach {{column}} {{operator}} {{value}}',
+          
+          // Sort node (existing, keep as-is)
+          sort: 'Sortieren nach {{column}} ({{direction}})',
+          ascending: {
+            full: 'aufsteigend',
+            short: '↑ Auf'
+          },
+          descending: {
+            full: 'absteigend',
+            short: '↓ Ab'
+          },
+          
+          // Clean node (existing, keep as-is)
+          clean: {
+            label: 'Bereinigen: {{actions}}',
+            removeNulls: 'Nullwerte entfernen',
+            removeDuplicates: 'Duplikate entfernen',
+            normalizeText: 'Text normalisieren'
+          },
+          
+          // Load node (existing, keep as-is)
+          load: {
+            wireless: 'Kabellos',
+            shoes: 'Schuhe',
+            withLimit: '{{category}} laden (max {{limit}})',
+            noLimit: '{{category}} laden'
+          },
+          
+          // Operators (used by filter and logic nodes)
+          operators: {
+            signs: {
+              equals: '=',
+              not_equals: '≠',
+              greater: '>',
+              greater_or_equal: '≥',
+              less: '<',
+              less_or_equal: '≤'
+            },
+            text: {
+              equals: 'Gleich',
+              not_equals: 'Nicht Gleich',
+              contains: 'Enthält',
+              not_contains: 'Enthält Nicht',
+              starts_with: 'Beginnt Mit',
+              ends_with: 'Endet Mit',
+              greater: 'Größer Als',
+              greater_or_equal: 'Größer oder Gleich',
+              less: 'Kleiner Als',
+              less_or_equal: 'Kleiner oder Gleich',
+              is: 'Ist'
+            }
+          }
+        }
       },
       nodeTypes: {
         dataInput: 'Dateneingabe',
@@ -598,7 +1006,8 @@ export const de = {
         missingInput: 'Eingabeknoten fehlt',
         missingOutput: 'Ausgabeknoten fehlt', 
         noConnections: 'Keine Verbindungen',
-        incompleteWorkflow: 'Unvollständiger Workflow'
+        incompleteWorkflow: 'Unvollständiger Workflow',
+        configurationIncomplete: 'Konfiguration unvollständig'
       },
       statusDetails: {
         addNodes: 'Füge Knoten hinzu, um deinen Workflow zu erstellen',
@@ -606,22 +1015,27 @@ export const de = {
         addOutput: 'Füge einen Ausgabeknoten hinzu, um deinen Workflow zu vervollständigen',
         connectNodes: 'Verbinde deine Knoten, um einen Workflow-Pfad zu erstellen',
         createPath: 'Erstelle einen Pfad von Eingabe- zu Ausgabeknoten',
-        nodesConnected: '{{count}} Knoten ordnungsgemäß verbunden'
+        nodesConnected: '{{count}} Knoten ordnungsgemäß verbunden',
+        configureNodes: 'Konfigurieren Sie alle erforderlichen Felder'
       },
       emptyState: {
         title: 'Beginne mit der Erstellung deines Workflows',
-        description: 'Ziehe Knoten aus der Seitenleiste und lege sie ab, um deinen Forschungsautomatisierungs-Workflow zu erstellen.',
-        addFirstNode: 'Deinen ersten Knoten hinzufügen'
+        description: 'Ziehe Knoten aus der Seitenleiste und lege sie ab, um deinen Automatisierungs-Workflow zu erstellen.',
+        addFirstNode: 'Ersten Knoten hinzufügen'
       },
       connectionHelper: {
         connecting: 'Ziehen zum Verbinden von Knoten • Grün = Gültiges Ziel • Grau = Ungültig'
       },
       nodeEditor: {
-        title: 'Knoten bearbeiten',
+        title: 'Knoten Bearbeiten',
         label: 'Bezeichnung',
         description: 'Beschreibung',
-        cancel: 'Abbrechen', 
-        save: 'Speichern'
+        cancel: 'Abbrechen',
+        save: 'Speichern',
+        options: 'Optionen',
+        fields: 'Felder',
+        noConfig: 'Keine Konfigurationsoptionen verfügbar',
+        fixErrors: 'Bitte {{count}} Fehler beheben'
       }
     },
     sidebar: {
@@ -648,7 +1062,16 @@ export const de = {
       targetHandleMaxReached: 'Ziel-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? "" : "en"}}',
       workflowExecuted: 'Workflow mit {{nodes}} Knoten und {{connections}} Verbindungen ausgeführt',
       workflowSaved: 'Workflow gespeichert: {{nodes}} Knoten, {{connections}} Verbindungen',
-      workflowCleared: 'Workflow gelöscht'
+      workflowCleared: 'Workflow gelöscht',
+      executionFailed: 'Workflow-Ausführung fehlgeschlagen',
+      executionStarted: 'Workflow-Ausführung gestartet',
+      executionCompleted: 'Workflow-Ausführung abgeschlossen',
+      executionCancelled: 'Workflow-Ausführung abgebrochen',
+      validationFailed: 'Workflow-Validierung fehlgeschlagen',
+      
+      // More detailed versions (optional)
+      executionFailedWithError: 'Workflow-Ausführung fehlgeschlagen: {{error}}',
+      validationFailedWithErrors: 'Workflow-Validierung fehlgeschlagen: {{errors}}'
     }
   }
 };

@@ -215,7 +215,6 @@ const SessionInitializer = ({ children }) => {
   // ========================================
   return (
     <>
-      <SessionStatusBar />
       {children}
     </>
   );

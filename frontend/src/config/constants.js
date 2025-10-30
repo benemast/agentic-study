@@ -12,13 +12,13 @@ export const STUDY_CONFIG = Object.freeze({
       product_title: 'Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones',
       category: 'Wireless',
       role: 'Product Manager',
-      goal: 'Identify TOP 3 customer problems and recommend product improvements',
-      focus: 'Analyze negative and neutral reviews to find actionable fixes',
+      goal: 'Develop a product improvement roadmap based on customer feedback analysis',
+      focus: 'Your team needs to prioritize the next product iteration. Analyze customer reviews to identify both critical pain points and valued features. Your analysis will inform engineering priorities and competitive positioning.',
       expectedOutput: [
-        'Executive Summary with overall sentiment',
-        'Top 3 Negative Themes with percentages',
-        'Top 3 Positive Themes with percentages',
-        '3-5 Actionable Recommendations'
+        'Executive summary of customer sentiment',
+        'Top 3 negative themes with percentages',
+        'Top 3 positive themes with percentages',
+        '3-5 actionable product recommendations'
       ]
     },
     shoes: {
@@ -26,13 +26,13 @@ export const STUDY_CONFIG = Object.freeze({
       product_title: "Kamik Women's Jennifer Rain Boot",
       category: 'Shoes',
       role: 'Marketing Manager',
-      goal: 'Identify TOP 3 things customers love and create marketing messages',
-      focus: 'Analyze positive reviews to highlight product strengths',
+      goal: 'Create data-driven marketing messages that resonate with real customers',
+      focus: 'You\'re launching a new campaign and need authentic customer insights. Analyze reviews to understand what customers genuinely love about this product and what concerns you should address proactively in messaging.',
       expectedOutput: [
-        'Executive Summary with overall sentiment',
-        'Top 3 Positive Themes with percentages',
-        'Top 3 Negative Themes with percentages',
-        '3-5 Marketing Messages or Key Selling Points'
+        'Executive summary of customer sentiment',
+        'Top 3 positive themes with percentages',
+        'Top 3 negative themes with percentages',
+        '3-5 actionable marketing recommendations'
       ]
     }
   },

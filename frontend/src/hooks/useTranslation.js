@@ -1,7 +1,7 @@
 // frontend/src/hooks/useTranslation.js
 import { useCallback, useEffect } from 'react';
 import { useLanguage } from './useLanguage';
-import { translations } from '../locales';
+import { translations } from '../config/locales';
 
 export const useTranslation = () => {
   const { currentLanguage, setLanguage, availableLanguages } = useLanguage();

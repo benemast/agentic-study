@@ -3,7 +3,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { orchestratorAPI } from '../services/api';
 import { useTracking } from './useTracking';
 import { useWebSocket } from './useWebSocket';
-import { serializeWorkflow } from '../utils/workflowSerializer';
+import { 
+  serializeWorkflowMinimal,  // Minimal for execution (94% smaller)
+  validateSerializedWorkflow, 
+  printWorkflow, 
+  serializeWorkflowWithTranslations
+} from '../utils/workflowSerializer';
 
 /**
  * Hook for managing workflow execution with real-time progress tracking
@@ -302,31 +307,113 @@ export const useWorkflowExecution = (sessionId, condition) => {
       setResult(null);
       setProgressPercentage(0);
 
-      let cleanWorkflow;  
+      let nodes, edges;
 
+      // Extract nodes and edges from workflow object
       if (workflow.nodes && workflow.edges) {
-        cleanWorkflow = serializeWorkflow(workflow.nodes, workflow.edges);
-        //console.log('Serialized workflow:', cleanWorkflow);
-      } else if (Array.isArray(workflow)) {
-        cleanWorkflow = serializeWorkflow(workflow[0], workflow[1]);
+        nodes = workflow.nodes;
+        edges = workflow.edges;
+      } else if (Array.isArray(workflow) && workflow.length === 2) {
+        nodes = workflow[0];
+        edges = workflow[1];
       } else {
-        cleanWorkflow = workflow;
+        // Assume workflow is already serialized
+        console.warn('Workflow already serialized, skipping validation');
+        
+        // Track execution start
+        trackWorkflowExecuted('WORKFLOW_EXECUTION_STARTED', {
+          condition: 'workflow_builder',
+          node_count: workflow?.nodes?.length || 0,
+          edge_count: workflow?.edges?.length || 0
+        });
+
+        const response = await orchestratorAPI.executeWorkflow(
+          sessionId,
+          workflow,
+          inputData
+        );
+
+        setExecutionId(response.execution_id);
+        setStatus('running');
+
+        if (!isConnected) {
+          console.warn('WebSocket not connected, using polling fallback');
+          startPolling();
+        } else {
+          setTimeout(() => {
+            if (status === 'running') {
+              startPolling();
+            }
+          }, 5000);
+        }
+
+        return response;
       }
+
+      // Validate we have nodes and edges
+      if (!nodes || !edges) {
+        const errorMessage = 'Invalid workflow format: missing nodes or edges';
+        console.error('❌', errorMessage);
+        setError(errorMessage);
+        setStatus('failed');
+        
+        trackError('WORKFLOW_VALIDATION_FAILED', {
+          errors: [errorMessage],
+          condition: 'workflow_builder'
+        });
+        
+        throw new Error(errorMessage);
+      }
+
+      // Print for debugging (dev mode only)
+      if (import.meta.env.DEV) {
+        console.group('Workflow Execution');
+        printWorkflow(nodes, edges);
+        console.log(serializeWorkflowWithTranslations( nodes, edges ))
+        console.groupEnd();
+
+      }
+
+      // Serialize workflow with MINIMAL data
+      console.log('Serializing workflow...');
+      const serialized = serializeWorkflowMinimal(nodes, edges);
+
+      // Validate serialized workflow
+      console.log('Validating workflow...');
+      const validation = validateSerializedWorkflow(serialized);
+      
+      if (!validation.valid) {
+        console.error('Workflow validation failed:', validation.errors);
+        const errorMessage = 'Invalid workflow: ' + validation.errors.join(', ');
+        setError(errorMessage);
+        setStatus('failed');
+        
+        trackError('WORKFLOW_VALIDATION_FAILED', {
+          errors: validation.errors,
+          condition: 'workflow_builder'
+        });
+        
+        throw new Error(errorMessage);
+      }
+
+      console.log('Workflow validated successfully');
 
       // Track execution start
       trackWorkflowExecuted('WORKFLOW_EXECUTION_STARTED', {
         condition: 'workflow_builder',
-        node_count: workflow?.nodes?.length || 0,
-        edge_count: workflow?.edges?.length || 0
+        node_count: serialized.nodes.length,
+        edge_count: serialized.edges.length
       });
 
       // Start execution
+      console.log('Starting workflow execution...');
       const response = await orchestratorAPI.executeWorkflow(
         sessionId,
-        cleanWorkflow,
+        serialized,
         inputData
       );
 
+      console.log('Execution started:', response.execution_id);
       setExecutionId(response.execution_id);
       setStatus('running');
 
@@ -335,9 +422,11 @@ export const useWorkflowExecution = (sessionId, condition) => {
         console.warn('WebSocket not connected, using polling fallback');
         startPolling();
       } else {
+        console.log('WebSocket connected, will use polling as safety fallback');
         // Still start polling after 5 seconds as safety fallback
         setTimeout(() => {
           if (status === 'running') {
+            console.log('🔄 Starting safety polling fallback');
             startPolling();
           }
         }, 5000);

@@ -1,10 +1,167 @@
-// frontend/src/components/nodes/CustomNode.jsx
+// frontend/src/components/workflow/nodes/CustomNode.jsx
 import React, { memo, useCallback, useMemo } from 'react';
 import { Position } from 'reactflow';
 import NodeHandle from './NodeHandle';
-import { renderIcon, ICONS } from '../../../constants/icons';
+import { renderIcon, ICONS } from '../../../config/icons';
+import { isNodeEditable } from '../../../config/nodeTemplates';
+import { getColumnById } from '../../../config/columnConfig';
+import { useTranslation } from '../../../hooks/useTranslation';
 
-const CustomNode = memo(({ data, selected, id, nodes }) => {
+/**
+ * Generate simplified settings text for display on node
+ */
+const generateSettingsText = (nodeType, config, t) => {
+  if (!config) return null;
+
+  switch (nodeType) {
+    case 'filter-reviews': {
+      const { field, operator, value } = config;
+      if (!field || !operator || value === undefined || value === '') return null;
+      
+      const column = getColumnById(field);
+      const columnLabel = column?.label || field;
+      
+      // Translate operator
+      const operatorKey = `workflow.builder.nodes.settings.operators.signs.${operator}`;
+      const operatorDisplay = t(operatorKey);
+      
+      // Format value for display
+      const valueDisplay = typeof value === 'boolean' 
+        ? (value ? t('common.form.yes') : t('common.form.no')) 
+        : value;
+      
+      return t('workflow.builder.nodes.settings.filter', { 
+        column: columnLabel, 
+        operator: operatorDisplay, 
+        value: valueDisplay 
+      });
+    }
+
+    case 'sort-reviews': {
+      const { sort_by, descending } = config;
+      if (!sort_by) return null;
+      
+      const column = getColumnById(sort_by);
+      const columnLabel = column?.label || sort_by;
+      const direction = descending 
+        ? t('workflow.builder.nodes.settings.descending.short') 
+        : t('workflow.builder.nodes.settings.ascending.short');
+      
+      return t('workflow.builder.nodes.settings.sort', { column: columnLabel, direction });
+    }
+
+    case 'clean-data': {
+      const { remove_nulls, remove_duplicates, normalize_text } = config;
+      const actions = [];
+      if (remove_nulls) actions.push(t('workflow.builder.nodes.settings.clean.removeNulls'));
+      if (remove_duplicates) actions.push(t('workflow.builder.nodes.settings.clean.removeDuplicates'));
+      if (normalize_text) actions.push(t('workflow.builder.nodes.settings.clean.normalizeText'));
+      
+      if (actions.length === 0) return null;
+      return t('workflow.builder.nodes.settings.clean.label', { actions: actions.join(', ') });
+    }
+
+    case 'load-reviews': {
+      const { category, limit } = config;
+      if (!category) return null;
+      
+      const categoryKey = `workflow.builder.nodes.settings.load.${category}`;
+      const categoryLabel = t(categoryKey);
+      
+      return limit 
+        ? t('workflow.builder.nodes.settings.load.withLimit', { category: categoryLabel, limit })
+        : t('workflow.builder.nodes.settings.load.noLimit', { category: categoryLabel });
+    }
+
+    case 'review-sentiment-analysis': {
+      const { extract_themes, theme_separation, max_themes_per_category, include_percentages } = config;
+      
+      // Build summary of key settings
+      const parts = [];
+      
+      if (extract_themes) {
+        parts.push(t('workflow.builder.nodes.settings.sentiment.extractThemes'));
+      }
+      
+      if (theme_separation === 'by_sentiment') {
+        parts.push(t('workflow.builder.nodes.settings.sentiment.separatedBySentiment'));
+      }
+      
+      if (max_themes_per_category) {
+        parts.push(t('workflow.builder.nodes.settings.sentiment.maxThemes', { count: max_themes_per_category }));
+      }
+      
+      if (include_percentages) {
+        parts.push(t('workflow.builder.nodes.settings.sentiment.withPercentages'));
+      }
+      
+      return parts.length > 0 ? parts.join(' • ') : null;
+    }
+
+    case 'generate-insights': {
+      const { focus_area, max_recommendations } = config;
+      
+      // focus_area is now an array from multiselect
+      if (!focus_area || (Array.isArray(focus_area) && focus_area.length === 0)) return null;
+      
+      const areas = Array.isArray(focus_area) ? focus_area : [focus_area];
+      
+      // Translate each focus area
+      const areaLabels = areas.map(area => {
+        const areaKey = `workflow.builder.nodes.settings.insights.${area}`;
+        return t(areaKey);
+      });
+      
+      // Join areas
+      const areasText = areaLabels.join(', ');
+      
+      return max_recommendations 
+        ? t('workflow.builder.nodes.settings.insights.withMax', { areas: areasText, max: max_recommendations })
+        : areasText;
+    }
+
+    case 'show-results': {
+      const { include_sections, statistics_metrics, show_visualizations, max_data_items } = config;
+      
+      // include_sections is an array from multiselect
+      if (!include_sections || (Array.isArray(include_sections) && include_sections.length === 0)) {
+        return null;
+      }
+      
+      const sections = Array.isArray(include_sections) ? include_sections : [include_sections];
+      
+      // Translate section names
+      const sectionLabels = sections.map(section => {
+        const sectionKey = `workflow.builder.nodes.settings.results.sections.${section}`;
+        return t(sectionKey);
+      });
+      
+      const parts = [sectionLabels.join(', ')];
+      
+      // Add additional details
+      if (sections.includes('statistics') && statistics_metrics && statistics_metrics.length > 0) {
+        parts.push(t('workflow.builder.nodes.settings.results.withStats', { count: statistics_metrics.length }));
+      }
+      
+      if (sections.includes('statistics') && show_visualizations) {
+        parts.push(t('workflow.builder.nodes.settings.results.withCharts'));
+      }
+      
+      if (sections.includes('data_preview') && max_data_items) {
+        parts.push(t('workflow.builder.nodes.settings.results.maxItems', { max: max_data_items }));
+      }
+      
+      return parts.join(' • ');
+    }
+
+    default:
+      return null;
+  }
+};
+
+const CustomNode = memo(({ data, selected, id }) => {
+  const { t } = useTranslation();
+  
   const { 
     label, 
     type, 
@@ -12,12 +169,17 @@ const CustomNode = memo(({ data, selected, id, nodes }) => {
     hasInput = 1, 
     hasOutput = 1, 
     iconName,
+    config,
+    template_id,
     connectionState = { isConnecting: false },
     currentEdges = [], 
     isValidConnection, 
     onDelete,
     onEdit
   } = data;
+
+  // Check if this node type is editable
+  const isEditable = template_id ? isNodeEditable(template_id) : true;
 
   const handleDelete = useCallback((e) => {
     e.stopPropagation();
@@ -33,10 +195,14 @@ const CustomNode = memo(({ data, selected, id, nodes }) => {
   const EditIcon = ICONS.Edit3.component;
   const TrashIcon = ICONS.Trash2.component;
   
+  // Generate settings text
+  const settingsText = useMemo(() => {
+    return generateSettingsText(template_id, config, t);
+  }, [template_id, config, t]);
+
   const getHandleHighlight = useCallback((handleType, handleIndex) => {
     if (!connectionState.isConnecting) return 'normal';
     
-    // If this is the source node, highlight the specific handle being dragged from
     if (connectionState.sourceNodeId === id) {
       if (handleType === 'source' && connectionState.sourceHandleType === 'source') {
         const sourceHandleIndex = connectionState.sourceHandleId ? 
@@ -46,25 +212,20 @@ const CustomNode = memo(({ data, selected, id, nodes }) => {
       return 'normal';
     }
     
-    // If this is a potential target node, check if this specific handle can accept the connection
     if (handleType === 'target' && connectionState.sourceHandleType === 'source') {
       const targetHandleId = `input-${handleIndex}`;
       
-      // Check if this specific target handle already has a connection
       const targetHandleConnections = currentEdges.filter(e => 
         e.target === id && (e.targetHandle || 'input-0') === targetHandleId
       );
       
-      // If handle is already at limit, don't highlight
       if (targetHandleConnections.length >= 1) return 'normal';
       
-      // Check if the source handle is already connected
       const sourceHandleConnections = currentEdges.filter(e => 
         e.source === connectionState.sourceNodeId && 
         (e.sourceHandle || 'output-0') === connectionState.sourceHandleId
       );
       
-      // If source handle is already at limit, don't highlight
       if (sourceHandleConnections.length >= 1) return 'normal';
       
       const mockConnection = {
@@ -75,101 +236,82 @@ const CustomNode = memo(({ data, selected, id, nodes }) => {
       };
       
       const isValid = isValidConnection?.(mockConnection);
-      return isValid ? 'target' : 'normal';
+      return isValid ? 'valid' : 'invalid';
     }
     
     return 'normal';
-  }, [connectionState, id, isValidConnection, currentEdges]);
+  }, [connectionState, id, currentEdges, isValidConnection]);
 
-  const nodeClassName = useMemo(() => {
-    let baseClass = 'relative bg-white rounded-lg shadow-lg border-2 transition-all duration-200 min-w-[200px] group';
+  const inputHandles = useMemo(() => {
+    if (hasInput === 0) return null;
     
-    if (selected) {
-      baseClass += ' border-blue-400 shadow-blue-200';
-    } else if (connectionState.isConnecting) {
-      if (connectionState.sourceNodeId === id) {
-        baseClass += ' border-blue-400 bg-blue-50 shadow-blue-200';
-      } else {
-        const hasValidTargetHandle = hasInput > 0 && Array.from({ length: hasInput }, (_, idx) => {
-          const mockConnection = {
-            source: connectionState.sourceNodeId,
-            target: id,
-            sourceHandle: connectionState.sourceHandleId,
-            targetHandle: `input-${idx}`
-          };
-          return isValidConnection?.(mockConnection) || false;
-        }).some(Boolean);
-        
-        if (hasValidTargetHandle) {
-          baseClass += ' border-green-400 bg-green-50 shadow-green-200 ring-1 ring-green-200';
-        } else {
-          baseClass += ' border-gray-300 bg-gray-100 opacity-60';
-        }
-      }
-    } else {
-      baseClass += ' border-gray-200 hover:border-gray-300';
-    }
-    
-    return baseClass;
-  }, [selected, connectionState, id, hasInput, isValidConnection]);
-
-  const inputHandles = useMemo(() => 
-    hasInput > 0 ? Array.from({ length: hasInput }, (_, idx) => {
-      const highlight = getHandleHighlight('target', idx);
-      const isHighlighted = highlight === 'target';
-      const handleId = `input-${idx}`;
+    return Array.from({ length: hasInput }).map((_, index) => {
+      const highlight = getHandleHighlight('target', index);
+      const isHighlighted = highlight === 'valid' || highlight === 'source';
       
       return (
         <NodeHandle
-          key={`input-${id}-${idx}`}
+          key={`input-${index}`}
           type="target"
           position={Position.Top}
-          id={handleId}
-          index={idx}
+          id={`input-${index}`}
+          index={index}
           total={hasInput}
           isHighlighted={isHighlighted}
+          label={hasInput > 1 ? `In ${index + 1}` : undefined}
         />
       );
-    }) : null
-  , [hasInput, id, getHandleHighlight]);
+    });
+  }, [hasInput, getHandleHighlight]);
 
-  const outputHandles = useMemo(() => 
-    hasOutput > 0 ? Array.from({ length: hasOutput }, (_, idx) => {
-      const highlight = getHandleHighlight('source', idx);
-      const isHighlighted = highlight === 'source';
-      const handleId = `output-${idx}`;
+  const outputHandles = useMemo(() => {
+    if (hasOutput === 0) return null;
+    
+    return Array.from({ length: hasOutput }).map((_, index) => {
+      const highlight = getHandleHighlight('source', index);
+      const isHighlighted = highlight === 'source' || highlight === 'valid';
       
       return (
         <NodeHandle
-          key={`output-${id}-${idx}`}
+          key={`output-${index}`}
           type="source"
           position={Position.Bottom}
-          id={handleId}
-          index={idx}
+          id={`output-${index}`}
+          index={index}
           total={hasOutput}
           isHighlighted={isHighlighted}
+          label={hasOutput > 1 ? `Out ${index + 1}` : undefined}
         />
       );
-    }) : null
-  , [hasOutput, id, getHandleHighlight]);
+    });
+  }, [hasOutput, getHandleHighlight]);
 
-  const hasValidTargets = connectionState.isConnecting && 
-    connectionState.sourceNodeId !== id && 
-    hasInput > 0 && 
-    Array.from({ length: hasInput }, (_, idx) => {
+  const nodeClassName = useMemo(() => {
+    return `group relative bg-white dark:bg-gray-800 rounded-lg shadow-md dark:shadow-gray-900/50 border-2 transition-all duration-200 ${
+      selected 
+        ? 'border-blue-500 dark:border-blue-400 shadow-lg ring-2 ring-blue-200 dark:ring-blue-500/30' 
+        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-lg'
+    } min-w-[220px] max-w-[280px]`;
+  }, [selected]);
+
+  const hasValidTargets = useMemo(() => {
+    if (!connectionState.isConnecting || connectionState.sourceNodeId === id) return false;
+    
+    return Array.from({ length: hasInput }).map((_, index) => {
       const mockConnection = {
         source: connectionState.sourceNodeId,
         target: id,
         sourceHandle: connectionState.sourceHandleId,
-        targetHandle: `input-${idx}`
+        targetHandle: `input-${index}`
       };
       return isValidConnection?.(mockConnection) || false;
     }).some(Boolean);
+  }, [connectionState, id, hasInput, isValidConnection]);
 
   return (
     <div className={nodeClassName}>
       {connectionState.isConnecting && hasValidTargets && (
-        <div className="absolute inset-0 rounded-lg border-2 border-green-400 bg-green-100 bg-opacity-20 animate-pulse pointer-events-none" />
+        <div className="absolute inset-0 rounded-lg border-2 border-green-400 dark:border-green-300 bg-green-100 dark:bg-green-900/30 bg-opacity-20 animate-pulse pointer-events-none" />
       )}
       
       {inputHandles}
@@ -177,34 +319,57 @@ const CustomNode = memo(({ data, selected, id, nodes }) => {
       <div className={`absolute -top-2 -right-2 flex gap-1 transition-opacity duration-200 ${
         selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
       }`}>
+        {/* Only show edit button if node is editable */}
+        {isEditable && (
         <button
           onClick={handleEdit}
-          className="p-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 shadow-lg"
+          className="flex items-center justify-center w-6 h-6 bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full shadow-lg dark:shadow-gray-900/50 transition-all duration-200 hover:scale-110"
           title="Edit node"
         >
-          <EditIcon size={12} />
+          <EditIcon size={13} />
         </button>
+        )}
         <button
           onClick={handleDelete}
-          className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-lg"
+          className="flex items-center justify-center w-6 h-6 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white rounded-full shadow-lg dark:shadow-gray-900/50 transition-all duration-200 hover:scale-110"
           title="Delete node"
         >
-          <TrashIcon size={12} />
+          <TrashIcon size={13} />
         </button>
       </div>
       
-      <div className="p-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${color} transition-all duration-200 ${
-            connectionState.isConnecting && hasValidTargets ? 'ring-2 ring-green-300' : ''
+      <div className="p-3">
+        {/* Header with Icon and Title */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`p-1.5 rounded-lg ${color} transition-all duration-200 flex-shrink-0 ${
+            connectionState.isConnecting && hasValidTargets ? 'ring-2 ring-green-300 dark:ring-green-400' : ''
           }`}>
             {IconComponent}
           </div>
-          <div>
-            <h3 className="font-medium text-gray-800">{label}</h3>
-            <p className="text-xs text-gray-500">{type}</p>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight truncate">
+              {label}
+            </h3>
           </div>
         </div>
+        
+        {/* Settings Display - Directly under title */}
+        {settingsText && (
+          <div className="mt-2 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+            <p className="text-xs text-blue-900 dark:text-blue-200 font-medium leading-relaxed">
+              {settingsText}
+            </p>
+          </div>
+        )}
+        
+        {/* No settings configured message */}
+        {!settingsText && (
+          <div className="mt-2 px-2 py-1.5 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-md">
+            <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+              {t('workflow.builder.nodes.settings.notConfigured')}
+            </p>
+          </div>
+        )}
       </div>
       
       {outputHandles}

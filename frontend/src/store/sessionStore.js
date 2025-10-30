@@ -26,7 +26,7 @@ import {
 } from '../utils/sessionHelpers';
 
 //import { initAnalytics } from '../utils/analytics';
-import { translations } from '../locales';
+import { translations } from '../config/locales';
 import { isInitialized } from '@sentry/react';
 
 const getInitialLanguage = () => {

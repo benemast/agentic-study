@@ -66,6 +66,10 @@ const AIChat = () => {
   // Local streaming state (for REST fallback)
   const [localIsStreaming, setLocalIsStreaming] = useState(false);
   const [localStreamingContent, setLocalStreamingContent] = useState('');
+
+  // Agent specific states
+  const [agentStatus, setAgentStatus] = useState(null);
+  const [insightStatus, setInsightStatus] = useState(null);
   
   // Refs
   const inputRef = useRef(null);
@@ -128,12 +132,27 @@ const AIChat = () => {
       trackError('chat_websocket_error', data.error);
     });
 
+    const unsubAgentThinking = wsClient.on('agent_thinking', (data) => {
+      console.log('🤔 Planning...', data.chunks_received);
+    });
+
+    const unsubInsightStart = wsClient.on('insight_generation_start', (data) => {
+      console.log('💡 Generating insights from', data.record_count, 'records');
+    });
+
+    const unsubInsightComplete = wsClient.on('insight_generation_complete', (data) => {
+      console.log('✅ Done!', data.insights_count, 'insights');
+    });
+
     // Cleanup subscriptions on unmount or disconnect
     return () => {
       console.log('🔌 AIChat: Cleaning up WebSocket event listeners');
       unsubStream();
       unsubComplete();
       unsubError();
+      unsubAgentThinking();
+      unsubInsightStart();
+      unsubInsightComplete();
     };
   }, [isWebSocketConnected, trackMessageReceived, trackError]);
 
@@ -481,7 +500,7 @@ const AIChat = () => {
   // ========================================
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div data-tour="chat-body" className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -509,8 +528,8 @@ const AIChat = () => {
       </div>
 
       {/* Messages */}
-      <div className="chat-messages-container flex-1 overflow-y-auto p-4">
-        <div className="chat-messages space-y-4">
+      <div data-tour="chat-messages-container" className="chat-messages-container flex-1 overflow-y-auto p-4">
+        <div data-tour="chat-messages" className="chat-messages space-y-4">
           {/* Empty state */}
           {chatMessages.length === 0 && !isLoadingHistory && (
             <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -651,7 +670,7 @@ const AIChat = () => {
       )}
 
       {/* Input */}
-      <div className="chat-input-container border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex-shrink-0">
+      <div data-tour="chat-input" className="chat-input-container border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex-shrink-0">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             ref={inputRef}

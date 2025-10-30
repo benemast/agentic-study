@@ -1,4 +1,4 @@
-// frontend/src/locales/en.js
+// frontend/src/config/locales/en.js
 export const en = {
   // ========== COMMON ==========
   common: {
@@ -6,13 +6,17 @@ export const en = {
       pleaseSelect: 'Please select...',
       selectOption: 'Please select...',
       required: 'This field is required',
-      optional: '(optional)'
+      optional: '(optional)',
+      yes: 'Yes',
+      no: 'No'
     },
     
     validation: {
       required: 'This field is required',
       pleaseFillRequired: 'Please fill in all required fields before continuing',
       invalidEmail: 'Please enter a valid email address',
+      minNum: 'Min: {{min}}',
+      maxNum: 'Max: {{max}}',
       minLength: 'Must be at least {{min}} characters',
       maxLength: 'Must be at most {{max}} characters',
       numberOnly: 'Please enter numbers only'
@@ -364,6 +368,25 @@ export const en = {
       cancel: 'Cancel'
     }
   },
+  // ========== DATA VIEWER ==========
+  dataViewer: {
+    title: 'Data Viewer',
+    reviewsCount: 'reviews',
+    openModal: 'Open in modal',
+    updating: 'Updating...',
+    noReviews: 'No reviews found.',
+    viewMode: {
+      cards: 'Card view',
+      table: 'Table view'
+    },
+    filters: {
+      all: 'All',
+      positive: 'Positive',
+      neutral: 'Neutral',
+      negative: 'Negative',
+      allProducts: 'All Products'
+    }
+  },
   // ========== TUTORIAL ==========
   tutorial: {
     // Joyride locale (buttons)
@@ -399,12 +422,16 @@ export const en = {
       },
       popOutViwer:{
         title: '🔲 Pop-Out Viewer',
-        description: 'Click this button to open the dataset viewer in a larger modal window. Perfect for when you need to focus on the data or view it in more detail!',
+        description: 'Click this button to open the dataset viewer in a larger window. Perfect for when you need to focus on the data or view it in more detail!',
       },
       resizePanels: {
         title: '↔️ Resize Panels',
         description: 'Drag this handle left or right to adjust the panel sizes. Make the data viewer larger or give more space to your work area!',
       },
+      tutorialButtons: {
+        title: '📚 Restart Tutorials',
+        description: 'Should you need a refresher later on you can always restart this tutorial. The button on the left will focus on the features of this page overall, while the one on the right will give a refresher on the task specific elements!',
+      }
     },
     
     // Workflow Builder tutorial
@@ -413,33 +440,93 @@ export const en = {
         title: '🔧 Workflow Builder',
         description: 'Build your analysis by connecting tools together. Each tool processes data and passes it to the next step!',
       },
-      availableTools: {
-        title: '🧰 Available Tools',
-        description: 'Browse all available tools in the sidebar. Each tool has a specific function for analyzing your data.',
+      
+      // NEW: Sidebar section
+      sidebar: {
+        title: '📚 Tool Library',
+        description: 'This sidebar contains all available tools. Tools are organized into categories based on their function:',
+        input: 'Load and import your data',
+        processing: 'Filter, clean, and transform data',
+        analysis: 'Perform analytical operations',
+        output: 'Display and export results',
+        finalRemark: 'Browse through different types of nodes to build your workflow.'
       },
-      workflowCanvas: {
+      
+      // NEW: Tooltips feature
+      tooltips: {
+        title: '💬 Hover for Details',
+        description: 'Each tool has a helpful tooltip that appears when you hover over it. These tooltips explain what the tool does and how to use it.',
+        tryText: 'Try hovering over "Load Reviews" to see its tooltip!',
+      },
+      
+      // Canvas
+      canvas: {
         title: '🎨 Workflow Canvas',
-        description: 'Drag tools from the sidebar onto this canvas to build your workflow. Connect them to define the flow of data.',
+        description: 'This is your workspace where you build workflows by dragging and connecting tools.',
+        actionTitle: 'How to Add Tools',
+        actionText: 'Drag any tool from the sidebar and drop it onto the canvas to add it to your workflow.',
       },
-      connectTools: {
-        title: '🔗 Connect Tools',
-        description: "Click and drag from one tool's output to another's input to connect them. This defines the flow of data.",
+      
+      // NEW: Toolbar section
+      toolbar: {
+        title: '🔧 Workflow Toolbar',
+        description: 'The toolbar at the top provides workflow controls and status:',
+        statusIndicator: 'Status Indicator',
+        statusDescription: 'Shows if your workflow is ready to execute (green) or needs fixes (yellow)',
+        saveButton: 'Save',
+        saveDescription: 'Manually save your workflow (also auto-saves)',
+        clearButton: 'Clear',
+        clearDescription: 'Remove all nodes and start fresh',
+        executeButton: 'Execute',
+        executeDescription: 'Run your workflow (only enabled when workflow is valid)',
       },
-      configureTools: {
-        title: '⚙️ Configure Tools',
-        description: 'Click on a tool to configure its settings. Each tool has different options you can customize.',
+      
+      // NEW: Node settings
+      nodeSettings: {
+        title: '⚙️ Configure Your Tools',
+        description: 'Each tool can be configured with specific settings. These settings appear directly on the node.',
+        displayTitle: 'Settings Display',
+        displayText: 'Configured settings are shown in a blue box on each node so you can see your choices at a glance.',
+        editTitle: 'Edit Settings',
+        editText: 'Click the blue pencil icon on any node to open its configuration dialog.',
       },
-      executeWorkflow: {
-        title: '▶️ Execute Workflow',
-        description: "Once your workflow is ready, click the Execute button to run it. You'll see results in real-time!",
+      
+      // Connections
+      connections: {
+        title: '🔗 Connect Your Tools',
+        description: 'Connect tools to define the flow of data through your workflow:',
+        topHandle: 'Top handle (▲) receives input from previous tools',
+        bottomHandle: 'Bottom handle (▼) sends output to next tools',
+        dragConnect: 'Click and drag from one handle to another to create a connection',
+        validTitle: 'Valid Connections',
+        validText: 'Green highlights show valid connection targets. Invalid targets won\'t highlight.',
       },
-      clearWorkflow: {
-        title: '🗑️ Clear & Reset',
-        description: 'Use the Clear button to remove all tools and start fresh if needed.',
+      
+      // NEW: Visual feedback
+      visualFeedback: {
+        title: '🎨 Visual Connection Indicators',
+        description: 'Handle colors show connection status:',
+        greenValid: 'Green - Valid connection target (when connecting)',
+        grayUnconnected: 'Gray - Not connected',
+        blueConnected: 'Blue - Already connected',
       },
-      autoSave: {
-        title: '💾 Auto-Save',
-        description: "Your workflow is automatically saved as you work, so you won't lose any progress!",
+      
+      // Execute
+      execute: {
+        title: '▶️ Execute Your Workflow',
+        description: 'Once your workflow is complete, click Execute to run it and see results.',
+        requirementsTitle: 'Requirements',
+        requirementsText: 'Your workflow needs at least one input node, one output node, and a valid path connecting them.',
+      },
+      
+      // Tips
+      tips: {
+        title: '💡 Tips for Success',
+        startSimple: 'Start simple: Load Reviews → Show Results is a valid workflow!',
+        useTooltips: 'Use tooltips: Hover over tools to learn what they do',
+        checkSettings: 'Configure settings: Each tool shows its settings on the node',
+        validateBefore: 'Check the status: Make sure the toolbar shows "Ready" before executing',
+        autoSave: 'Auto-saved: Your progress saves automatically as you work',
       },
     },
     
@@ -567,15 +654,338 @@ export const en = {
         output: 'output'
       },
       nodes: {
-        loadData: 'Load Data',
-        filterData: 'Filter Data',
-        cleanData: 'Clean Data',
-        sortData: 'Sort Data',
-        logicIf: 'Logic If',
-        combineData: 'Combine Data',
-        sentimentAnalysis: 'Sentiment Analysis',
-        generateInsights: 'Generate Insights',
-        showResults: 'Show Results'
+        loadReviews: {
+          label: 'Load Reviews',
+          type: 'Data Input',
+          description: 'Load product reviews from the database. This is your starting point - select reviews by category, rating, or verified purchase status.',
+          config: {
+            category: {
+              label: 'Product Category',
+              help: 'Select which product category to load reviews from',
+              placeholder: 'Select category',
+              options: {
+                shoes: 'Shoes',
+                wireless: 'Wireless Headphones'
+              }
+            },
+            limit: {
+              label: 'Maximum Reviews',
+              help: 'Limit the number of reviews to load (leave empty for all)',
+              placeholder: 'No limit'
+            }
+          }
+        },
+        
+        filterReviews: {
+          label: 'Filter Reviews',
+          type: 'Data Processing',
+          description: 'Filter reviews based on specific criteria like rating range, verified purchases, or keywords. Narrows down your dataset to relevant entries.',
+          config: {
+            field: {
+              label: 'Filter Column',
+              help: 'Select which column to filter by',
+              placeholder: 'Select column'
+            },
+            operator: {
+              label: 'Filter Condition',
+              help: 'Select how to compare the values',
+              placeholder: 'Select condition'
+            },
+            value: {
+              label: 'Filter Value',
+              help: 'Enter the value to filter by',
+              placeholder: 'Enter value'
+            }
+          }
+        },
+        
+        sortReviews: {
+          label: 'Sort Reviews',
+          type: 'Data Processing',
+          description: 'Arrange reviews in a specific order by rating, helpfulness, engagement, or other fields. Helps organize data for better analysis.',
+          config: {
+            sortBy: {
+              label: 'Sort By Column',
+              help: 'Select which column to sort by',
+              placeholder: 'Select column'
+            },
+            descending: {
+              label: 'Sort Direction',
+              help: 'Choose sort direction',
+              options: {
+                true: 'Descending (High to Low)',
+                false: 'Ascending (Low to High)'
+              }
+            }
+          }
+        },
+        
+        cleanData: {
+          label: 'Clean Reviews',
+          type: 'Data Processing',
+          description: 'Automatically detect and remove spam, duplicates or reviews missing data. Improves data quality before analysis.',
+          config: {
+            removeNulls: {
+              label: 'Remove Null Values',
+              help: 'Remove records with null/empty values in key fields',
+              placeholder: 'Enable to remove nulls'
+            },
+            normalizeText: {
+              label: 'Normalize Text',
+              help: 'Standardize text formatting and remove special characters',
+              placeholder: 'Enable to normalize text'
+            },
+            removeDuplicates: {
+              label: 'Remove Duplicates',
+              help: 'Remove duplicate reviews based on review ID',
+              placeholder: 'Enable to remove duplicates'
+            }
+          }
+        },
+        
+        // Analysis Tools
+        reviewSentimentAnalysis: {
+          label: 'Sentiment Analysis',
+          type: 'AI Powered Analysis',
+          description: 'Extract key themes and sentiment patterns from customer reviews. Identifies what customers discuss most and how they feel about specific product aspects.',
+          config: {
+            extractThemes: {
+              label: 'Extract Key Themes',
+              help: 'Identify recurring topics customers discuss (e.g., comfort, durability, price)',
+              placeholder: 'Enable theme extraction'
+            },
+            themeSeparation: {
+              label: 'Theme Organization',
+              help: 'How should themes be categorized?',
+              options: {
+                combined: 'All Themes Together',
+                bySentiment: 'Separate Positive/Negative Themes'
+              }
+            },
+            maxThemesPerCategory: {
+              label: 'Number of Themes',
+              help: 'How many themes to extract per category'
+            },
+            includePercentages: {
+              label: 'Include Theme Percentages',
+              help: 'Calculate frequency percentage for each theme',
+              placeholder: 'Enable to show percentages'
+            }
+          }
+        },
+        
+        generateInsights: {
+          label: 'Generate Insights',
+          type: 'AI Powered Analysis',
+          description: 'Generate actionable business recommendations based on customer feedback analysis. Translates patterns into strategic next steps.',
+          config: {
+            focusArea: {
+              label: 'Recommendation Focus',
+              help: 'What type of recommendations to prioritize',
+              options: {
+                competitivePositioning: {
+                  label: 'Competitive Positioning',
+                  help: 'Compare your product against competitors and identify market opportunities'
+                },
+                customerExperience: {
+                  label: 'Customer Experience',
+                  help: 'Improve customer satisfaction and address pain points'
+                },
+                marketingMessages: {
+                  label: 'Marketing Messages',
+                  help: 'Craft effective messaging based on customer language and priorities'
+                },
+                productImprovements: {
+                  label: 'Product Improvements',
+                  help: 'Identify specific features or quality improvements customers want'
+                }
+              }
+            },
+            maxRecommendations: {
+              label: 'Number of Recommendations',
+              help: 'Maximum number of recommendations to generate'
+            }
+          }
+        },
+        
+        // Output Tool
+        showResults: {
+          label: 'Show Results',
+          type: 'Output',
+          description: 'Display the final output of your workflow. This is your endpoint - it presents the processed data, analysis results, and insights.',
+          note: 'Only data available from previous tools will be displayed. Unavailable sections will be marked.',
+          config: {
+            includeSections: {
+              label: 'Report Sections',
+              help: 'Select sections to include in your report',
+              options: {
+                executiveSummary: {
+                  label: 'Executive Summary',
+                  help: 'High-level overview of findings and key takeaways'
+                },
+                themes: {
+                  label: 'Key Themes',
+                  help: 'Extracted themes with frequencies and sentiment analysis'
+                },
+                recommendations: {
+                  label: 'Recommendations',
+                  help: 'Actionable business recommendations based on analysis'
+                },
+                statistics: {
+                  label: 'Statistics & Metrics',
+                  help: 'Quantitative data and distribution metrics'
+                },
+                dataPreview: {
+                  label: 'Data Preview',
+                  help: 'Sample of raw review data used in analysis'
+                }
+              }
+            },
+            statisticsMetrics: {
+              label: 'Statistics to Display',
+              help: 'Select which statistics to include (only shown if Statistics section is enabled)',
+              options: {
+                sentimentDistribution: {
+                  label: 'Overall Sentiment Distribution',
+                  help: 'Percentage breakdown of positive, neutral, and negative reviews'
+                },
+                reviewSummary: {
+                  label: 'Total Reviews & Average Rating',
+                  help: 'Total number of reviews analyzed and mean rating'
+                },
+                ratingDistribution: {
+                  label: 'Rating Distribution',
+                  help: 'Count and percentage of reviews by rating (1-5 stars)'
+                },
+                verifiedRate: {
+                  label: 'Verified Purchase Rate',
+                  help: 'Percentage of reviews from verified purchases vs. unverified'
+                },
+                themeCoverage: {
+                  label: 'Theme Coverage',
+                  help: 'Percentage of reviews that mention identified themes'
+                },
+                sentimentConsistency: {
+                  label: 'Sentiment Consistency',
+                  help: 'Correlation between star ratings and sentiment classification'
+                }
+              }
+            },
+            showVisualizations: {
+              label: 'Include Visualizations',
+              help: 'Display charts and graphs where applicable',
+              placeholder: 'Enable to show charts'
+            },
+            maxDataItems: {
+              label: 'Maximum Items in Data Preview',
+              help: 'Limit number of items shown in data preview table'
+            }
+          }
+        },
+        
+        // Logic Tools
+        logicIf: {
+          label: 'Logic If',
+          type: 'Conditional',
+          description: 'Split the workflow based on a condition. Routes data to different paths depending on whether the condition is true or false.'
+        },
+
+        combineData: {
+          label: 'Combine Data',
+          type: 'Data Processing',
+          description: 'Merge data from multiple workflow branches. Brings together results from different processing paths.'
+        },
+        settings: {
+          // General 
+          // workflow.nodes.settings.notConfigured
+          notConfigured: 'Not configured',
+          
+          // Sentiment Analysis Node
+          sentiment: {
+            extractThemes: 'Extract themes',
+            separatedBySentiment: 'Separated by sentiment',
+            maxThemes: '{{count}} theme(s)',
+            withPercentages: 'With percentages'
+          },
+          
+          // Generate Insights Node
+          insights: {
+            competitive_positioning: 'Competitive Positioning',
+            customer_experience: 'Customer Experience',
+            marketing_messages: 'Marketing Messages',
+            product_improvements: 'Product Improvements',
+            withMax: '{{areas}} (max {{max}})'
+          },
+          
+          // Show Results Node
+          results: {
+            sections: {
+              executive_summary: 'Summary',
+              themes: 'Themes',
+              recommendations: 'Recommendations',
+              statistics: 'Statistics',
+              data_preview: 'Data'
+            },
+            withStats: '{{count}} stat(s)',
+            withCharts: 'With charts',
+            maxItems: 'Max {{max}} items'
+          },
+          
+          // Filter node (existing, keep as-is)
+          filter: 'Filter by {{column}} {{operator}} {{value}}',
+          
+          // Sort node (existing, keep as-is)
+          sort: 'Sort by {{column}} ({{direction}})',
+          ascending: {
+            full: 'ascending',
+            short: '↑ Asc'
+          },
+          descending: {
+            full: 'descending',
+            short: '↓ Desc'
+          },
+          
+          // Clean node (existing, keep as-is)
+          clean: {
+            label: 'Clean: {{actions}}',
+            removeNulls: 'remove nulls',
+            removeDuplicates: 'remove duplicates',
+            normalizeText: 'normalize text'
+          },
+          
+          // Load node (existing, keep as-is)
+          load: {
+            wireless: 'Wireless',
+            shoes: 'Shoes',
+            withLimit: 'Load {{category}} (max {{limit}})',
+            noLimit: 'Load {{category}}'
+          },
+          
+          // Operators (used by filter and logic nodes)
+          operators: {
+            signs: {
+              equals: '=',
+              not_equals: '≠',
+              greater: '>',
+              greater_or_equal: '≥',
+              less: '<',
+              less_or_equal: '≤'
+            },
+            text: {
+              equals: 'Equals',
+              not_equals: 'Not Equal',
+              contains: 'Contains',
+              not_contains: 'Not Contains',
+              starts_with: 'Starts With',
+              ends_with: 'Ends With',
+              greater: 'Greater Than',
+              greater_or_equal: 'Greater or Equal',
+              less: 'Less Than',
+              less_or_equal: 'Less or Equal',
+              is: 'Is'
+            }
+          }
+        }
       },
       nodeTypes: {
         dataInput: 'Data Input',
@@ -597,7 +1007,8 @@ export const en = {
         missingInput: 'Missing input node',
         missingOutput: 'Missing output node',
         noConnections: 'No connections',
-        incompleteWorkflow: 'Incomplete workflow'
+        incompleteWorkflow: 'Incomplete workflow',
+        configurationIncomplete: 'Configuration incomplete'
       },
       statusDetails: {
         addNodes: 'Add nodes to start building your workflow',
@@ -605,7 +1016,8 @@ export const en = {
         addOutput: 'Add an output node to complete your workflow',
         connectNodes: 'Connect your nodes to create a workflow path',
         createPath: 'Create a path from input to output nodes',
-        nodesConnected: '{{count}} nodes connected properly'
+        nodesConnected: '{{count}} nodes connected properly',
+        configureNodes: 'Configure all required fields in nodes'
       },
       emptyState: {
         title: 'Start Building Your Workflow',
@@ -620,7 +1032,11 @@ export const en = {
         label: 'Label',
         description: 'Description',
         cancel: 'Cancel',
-        save: 'Save'
+        save: 'Save',
+        options: 'Options',
+        fields: 'fields',
+        noConfig: 'No configuration options available',
+        fixErrors: 'Please fix {{count}} error(s)'
       }
     },
     sidebar: {
@@ -647,7 +1063,16 @@ export const en = {
       targetHandleMaxReached: 'Target handle already has maximum of {{max}} connection{{max === 1 ? "" : "s"}}',
       workflowSaved: 'Workflow saved: {{nodes}} nodes, {{connections}} connections',
       workflowExecuted: 'Workflow executed with {{nodes}} nodes and {{connections}} connections',
-      workflowCleared: 'Workflow cleared'
+      workflowCleared: 'Workflow cleared',
+      executionFailed: 'Workflow execution failed',
+      executionStarted: 'Workflow execution started',
+      executionCompleted: 'Workflow execution completed',
+      executionCancelled: 'Workflow execution cancelled',
+      validationFailed: 'Workflow validation failed',
+      
+      // More detailed versions (optional)
+      executionFailedWithError: 'Workflow execution failed: {{error}}',
+      validationFailedWithErrors: 'Workflow validation failed: {{errors}}'
     }
   }
 };

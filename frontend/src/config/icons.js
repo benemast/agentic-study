@@ -1,4 +1,4 @@
-// frontend/src/constants/icons.js
+// frontend/src/config/icons.js
 // centralized icon mapping
 import { 
   Plus, 
@@ -17,7 +17,15 @@ import {
   Trash2,
   Construction,
   BrushCleaning,
-  ArrowDownNarrowWide
+  ArrowDownNarrowWide,
+  GitBranch,
+  Sparkles,
+  FileOutput,
+  FileInput,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import React from 'react';
 
@@ -38,7 +46,15 @@ export const ICONS = {
   Trash2:               { component: Trash2 },
   Construction:         { component: Construction },
   BrushCleaning:        { component: BrushCleaning },
-  ArrowDownNarrowWide:  { component: ArrowDownNarrowWide }
+  ArrowDownNarrowWide:  { component: ArrowDownNarrowWide },
+  GitBranch:            { component: GitBranch },
+  Sparkles:             { component: Sparkles },
+  FileOutput:           { component: FileOutput },
+  FileInput:            { component: FileInput },
+  ChevronLeft:          { component: ChevronLeft },
+  ChevronRight:         { component: ChevronRight },
+  ChevronDown:          { component: ChevronDown },
+  ChevronUp:            { component: ChevronUp },
 };
 
 // Helper function to get icon configuration

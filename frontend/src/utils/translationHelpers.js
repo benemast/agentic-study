@@ -1,5 +1,6 @@
 // frontend/src/utils/translationHelpers.js
 import React from 'react';
+
 /**
  * Convert kebab-case to camelCase
  * @param {string} str - String in kebab-case format
@@ -32,16 +33,55 @@ export const titleToCamelCase = (str) => {
 
 /**
  * Get translation key for node ID
+ * Returns the base key that points to the node object containing label, type, and description
  * @param {string} nodeId - Node ID in kebab-case
  * @returns {string} Full translation key
- * @example "gather-data" → "workflow.builder.nodes.gatherData"
+ * @example "load-data" → "workflow.builder.nodes.loadData"
+ * 
+ * Usage with t():
+ * const nodeTranslations = t(getNodeTranslationKey('load-data'));
+ * // Returns: { label: 'Load Data', type: 'Data Input', description: '...' }
+ * const label = nodeTranslations.label;
+ * const type = nodeTranslations.type;
+ * const description = nodeTranslations.description;
  */
 export const getNodeTranslationKey = (nodeId) => {
   return `workflow.builder.nodes.${toCamelCase(nodeId)}`;
 };
 
 /**
- * Get translation key for node type
+ * Get translation key for node label specifically
+ * @param {string} nodeId - Node ID in kebab-case
+ * @returns {string} Full translation key for the label
+ * @example "load-data" → "workflow.builder.nodes.loadData.label"
+ */
+export const getNodeLabelKey = (nodeId) => {
+  return `workflow.builder.nodes.${toCamelCase(nodeId)}.label`;
+};
+
+/**
+ * Get translation key for node type specifically
+ * @param {string} nodeId - Node ID in kebab-case
+ * @returns {string} Full translation key for the type
+ * @example "load-data" → "workflow.builder.nodes.loadData.type"
+ */
+export const getNodeTypeKey = (nodeId) => {
+  return `workflow.builder.nodes.${toCamelCase(nodeId)}.type`;
+};
+
+/**
+ * Get translation key for node description specifically
+ * @param {string} nodeId - Node ID in kebab-case
+ * @returns {string} Full translation key for the description
+ * @example "load-data" → "workflow.builder.nodes.loadData.description"
+ */
+export const getNodeDescriptionKey = (nodeId) => {
+  return `workflow.builder.nodes.${toCamelCase(nodeId)}.description`;
+};
+
+/**
+ * DEPRECATED: Get translation key for node type (old structure)
+ * Use getNodeTypeKey() instead for new nested structure
  * @param {string} nodeType - Node type in title case
  * @returns {string} Full translation key
  * @example "Data Input" → "workflow.builder.nodeTypes.dataInput"
@@ -61,153 +101,82 @@ export const getCategoryTranslationKey = (category) => {
 };
 
 /**
+ * Get all node translations at once (label, type, description)
+ * Helper function that returns the complete node translation object
+ * 
+ * @param {function} t - Translation function from useTranslation hook
+ * @param {string} nodeId - Node ID in kebab-case
+ * @returns {object} Object with label, type, and description
+ * @example 
+ * const { label, type, description } = getNodeTranslations(t, 'load-data');
+ * // Returns: { 
+ * //   label: 'Load Data', 
+ * //   type: 'Data Input', 
+ * //   description: 'Load customer review data...' 
+ * // }
+ */
+export const getNodeTranslations = (t, nodeId) => {
+  const nodeTranslations = t(getNodeTranslationKey(nodeId));
+  
+  // Handle both nested object and fallback to old structure
+  if (typeof nodeTranslations === 'object' && nodeTranslations !== null) {
+    return {
+      label: nodeTranslations.label || '',
+      type: nodeTranslations.type || '',
+      description: nodeTranslations.description || ''
+    };
+  }
+  
+  // Fallback: if old structure, return as label
+  return {
+    label: nodeTranslations || '',
+    type: '',
+    description: ''
+  };
+};
+
+/**
  * Interpolate React components into translated strings
  * 
  * @param {string} text - Translated text with placeholders like [PLACEHOLDER]
  * @param {Object} components - Object mapping placeholder names to React components
  * @returns {Array} Array of strings and React elements
- * 
  * @example
- * interpolateComponents(
- *   "Contact [EMAIL] for help",
- *   {
- *     EMAIL: <a href="mailto:help@example.com">help@example.com</a>
- *   }
- * )
- * // Returns: ["Contact ", <a>help@example.com</a>, " for help"]
- * 
- * @example
- * // Multiple placeholders
- * interpolateComponents(
- *   "Read our [PRIVACY] and [TERMS]",
- *   {
- *     PRIVACY: <a href="/privacy">Privacy Policy</a>,
- *     TERMS: <a href="/terms">Terms</a>
- *   }
- * )
+ * const text = "Click [LINK] to continue";
+ * const components = { LINK: <a href="#">here</a> };
+ * const result = interpolateComponents(text, components);
+ * // Returns: ["Click ", <a href="#">here</a>, " to continue"]
  */
-export const interpolateComponents = (text, components) => {
-  const placeholders = Object.keys(components);
+export const interpolateComponents = (text, components = {}) => {
+  if (!text || typeof text !== 'string') return text;
   
-  if (placeholders.length === 0) {
-    return [text];
-  }
+  const parts = [];
+  let lastIndex = 0;
+  const regex = /\[(\w+)\]/g;
+  let match;
   
-  // Create regex to match any placeholder: [PLACEHOLDER1] or [PLACEHOLDER2]
-  const regex = new RegExp(
-    `(${placeholders.map(p => `\\[${p}\\]`).join('|')})`,
-    'g'
-  );
-  
-  // Split text by placeholders, keeping the placeholders in the result
-  const parts = text.split(regex);
-  
-  // Map parts to either strings or components
-  return parts.map((part, index) => {
-    // Check if this part matches a placeholder
-    const placeholder = placeholders.find(p => `[${p}]` === part);
-    
-    if (placeholder) {
-      const component = components[placeholder];
-      
-      // If it's a React element, clone it with a key
-      if (React.isValidElement(component)) {
-        return React.cloneElement(component, { key: index });
-      }
-      
-      // Otherwise return as-is (could be a string or number)
-      return component;
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the placeholder
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
     }
     
-    // Return the text part
-    return part;
-  });
-};
-
-/**
- * Simple interpolation for single placeholder
- * More performant for common case of one placeholder
- * 
- * @param {string} text - Translated text with one placeholder [PLACEHOLDER]
- * @param {string} placeholderName - Name of the placeholder (without brackets)
- * @param {React.ReactNode} component - React component to insert
- * @returns {Array} Array with text parts and component
- * 
- * @example
- * interpolateSingle(
- *   "Contact [EMAIL] for help",
- *   "EMAIL",
- *   <a href="mailto:help@example.com">help@example.com</a>
- * )
- */
-export const interpolateSingle = (text, placeholderName, component) => {
-  const placeholder = `[${placeholderName}]`;
-  const parts = text.split(placeholder);
-  
-  if (parts.length === 1) {
-    // Placeholder not found
-    return [text];
+    // Add the component
+    const componentName = match[1];
+    if (components[componentName]) {
+      parts.push(React.cloneElement(components[componentName], { key: match.index }));
+    } else {
+      // If component not found, keep the placeholder
+      parts.push(match[0]);
+    }
+    
+    lastIndex = match.index + match[0].length;
   }
   
-  return [
-    parts[0],
-    React.isValidElement(component) 
-      ? React.cloneElement(component, { key: 'component' })
-      : component,
-    parts[1] || ''
-  ];
-};
-
-/**
- * Replace variable placeholders (e.g., {{name}}) in translated strings
- * 
- * @param {string} text - Translated text with variable placeholders
- * @param {Object} variables - Object mapping variable names to values
- * @returns {string} Text with variables replaced
- * 
- * @example
- * interpolateVariables(
- *   "Hello {{name}}, you have {{count}} messages",
- *   { name: "John", count: 5 }
- * )
- * // Returns: "Hello John, you have 5 messages"
- */
-export const interpolateVariables = (text, variables = {}) => {
-  let result = text;
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
   
-  Object.keys(variables).forEach(key => {
-    const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-    result = result.replace(regex, String(variables[key]));
-  });
-  
-  return result;
-};
-
-/**
- * Combined interpolation for both components and variables
- * First replaces variables, then components
- * 
- * @param {string} text - Translated text with both types of placeholders
- * @param {Object} options - Options object
- * @param {Object} options.components - Component placeholders [PLACEHOLDER]
- * @param {Object} options.variables - Variable placeholders {{variable}}
- * @returns {Array} Array of strings and React elements
- * 
- * @example
- * interpolate(
- *   "Hello {{name}}, read our [PRIVACY]",
- *   {
- *     variables: { name: "John" },
- *     components: {
- *       PRIVACY: <a href="/privacy">Privacy Policy</a>
- *     }
- *   }
- * )
- */
-export const interpolate = (text, { components = {}, variables = {} } = {}) => {
-  // First replace variables
-  let processedText = interpolateVariables(text, variables);
-  
-  // Then replace components
-  return interpolateComponents(processedText, components);
+  return parts.length > 0 ? parts : text;
 };

@@ -257,57 +257,58 @@ const StudyApp = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
-    {/* Header/Navigation */}
-    <header className="flex-shrink-0">
-      {/* Your header content */}
-    </header>
+    <div className="study-app flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Header/Navigation */}
+      <header className="flex-shrink-0">
+        {/* Your header content */}
+      </header>
 
-    {/* Fixed Controls Bar - Language and Theme Switchers */}
-    {/* Move OUTSIDE header */}
-    {showFooter && (
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
-        <LanguageSwitcher 
-          variant="compact" 
-          showLabels={false}
-          className="bg-white dark:bg-gray-800 shadow-lg"
-        />
-        <ThemeSwitcher 
-          variant="icon-only"
-          className="bg-white dark:bg-gray-800 shadow-lg"
-        />
-      </div>
-    )}
-
-    {/* Debug info (only in development) */}
-    {import.meta.env.DEV && (
-      <div className="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-800 text-white text-xs p-3 rounded-lg shadow-lg z-50 font-mono">
-        <div className="space-y-1">
-          <div><strong>Group:</strong> {studyConfig.group}</div>
-          <div><strong>Step:</strong> {currentStep}</div>
-          <div><strong>Session:</strong> {sessionId}</div>
-          <div><strong>Theme:</strong> {theme}</div>
-          <div className="pt-2 mt-2 border-t border-gray-700">
-            <a href="/admin" className="text-blue-400 hover:underline">
-              → Admin Interface
-            </a>
+      {/* Fixed Controls Bar - Language and Theme Switchers */}
+      {/* Only show on non-task screens */}
+      {showFooter && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+          <LanguageSwitcher 
+            variant="compact" 
+            showLabels={false}
+            className="bg-white dark:bg-gray-800 shadow-lg"
+          />
+          <ThemeSwitcher 
+            variant="icon-only"
+            className="bg-white dark:bg-gray-800 shadow-lg"
+          />
+        </div>
+      )} 
+      
+      {/* Debug info (only in development) */}
+      {import.meta.env.DEV && (
+        <div className="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-800 text-white text-xs p-3 rounded-lg shadow-lg z-50 font-mono">
+          <div className="space-y-1">
+            <div><strong>Group:</strong> {studyConfig.group}</div>
+            <div><strong>Step:</strong> {currentStep}</div>
+            <div><strong>Session:</strong> {sessionId}</div>
+            <div><strong>Theme:</strong> {theme}</div>
+            <div className="pt-2 mt-2 border-t border-gray-700">
+              <a href="/admin" className="text-blue-400 hover:underline">
+                → Admin Interface
+              </a>
+            </div>
           </div>
         </div>
+      )}
+
+     
+
+      {/* Main Content - flex-1 ensures it takes remaining space */}
+      <div className="flex-1 flex flex-col">
+        {renderCurrentStep()}
       </div>
-    )}
 
-    {/* Main Content - REMOVE nested div */}
-    <main className="flex-1 overflow-auto">
-      {renderCurrentStep()}
-    </main>
-
-    {/* Footer - always rendered, sticks to bottom */}
-    {showFooter && (
-      <footer className="flex-shrink-0">
-        <StudyFooter />
+      {/* Footer - sticks to bottom */}
+      <footer className="mt-auto">
+        {/* Footer (conditionally shown) */}
+        {showFooter && <StudyFooter />}
       </footer>
-    )}
-  </div>
+    </div>
   );
 };
 

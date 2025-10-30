@@ -1,21 +1,23 @@
 // frontend/src/components/study/TaskScreen.jsx
 /**
- * Optimized Task Screen
+ * CLEANED Task Screen - Basic Joyride Integration
  * 
- * Features:
- * - Resizable split panel (drag to adjust left/right sizes)
- * - Collapsible task description
- * - Non-copiable task text
- * - Progress header with completion button
- * - Tooltips on all interactive elements
- * - Simplified footer
- * - Minimal re-renders
+ * Removed:
+ * - useJoyridePositionFix hook
+ * - JoyridePortal component
+ * - Manual positioning logic
+ * - Body scroll manipulation
+ * - Debug logging
+ * 
+ * Using standard Joyride with default Popper.js behavior
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 
-//components
-import JoyridePortal from '../JoyridePortal';
+// Components
+import JoyridePortal from '../JoyridePortal'
+import LanguageSwitcher from '../LanguageSwitcher';
+import ThemeSwitcher from '../ThemeSwitcher';
 import WorkflowBuilder from '../workflow/WorkflowBuilder';
 import AIChat from '../assistant/AIChat';
 import DatasetViewer from './DatasetViewer';
@@ -25,8 +27,7 @@ import { useTracking } from '../../hooks/useTracking';
 import { useReviewData } from '../../hooks/useReviewData';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useTheme } from '../../hooks/useTheme';
-import { useTutorial } from '../../hooks/useTutorial';
-import { useJoyridePositionFix } from '../../hooks/useJoyridePositionFix';
+import useTutorial from '../../hooks/useTutorial';
 
 // ============================================================
 // JOYRIDE STYLES
@@ -34,7 +35,6 @@ import { useJoyridePositionFix } from '../../hooks/useJoyridePositionFix';
 
 /**
  * Get Joyride styles based on current theme
- * @param {boolean} isDarkMode - Whether dark mode is active
  */
 const getJoyrideStyles = (isDarkMode) => ({
   options: {
@@ -98,7 +98,7 @@ const getJoyrideStyles = (isDarkMode) => ({
 // ============================================================
 // RESIZABLE SPLIT PANEL COMPONENT
 // ============================================================
-const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) => {
+const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40, onResize }) => {
   const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef(null);
@@ -118,7 +118,13 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
       const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
       
       // Constrain between 25% and 75%
-      setLeftWidth(Math.min(Math.max(newLeftWidth, 25), 75));
+      const constrainedWidth = Math.min(Math.max(newLeftWidth, 20), 80);
+      setLeftWidth(constrainedWidth);
+      
+      // Notify parent of resize
+      if (onResize) {
+        onResize(constrainedWidth);
+      }
     };
 
     const handleMouseUp = () => {
@@ -132,10 +138,11 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging]);
+  }, [isDragging, onResize]);
 
   return (
     <div 
+      data-tour="task-split"
       ref={containerRef} 
       className="flex h-full relative"
       style={{ 
@@ -145,7 +152,8 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
     >
       {/* Left Panel */}
       <div 
-        className="flex flex-col"
+        data-tour="task-split-left"
+        className="flex flex-col border-r-2 border-gray-200 dark:border-gray-700"
         style={{ width: `${leftWidth}%` }}
       >
         {leftContent}
@@ -154,16 +162,16 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
       {/* Resize Handle */}
       <div
         data-tour="resize-handle"
-        className={`resize-handle w-1 bg-gray-300 dark:bg-gray-600 hover:bg-blue-500 dark:hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors ${
+        className={`group resize-handle w-1 bg-gray-300 dark:bg-gray-600 hover:bg-blue-500 dark:hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors ${
           isDragging ? 'bg-blue-500 dark:bg-blue-400' : ''
         }`}
         onMouseDown={handleMouseDown}
         title="Drag to resize panels"
       >
         <div className="h-full w-full relative">
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-full p-1 shadow-sm opacity-0 hover:opacity-100 transition-opacity">
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-700 rounded-full p-1 shadow-sm opacity-50 group-hover:opacity-100 transition-opacity">
+            <svg className="w-4 h-4 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7l-5 5 5 5M16 7l5 5-5 5" />
             </svg>
           </div>
         </div>
@@ -171,6 +179,7 @@ const ResizableSplit = ({ leftContent, rightContent, defaultLeftWidth = 40 }) =>
 
       {/* Right Panel */}
       <div 
+        data-tour="task-split-right"
         className="flex flex-col"
         style={{ width: `${100 - leftWidth}%` }}
       >
@@ -188,10 +197,12 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
   const { t } = useTranslation();
 
   return (
-    <div className="task-description-section flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+    <div 
+      data-tour="task-description-section"
+      className="task-description-section flex-shrink-0 border-b-2 border-gray-200 dark:border-gray-700 bg-gradient-to-b from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-800 shadow-sm">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         title={isCollapsed ? t('task.description.expand') : t('task.description.collapse')}
       >
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -199,7 +210,7 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
         </h3>
         <svg
           className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${
-            isCollapsed ? 'transform rotate-180' : ''
+            !isCollapsed ? 'transform rotate-180' : ''
           }`}
           fill="none"
           stroke="currentColor"
@@ -211,51 +222,61 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
 
       {/* Collapsible Content */}
       {!isCollapsed && (
-        <div 
-          className="px-6 pb-4 space-y-3 text-sm text-gray-700 dark:text-gray-300"
-          style={{ 
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            MozUserSelect: 'none',
-            msUserSelect: 'none'
-          }}
-          onCopy={(e) => e.preventDefault()}
-          onCut={(e) => e.preventDefault()}
-        >
-          {/* Role & Goal */}
-          <div className="bg-white bg-opacity-80 rounded-lg p-4 shadow-sm mb-3">
+        <div className="px-6 pb-4 space-y-3 text-sm text-gray-700 dark:text-gray-300">
+          {/* Role & Goal Card */}
+          <div 
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm"
+            style={{ 
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              MozUserSelect: 'none',
+              msUserSelect: 'none'
+            }}
+            onCopy={(e) => e.preventDefault()}
+            onCut={(e) => e.preventDefault()}
+          >
             <div className="flex items-start gap-3">
               <div className="text-2xl">👤</div>
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-blue-900 mb-1">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">
                   Your Role: {taskConfig.role}
                 </h3>
-                <p className="text-sm text-blue-700 leading-relaxed">
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                   {taskConfig.goal}
                 </p>
               </div>
             </div>
             
             {taskConfig.focus && (
-              <div className="bg-white bg-opacity-50 rounded p-3 mt-3">
-                <p className="text-sm text-blue-800">
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded p-3 mt-3 border border-gray-200 dark:border-gray-600">
+                <p className="text-sm text-gray-700 dark:text-gray-300">
                   <strong>Focus:</strong> {taskConfig.focus}
                 </p>
               </div>
             )}
           </div>
           
-          {/* Expected Output */}
+          {/* Expected Output Card */}
           {taskConfig.expectedOutput && taskConfig.expectedOutput.length > 0 && (
-            <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200 mb-3">
-              <h4 className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
+            <div 
+              className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm"
+              style={{ 
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none'
+              }}
+              onCopy={(e) => e.preventDefault()}
+              onCut={(e) => e.preventDefault()}
+            >
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
                 <span>📋</span>
                 Expected Output:
               </h4>
-              <ul className="text-sm text-yellow-800 space-y-1.5">
+              <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1.5">
                 {taskConfig.expectedOutput.map((item, index) => (
                   <li key={index} className="flex items-start gap-2">
-                    <span className="text-yellow-600 flex-shrink-0">•</span>
+                    <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">•</span>
                     <span>{item}</span>
                   </li>
                 ))}
@@ -263,18 +284,16 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
             </div>
           )}
 
-          {/* Product Info */}
-          <div className="p-3 bg-gray-50 rounded border border-gray-200">
-            <div className="text-xs text-gray-600 space-y-1">
-              <div><strong>Product:</strong> {taskConfig.product_title || taskConfig.product_id}</div>
+          {/* Product Info Card */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 shadow-sm">
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
+                <span>🔍</span>
+                Product to analyse:
+              </h4>
+            <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+              <div><strong>Title:</strong> {taskConfig.product_title}</div>
+              <div><strong>ID:</strong> {taskConfig.product_id}</div>
               <div><strong>Category:</strong> {taskConfig.category}</div>
-              <div>
-                <strong>Reviews:</strong> {
-                  loading ? 'Loading...' : 
-                  error ? 'Failed to load' : 
-                  `${reviewCount} available`
-                }
-              </div>
             </div>
           </div>
         </div>
@@ -288,7 +307,7 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
 // ============================================================
 const TutorialButtons = ({ onScreenTutorial, onTaskTutorial, taskNumber }) => {
   return (
-    <div className="flex items-center gap-2">
+    <div data-tour="tutorial-buttons" className="flex items-center gap-2">
       {/* Only show screen tutorial button on Task 1 */}
       {taskNumber === 1 && (
         <button
@@ -326,8 +345,9 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
 
   const isDarkMode = theme === 'dark';
 
+  const [leftPanelWidth, setLeftPanelWidth] = useState(40);
   // ============================================================
-  // JOYRIDE SETUP
+  // JOYRIDE SETUP - BASIC VERSION
   // ============================================================
   
   // Theme-aware Joyride styles
@@ -337,7 +357,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   const joyrideLocale = useMemo(() => ({
     back: t('tutorial.locale.back', '← Previous'),
     close: t('tutorial.locale.close', 'Close'),
-    last: t('tutorial.locale.last', 'Got it! ✓'),
+    last: t('tutorial.locale.last', 'Got it!'),
     next: t('tutorial.locale.next', 'Next →'),
     skip: t('tutorial.locale.skip', 'Skip tutorial'),
   }), [t]);
@@ -351,25 +371,16 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
     showTaskTutorial,
   } = useTutorial(taskNumber, taskConfig.condition);
 
-  // ✅ CUSTOM POSITIONING HOOK - Bypasses Popper.js
-  useJoyridePositionFix(run, steps);
-
-  // ✅ ENHANCED CALLBACK - Tracks step changes for position fix
+  // ✅ SIMPLIFIED CALLBACK - No positioning manipulation
   const handleJoyrideCallback = useCallback((data) => {
-    // Update floater's data attribute for step tracking
-    if (data.type === 'step:after') {
-      requestAnimationFrame(() => {
-        const floater = document.querySelector('.__floater');
-        if (floater) {
-          floater.setAttribute('data-step-index', data.index);
-        }
-      });
+    // !! IMPORTANT !! 
+    // Defer original callback to avoid breaking positioning 
+    if (originalCallback) {
+      setTimeout(() => {
+        originalCallback(data);
+      }, 0);
     }
-
-    // Call the original callback
-    originalCallback(data);
-  }, [originalCallback]);
-
+  }, [ originalCallback ]);
 
   // ============================================================
   // REVIEW DATA
@@ -380,7 +391,6 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
     limit: 2000
   }), []);
   
-  // Single source of truth: Fetch reviews once at parent level
   const { 
     reviews,
     reviewCount, 
@@ -435,92 +445,33 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   }, [taskNumber, taskConfig.condition, track]);
 
   // ============================================================
-  // DEBUG LOGGING (DEV ONLY)
-  // ============================================================
-  
-  useEffect(() => {
-    if (import.meta.env.DEV && run) {
-      console.log('Tutorial started with steps:', steps.length);
-      steps.forEach((step, index) => {
-        if (step.target !== 'body') {
-          const element = document.querySelector(step.target);
-          if (element) {
-            const rect = element.getBoundingClientRect();
-            console.log(`Step ${index} target "${step.target}":`, {
-              found: true,
-              top: rect.top,
-              left: rect.left,
-              width: rect.width,
-              height: rect.height,
-              visible: rect.width > 0 && rect.height > 0
-            });
-          } else {
-            console.warn(`Step ${index} target "${step.target}": NOT FOUND`);
-          }
-        }
-      });
-    }
-  }, [run, steps]);
-
-  useEffect(() => {
-    if (run) {
-      // Prevent body scroll
-      document.body.style.overflow = 'hidden';
-      document.documentElement.style.overflow = 'hidden';
-      
-      return () => {
-        // Restore scroll
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
-      };
-    }
-  }, [run]);
-
-  // ============================================================
   // RENDER
   // ============================================================
-
   return (
-     <div 
-        className="task-screen-container h-screen flex flex-col bg-gray-50 dark:bg-gray-900" 
-        style={{ 
-          overflow: 'hidden',
-          position: 'relative'
-        }}
-      >
-      {/* Joyride Tutorial with Custom Positioning */}
+    <div 
+      data-tour="task-screen-container" 
+      className="task-screen-container h-screen flex flex-col bg-gray-50 dark:bg-gray-900"
+    >
+      {/* ✅ BASIC JOYRIDE - No custom positioning */}
       <JoyridePortal
         steps={steps}
         run={run}
         continuous
-        scrollToFirstStep={false}
         showProgress
         showSkipButton
-        disableScrolling={true}
-        spotlightClicks={false}
-        disableOverlay={false}
         callback={handleJoyrideCallback}
         styles={joyrideStyles}
         locale={joyrideLocale}
-        floaterProps={{
-          disableAnimation: true,
-          hideArrow: false,
-          offset: 10,
-          styles: {
-            floater: {
-              filter: 'none',
-              zIndex: 10003,
-            },
-            arrow: {
-              length: 8,
-              spread: 16,
-            },
-          },
-        }}
+
+        spotlightClicks={true}
+        scrollToFirstStep={false}
+        disableScrolling={true}
+        disableOverlay={false}
+        debug={true}
       />
 
       {/* Progress Header */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+      <div className="flex-shrink-0 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 shadow-sm">
         <div className="flex items-center justify-between">
           {/* Left: Tutorial buttons + Task info */}
           <div className="flex items-center gap-4">
@@ -541,10 +492,23 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
             </span>
             <span className="text-gray-300 dark:text-gray-600">•</span>
             <span className="text-sm text-gray-600 dark:text-gray-400">
-              {taskConfig.category === 'wireless' 
+              {taskConfig.dataset === 'wireless' 
                 ? '🎧 ' + t('task.header.headphones')
                 : '👟 ' + t('task.header.shoes')}
             </span>
+          </div>
+          <div className="p-4">
+            <div className="flex items-center gap-2"> 
+              <LanguageSwitcher 
+                variant="compact" 
+                showLabels={false}
+                className="bg-white dark:bg-gray-800 border border-gray-300"
+              />
+              <ThemeSwitcher 
+                variant="icon-only"
+                className="bg-white dark:bg-gray-800 border border-gray-300"
+              />
+            </div>
           </div>
           
           {/* Right: Complete button */}
@@ -565,9 +529,10 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
       <div className="flex-1 overflow-hidden">
         <ResizableSplit
           defaultLeftWidth={40}
+          onResize={(width) => setLeftPanelWidth(width)} 
           leftContent={
             /* LEFT SIDE: Task Description + Dataset Viewer */
-            <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="h-full flex flex-col pr-1 bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50/30 dark:bg-gray-900">
               {/* Task Description (Collapsible) */}
               <TaskDescription 
                 taskConfig={taskConfig} 
@@ -578,7 +543,10 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
               />
 
               {/* Dataset Viewer (Scrollable) */}
-              <div className="dataset-viewer-container flex-1 overflow-hidden">
+              <div 
+                data-tour="dataset-viewer-container"
+                className="flex-1 min-h-0 overflow-hidden"
+              >
                 <DatasetViewer 
                   category={taskConfig.category}
                   productId={taskConfig.product_id}
@@ -588,6 +556,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
                   loading={reviewsLoading}
                   error={reviewsError}
                   onRetry={retryReviews}
+                  containerKey={leftPanelWidth}
                 />
               </div>
             </div>

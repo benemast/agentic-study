@@ -1,4 +1,4 @@
-/* frontend/src/index.css */
+/*  frontend/src/index.css */
 
 @tailwind base;
 @tailwind components;
@@ -14,5 +14,20 @@ body {
 }
 
 #root {
-  height: 100vh;
+  min-height: 100vh;
+}
+
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99); 
+}
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgb(209 213 219); 
+  border-radius: 3px;
 }

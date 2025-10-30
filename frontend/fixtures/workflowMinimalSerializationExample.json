@@ -1,0 +1,154 @@
+{
+    "type": "workflow_execute",
+    "workflow": {
+        "nodes": [
+            {
+                "id": "load-reviews-0",
+                "data": {
+                    "template_id": "load-reviews",
+                    "config": {
+                        "category": "shoes",
+                        "limit": null
+                    },
+                    "label": "Load Shoe Reviews"
+                }
+            },
+            {
+                "id": "filter-reviews-2",
+                "data": {
+                    "template_id": "filter-reviews",
+                    "config": {
+                        "field": "product_id",
+                        "operator": "equals",
+                        "value": "B0041FI6O2"
+                    },
+                    "label": "Filter Reviews"
+                }
+            },
+            {
+                "id": "sort-reviews-3",
+                "data": {
+                    "template_id": "sort-reviews",
+                    "config": {
+                        "sort_by": "star_rating",
+                        "descending": true
+                    },
+                    "label": "Sort Reviews"
+                }
+            },
+            {
+                "id": "clean-data-4",
+                "data": {
+                    "template_id": "clean-data",
+                    "config": {
+                        "remove_nulls": true,
+                        "normalize_text": true,
+                        "remove_duplicates": true
+                    },
+                    "label": "Clean Data"
+                }
+            },
+            {
+                "id": "review-sentiment-analysis-5",
+                "data": {
+                    "template_id": "review-sentiment-analysis",
+                    "config": {
+                        "extract_themes": true,
+                        "theme_separation": "by_sentiment",
+                        "max_themes_per_category": 5,
+                        "include_percentages": true
+                    },
+                    "label": "Sentiment Analysis"
+                }
+            },
+            {
+                "id": "generate-insights-6",
+                "data": {
+                    "template_id": "generate-insights",
+                    "config": {
+                        "focus_area": [
+                            "competitive_positioning",
+                            "customer_experience",
+                            "marketing_messages",
+                            "product_improvements"
+                        ],
+                        "max_recommendations": 10
+                    },
+                    "label": "Generate Insights"
+                }
+            },
+            {
+                "id": "show-results-7",
+                "data": {
+                    "template_id": "show-results",
+                    "config": {
+                        "include_sections": [
+                            "data_preview",
+                            "executive_summary",
+                            "themes",
+                            "recommendations",
+                            "statistics"
+                        ],
+                        "max_items": 50,
+                        "statistics_metrics": [
+                            "sentiment_distribution",
+                            "review_summary",
+                            "rating_distribution",
+                            "verified_rate",
+                            "theme_coverage",
+                            "sentiment_consistency"
+                        ],
+                        "show_visualizations": true,
+                        "max_data_items": 50
+                    },
+                    "label": "Show Results"
+                }
+            }
+        ],
+        "edges": [
+            {
+                "source": "load-reviews-0",
+                "target": "filter-reviews-2",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            },
+            {
+                "source": "filter-reviews-2",
+                "target": "sort-reviews-3",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            },
+            {
+                "source": "sort-reviews-3",
+                "target": "clean-data-4",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            },
+            {
+                "source": "clean-data-4",
+                "target": "review-sentiment-analysis-5",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            },
+            {
+                "source": "review-sentiment-analysis-5",
+                "target": "generate-insights-6",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            },
+            {
+                "source": "generate-insights-6",
+                "target": "show-results-7",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0"
+            }
+        ]
+    },
+    "input_data": {
+        "session_id": "93842JZ2",
+        "category": "shoes",
+        "language": "en"
+    },
+    "condition": null,
+    "timestamp": "2025-10-30T14:56:27.999Z"
+}

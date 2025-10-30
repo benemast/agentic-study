@@ -1,0 +1,569 @@
+{
+    "type": "workflow_execute",
+    "workflow": {
+        "nodes": [
+            {
+                "id": "load-reviews-0",
+                "type": "custom",
+                "position": {
+                    "x": 285.300048828125,
+                    "y": 91.5
+                },
+                "data": {
+                    "label": "Load Shoe Reviews",
+                    "description": "Load product reviews from the database. This is your starting point - select reviews by category, rating, or verified purchase status.",
+                    "template_id": "load-reviews",
+                    "type": "Data Input",
+                    "color": "bg-blue-500",
+                    "category": "input",
+                    "config": {
+                        "category": "shoes",
+                        "limit": null
+                    },
+                    "configSchema": [
+                        {
+                            "key": "category",
+                            "label": "workflow.builder.nodes.loadReviews.config.category.label",
+                            "type": "select",
+                            "required": false,
+                            "locked": true,
+                            "help": "workflow.builder.nodes.loadReviews.config.category.help",
+                            "placeholder": "workflow.builder.nodes.loadReviews.config.category.placeholder",
+                            "options": [
+                                {
+                                    "value": "shoes",
+                                    "label": "workflow.builder.nodes.loadReviews.config.category.options.shoes"
+                                },
+                                {
+                                    "value": "wireless",
+                                    "label": "workflow.builder.nodes.loadReviews.config.category.options.wireless"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "limit",
+                            "label": "workflow.builder.nodes.loadReviews.config.limit.label",
+                            "type": "number",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.loadReviews.config.limit.help",
+                            "placeholder": "workflow.builder.nodes.loadReviews.config.limit.placeholder",
+                            "min": 1,
+                            "max": 10000
+                        }
+                    ],
+                    "hasInput": 0,
+                    "hasOutput": 1,
+                    "maxInputConnections": 0,
+                    "maxOutputConnections": 3
+                }
+            },
+            {
+                "id": "filter-reviews-2",
+                "type": "custom",
+                "position": {
+                    "x": 271.54137585553735,
+                    "y": 232.61816624605615
+                },
+                "data": {
+                    "label": "Filter Reviews",
+                    "description": "Filter reviews based on specific criteria like rating range, verified purchases, or keywords. Narrows down your dataset to relevant entries.",
+                    "template_id": "filter-reviews",
+                    "type": "Data Processing",
+                    "color": "bg-green-500",
+                    "category": "processing",
+                    "config": {
+                        "field": "product_id",
+                        "operator": "equals",
+                        "value": "B0041FI6O2"
+                    },
+                    "configSchema": [
+                        {
+                            "key": "field",
+                            "label": "workflow.builder.nodes.filterReviews.config.field.label",
+                            "type": "select",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.filterReviews.config.field.help",
+                            "placeholder": "workflow.builder.nodes.filterReviews.config.field.placeholder"
+                        },
+                        {
+                            "key": "operator",
+                            "label": "workflow.builder.nodes.filterReviews.config.operator.label",
+                            "type": "select",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.filterReviews.config.operator.help",
+                            "placeholder": "workflow.builder.nodes.filterReviews.config.operator.placeholder",
+                            "dependsOn": "field",
+                            "options": "dynamic"
+                        },
+                        {
+                            "key": "value",
+                            "label": "workflow.builder.nodes.filterReviews.config.value.label",
+                            "type": "dynamic",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.filterReviews.config.value.help",
+                            "placeholder": "workflow.builder.nodes.filterReviews.config.value.placeholder",
+                            "dependsOn": "field"
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 1,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 1
+                }
+            },
+            {
+                "id": "sort-reviews-3",
+                "type": "custom",
+                "position": {
+                    "x": 282.7103199965568,
+                    "y": 378.9313344934128
+                },
+                "data": {
+                    "label": "Sort Reviews",
+                    "description": "Arrange reviews in a specific order by rating, helpfulness, engagement, or other fields. Helps organize data for better analysis.",
+                    "template_id": "sort-reviews",
+                    "type": "Data Processing",
+                    "color": "bg-green-500",
+                    "category": "processing",
+                    "config": {
+                        "sort_by": "star_rating",
+                        "descending": true
+                    },
+                    "configSchema": [
+                        {
+                            "key": "sort_by",
+                            "label": "workflow.builder.nodes.sortReviews.config.sortBy.label",
+                            "type": "select",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.sortReviews.config.sortBy.help",
+                            "placeholder": "workflow.builder.nodes.sortReviews.config.sortBy.placeholder"
+                        },
+                        {
+                            "key": "descending",
+                            "label": "workflow.builder.nodes.sortReviews.config.descending.label",
+                            "type": "select",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.sortReviews.config.descending.help",
+                            "options": [
+                                {
+                                    "value": true,
+                                    "label": "workflow.builder.nodes.sortReviews.config.descending.options.true"
+                                },
+                                {
+                                    "value": false,
+                                    "label": "workflow.builder.nodes.sortReviews.config.descending.options.false"
+                                }
+                            ]
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 1,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 1
+                }
+            },
+            {
+                "id": "clean-data-4",
+                "type": "custom",
+                "position": {
+                    "x": 252.55417081580435,
+                    "y": 520.7769250843614
+                },
+                "data": {
+                    "label": "Clean Data",
+                    "description": "Use AI to automatically detect and remove low-quality, spam, or malformed reviews. Improves data quality before analysis.",
+                    "template_id": "clean-data",
+                    "type": "Data Processing",
+                    "color": "bg-green-500",
+                    "category": "processing",
+                    "config": {
+                        "remove_nulls": true,
+                        "normalize_text": true,
+                        "remove_duplicates": true
+                    },
+                    "configSchema": [
+                        {
+                            "key": "remove_nulls",
+                            "label": "workflow.builder.nodes.cleanData.config.removeNulls.label",
+                            "type": "boolean",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.cleanData.config.removeNulls.help",
+                            "placeholder": "workflow.builder.nodes.cleanData.config.removeNulls.placeholder"
+                        },
+                        {
+                            "key": "normalize_text",
+                            "label": "workflow.builder.nodes.cleanData.config.normalizeText.label",
+                            "type": "boolean",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.cleanData.config.normalizeText.help",
+                            "placeholder": "workflow.builder.nodes.cleanData.config.normalizeText.placeholder"
+                        },
+                        {
+                            "key": "remove_duplicates",
+                            "label": "workflow.builder.nodes.cleanData.config.removeDuplicates.label",
+                            "type": "boolean",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.cleanData.config.removeDuplicates.help",
+                            "placeholder": "workflow.builder.nodes.cleanData.config.removeDuplicates.placeholder"
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 1,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 1
+                }
+            },
+            {
+                "id": "review-sentiment-analysis-5",
+                "type": "custom",
+                "position": {
+                    "x": 251.43727640170232,
+                    "y": 670.440776574024
+                },
+                "data": {
+                    "label": "Sentiment Analysis",
+                    "description": "Extract key themes and sentiment patterns from customer reviews. Identifies what customers discuss most and how they feel about specific product aspects.",
+                    "template_id": "review-sentiment-analysis",
+                    "type": "AI Analysis",
+                    "color": "bg-purple-500",
+                    "category": "analysis",
+                    "config": {
+                        "extract_themes": true,
+                        "theme_separation": "by_sentiment",
+                        "max_themes_per_category": 5,
+                        "include_percentages": true
+                    },
+                    "configSchema": [
+                        {
+                            "key": "extract_themes",
+                            "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.label",
+                            "type": "boolean",
+                            "required": true,
+                            "locked": true,
+                            "help": "workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.help",
+                            "placeholder": "workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.placeholder"
+                        },
+                        {
+                            "key": "theme_separation",
+                            "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.label",
+                            "type": "select",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.help",
+                            "options": [
+                                {
+                                    "value": "combined",
+                                    "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.combined"
+                                },
+                                {
+                                    "value": "by_sentiment",
+                                    "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.bySentiment"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "max_themes_per_category",
+                            "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.label",
+                            "type": "number",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.help",
+                            "min": 1,
+                            "max": 10
+                        },
+                        {
+                            "key": "include_percentages",
+                            "label": "workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.label",
+                            "type": "boolean",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.help",
+                            "placeholder": "workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.placeholder"
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 1,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 1
+                }
+            },
+            {
+                "id": "generate-insights-6",
+                "type": "custom",
+                "position": {
+                    "x": 250.32038198760029,
+                    "y": 832.390466618808
+                },
+                "data": {
+                    "label": "Generate Insights",
+                    "description": "Generate actionable business recommendations based on customer feedback analysis. Translates patterns into strategic next steps.",
+                    "template_id": "generate-insights",
+                    "type": "AI Analysis",
+                    "color": "bg-orange-500",
+                    "category": "analysis",
+                    "config": {
+                        "focus_area": [
+                            "competitive_positioning",
+                            "customer_experience",
+                            "marketing_messages",
+                            "product_improvements"
+                        ],
+                        "max_recommendations": 10
+                    },
+                    "configSchema": [
+                        {
+                            "key": "focus_area",
+                            "label": "workflow.builder.nodes.generateInsights.config.focusArea.label",
+                            "type": "multiselect",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.generateInsights.config.focusArea.help",
+                            "options": [
+                                {
+                                    "value": "competitive_positioning",
+                                    "label": "workflow.builder.nodes.generateInsights.config.focusArea.options.competitivePositioning.label",
+                                    "help": "workflow.builder.nodes.generateInsights.config.focusArea.options.competitivePositioning.help"
+                                },
+                                {
+                                    "value": "customer_experience",
+                                    "label": "workflow.builder.nodes.generateInsights.config.focusArea.options.customerExperience.label",
+                                    "help": "workflow.builder.nodes.generateInsights.config.focusArea.options.customerExperience.help"
+                                },
+                                {
+                                    "value": "marketing_messages",
+                                    "label": "workflow.builder.nodes.generateInsights.config.focusArea.options.marketingMessages.label",
+                                    "help": "workflow.builder.nodes.generateInsights.config.focusArea.options.marketingMessages.help"
+                                },
+                                {
+                                    "value": "product_improvements",
+                                    "label": "workflow.builder.nodes.generateInsights.config.focusArea.options.productImprovements.label",
+                                    "help": "workflow.builder.nodes.generateInsights.config.focusArea.options.productImprovements.help"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "max_recommendations",
+                            "label": "workflow.builder.nodes.generateInsights.config.maxRecommendations.label",
+                            "type": "number",
+                            "required": true,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.generateInsights.config.maxRecommendations.help",
+                            "min": 1,
+                            "max": 10
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 1,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 1
+                }
+            },
+            {
+                "id": "show-results-7",
+                "type": "custom",
+                "position": {
+                    "x": 248.086593159396,
+                    "y": 1021.145622602039
+                },
+                "data": {
+                    "label": "Show Results",
+                    "description": "Display the final output of your workflow. This is your endpoint - it presents the processed data, analysis results, and insights.",
+                    "template_id": "show-results",
+                    "type": "Output",
+                    "color": "bg-indigo-500",
+                    "category": "output",
+                    "config": {
+                        "include_sections": [
+                            "data_preview",
+                            "executive_summary",
+                            "themes",
+                            "recommendations",
+                            "statistics"
+                        ],
+                        "max_items": 50,
+                        "statistics_metrics": [
+                            "sentiment_distribution",
+                            "review_summary",
+                            "rating_distribution",
+                            "verified_rate",
+                            "theme_coverage",
+                            "sentiment_consistency"
+                        ],
+                        "show_visualizations": true,
+                        "max_data_items": 50
+                    },
+                    "configSchema": [
+                        {
+                            "key": "include_sections",
+                            "label": "workflow.builder.nodes.showResults.config.includeSections.label",
+                            "type": "multiselect",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.showResults.config.includeSections.help",
+                            "options": [
+                                {
+                                    "value": "executive_summary",
+                                    "label": "workflow.builder.nodes.showResults.config.includeSections.options.executiveSummary.label",
+                                    "help": "workflow.builder.nodes.showResults.config.includeSections.options.executiveSummary.help"
+                                },
+                                {
+                                    "value": "themes",
+                                    "label": "workflow.builder.nodes.showResults.config.includeSections.options.themes.label",
+                                    "help": "workflow.builder.nodes.showResults.config.includeSections.options.themes.help"
+                                },
+                                {
+                                    "value": "recommendations",
+                                    "label": "workflow.builder.nodes.showResults.config.includeSections.options.recommendations.label",
+                                    "help": "workflow.builder.nodes.showResults.config.includeSections.options.recommendations.help"
+                                },
+                                {
+                                    "value": "statistics",
+                                    "label": "workflow.builder.nodes.showResults.config.includeSections.options.statistics.label",
+                                    "help": "workflow.builder.nodes.showResults.config.includeSections.options.statistics.help"
+                                },
+                                {
+                                    "value": "data_preview",
+                                    "label": "workflow.builder.nodes.showResults.config.includeSections.options.dataPreview.label",
+                                    "help": "workflow.builder.nodes.showResults.config.includeSections.options.dataPreview.help"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "statistics_metrics",
+                            "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.label",
+                            "type": "multiselect",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.help",
+                            "dependsOn": "include_sections.statistics",
+                            "options": [
+                                {
+                                    "value": "sentiment_distribution",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentDistribution.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentDistribution.help"
+                                },
+                                {
+                                    "value": "review_summary",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.reviewSummary.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.reviewSummary.help"
+                                },
+                                {
+                                    "value": "rating_distribution",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.ratingDistribution.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.ratingDistribution.help"
+                                },
+                                {
+                                    "value": "verified_rate",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.verifiedRate.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.verifiedRate.help"
+                                },
+                                {
+                                    "value": "theme_coverage",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.themeCoverage.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.themeCoverage.help"
+                                },
+                                {
+                                    "value": "sentiment_consistency",
+                                    "label": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentConsistency.label",
+                                    "help": "workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentConsistency.help"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "show_visualizations",
+                            "label": "workflow.builder.nodes.showResults.config.showVisualizations.label",
+                            "type": "boolean",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.showResults.config.showVisualizations.help",
+                            "placeholder": "workflow.builder.nodes.showResults.config.showVisualizations.placeholder",
+                            "dependsOn": "include_sections.statistics"
+                        },
+                        {
+                            "key": "max_data_items",
+                            "label": "workflow.builder.nodes.showResults.config.maxDataItems.label",
+                            "type": "number",
+                            "required": false,
+                            "locked": false,
+                            "help": "workflow.builder.nodes.showResults.config.maxDataItems.help",
+                            "dependsOn": "include_sections.data_preview",
+                            "min": 1,
+                            "max": 1000
+                        }
+                    ],
+                    "hasInput": 1,
+                    "hasOutput": 0,
+                    "maxInputConnections": 1,
+                    "maxOutputConnections": 0
+                }
+            }
+        ],
+        "edges": [
+            {
+                "id": "reactflow__edge-load-reviews-0output-0-filter-reviews-2input-0",
+                "source": "load-reviews-0",
+                "target": "filter-reviews-2",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            },
+            {
+                "id": "reactflow__edge-filter-reviews-2output-0-sort-reviews-3input-0",
+                "source": "filter-reviews-2",
+                "target": "sort-reviews-3",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            },
+            {
+                "id": "reactflow__edge-sort-reviews-3output-0-clean-data-4input-0",
+                "source": "sort-reviews-3",
+                "target": "clean-data-4",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            },
+            {
+                "id": "reactflow__edge-clean-data-4output-0-review-sentiment-analysis-5input-0",
+                "source": "clean-data-4",
+                "target": "review-sentiment-analysis-5",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            },
+            {
+                "id": "reactflow__edge-review-sentiment-analysis-5output-0-generate-insights-6input-0",
+                "source": "review-sentiment-analysis-5",
+                "target": "generate-insights-6",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            },
+            {
+                "id": "reactflow__edge-generate-insights-6output-0-show-results-7input-0",
+                "source": "generate-insights-6",
+                "target": "show-results-7",
+                "sourceHandle": "output-0",
+                "targetHandle": "input-0",
+                "type": "custom"
+            }
+        ]
+    },
+    "input_data": {
+        "source": "workflow_builder",
+        "session_id": "93842JZ2",
+        "category": "shoes",
+        "timestamp": "2025-10-30T14:26:24.902Z"
+    },
+    "condition": "workflow_builder",
+    "timestamp": "2025-10-30T14:26:24.909Z"
+}

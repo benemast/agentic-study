@@ -1,7 +1,7 @@
 // frontend/src/components/LanguageSwitcher.jsx
 import React from 'react';
 import { useTranslation } from '../hooks/useTranslation';
-import { availableLanguages } from '../locales';
+import { availableLanguages } from '../config/locales';
 
 const LanguageSwitcher = ({ 
   variant = 'default',  // 'default', 'compact', 'dropdown'

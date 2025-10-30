@@ -2,36 +2,57 @@
 /**
  * Dataset Viewer - VIRTUAL SCROLLING VERSION (Carefully Optimized)
  * 
+ * FIXES APPLIED:
+ * - Removed double scrollbar issue in table view (popout modal)
+ * - Fixed horizontal scrollbar to only show when needed
+ * - Added proper text alignment: numbers right-aligned, booleans centered
+ * - Single unified scrolling container for table body
+ * - Trello-style card view with dynamic heights
+ * - Scrollable review body in expanded cards (max-h-64 = 256px)
+ * - OPTIMIZED: VariableSizeList always fills available space
+ * - OPTIMIZED: Responds to window resize, parent resize, item collapse/expand
+ * - OPTIMIZED: Proper spacing and maximum heights for expanded items
+ * 
  * Features:
  * Virtual Scrolling (react-window) - Renders only visible items
  * Debounced Inputs - No lag during typing
  * Memoization - Faster filtering/sorting
  * useTransition - Non-blocking UI updates
+ * Dynamic height calculation with ResizeObserver
+ * 
+ * SCROLLBAR STYLING:
+ * For better scrollbar appearance in expanded cards, add to your global CSS:
+ * 
+ * .dark ::-webkit-scrollbar-thumb {
+ *   background-color: rgb(75 85 99); // gray-600
+ * }
+ * ::-webkit-scrollbar {
+ *   width: 6px;
+ * }
+ * ::-webkit-scrollbar-track {
+ *   background: transparent;
+ * }
+ * ::-webkit-scrollbar-thumb {
+ *   background-color: rgb(209 213 219); // gray-300
+ *   border-radius: 3px;
+ * }
  */
 
-import React, { useState, useMemo, useCallback, useRef, useEffect, useTransition } from 'react';
-import { FixedSizeList } from 'react-window';
+import React, { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, useTransition } from 'react';
+import { VariableSizeList } from 'react-window';
+
+// frontend/src/components/study/DatasetViewer.jsx
+// frontend/src/config/columnConfig.js
+import {COLUMN_CONFIG} from '../../config/columnConfig'
+import { useTranslation } from '../../hooks/useTranslation';
 
 // Virtual scrolling configuration
-const CARD_ROW_HEIGHT = 220;
-const TABLE_ROW_HEIGHT = 80;
+const CARD_HEIGHT_COLLAPSED = 227;  // Base height for collapsed card
+const CARD_HEIGHT_EXPANDED_MAX = 500;   // Maximum height when card is expanded
+const CARD_SPACING = 12;            // Gap between cards
+const TABLE_ROW_HEIGHT = 100;        // Collapsed table row height
+const TABLE_ROW_HEIGHT_EXPANDED_MAX = 500; // Maximum expanded table row height
 const CARDS_PER_ROW = 2;
-
-// Column widths for table alignment (CRITICAL for proper alignment)
-const COLUMN_WIDTHS = {
-  row_number: 60,
-  review_id: 150,
-  customer_id: 120,
-  product_id: 150,
-  product_title: 250,
-  product_category: 120,
-  star_rating: 90,
-  review_headline: 200,
-  review_body: 350,
-  helpful_votes: 100,
-  total_votes: 100,
-  verified_purchase: 80
-};
 
 // ============================================================
 // CUSTOM HOOKS
@@ -45,23 +66,249 @@ const useDebounce = (value, delay) => {
   return debouncedValue;
 };
 
+/**
+ * Custom hook to dynamically calculate available height for VariableSizeList
+ * Responds to: window resize, parent resize, and content changes
+ * 
+ * Uses multiple measurement strategies to ensure height is captured:
+ * 1. Immediate measurement
+ * 2. Multiple delayed measurements (catches late renders)
+ * 3. ResizeObserver (catches parent size changes)
+ * 4. Window resize listener
+ */
+const useDynamicHeight = (containerRef, dependencies = []) => {
+  const [height, setHeight] = useState(0); // Start with 0 to trigger immediate update
+  const measurementAttempts = useRef(0);
+  const maxAttempts = 10; // Try up to 10 times
+
+  // Use useLayoutEffect for synchronous DOM measurement before paint
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+
+    const updateHeight = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const newHeight = rect.height;
+        if (newHeight > 0 && newHeight !== height) {
+          setHeight(newHeight);
+          measurementAttempts.current = 0; // Reset on successful measurement
+        }
+      }
+    };
+
+    // Immediate synchronous calculation
+    updateHeight();
+    
+    // Multiple delayed updates to catch layout changes at different timings
+    // This handles cases where layout happens after initial render
+    const timeoutIds = [
+      setTimeout(updateHeight, 0),      // Next tick
+      setTimeout(updateHeight, 10),     // After ~1 frame
+      setTimeout(updateHeight, 50),     // After layout settles
+      setTimeout(updateHeight, 100),    // Catch slow layouts
+      setTimeout(updateHeight, 200),    // Final safety net
+    ];
+
+    // ResizeObserver for parent container changes
+    const resizeObserver = new ResizeObserver(() => {
+      // Use RAF to batch multiple resize notifications
+      requestAnimationFrame(() => {
+        updateHeight();
+      });
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    // Window resize listener
+    const handleWindowResize = () => {
+      requestAnimationFrame(() => {
+        updateHeight();
+      });
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+
+    // Cleanup
+    return () => {
+      timeoutIds.forEach(id => clearTimeout(id));
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+    };
+  }, [containerRef, height, ...dependencies]); // Include height to detect changes
+
+  return height || 400; // Fallback to 400 only if still 0
+};
+
 // ============================================================
-// COLUMN DEFINITIONS
+// CONTENT HEIGHT CALCULATION HELPERS
 // ============================================================
-const COLUMN_CONFIG = [
-  { id: 'row_number', label: '#', width: 'w-16', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
-  { id: 'review_id', label: 'Review ID', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'customer_id', label: 'Customer ID', width: 'w-28', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'product_id', label: 'Product ID', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'product_title', label: 'Product', width: 'w-48', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'product_category', label: 'Category', width: 'w-28', defaultVisible: false, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'star_rating', label: 'Rating', width: 'w-20', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
-  { id: 'review_headline', label: 'Headline', width: 'w-32', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'review_body', label: 'Review', width: '', defaultVisible: true, sortable: true, filterable: true, dataType: 'string' },
-  { id: 'helpful_votes', label: 'Helpful', width: 'w-24', defaultVisible: true, sortable: true, filterable: true, dataType: 'int64' },
-  { id: 'total_votes', label: 'Total Votes', width: 'w-24', defaultVisible: false, sortable: true, filterable: true, dataType: 'int64' },
-  { id: 'verified_purchase', label: 'Verified', width: 'w-20', defaultVisible: true, sortable: true, filterable: true, dataType: 'boolean' }
-];
+
+/**
+ * Font metrics for accurate height calculations
+ * Based on standard web fonts (system-ui, -apple-system, etc.)
+ */
+const FONT_METRICS = {
+  // Card text metrics
+  card: {
+    fontSize: 14,          // text-sm = 14px
+    lineHeight: 1.5,       // 21px actual line height
+    letterSpacing: 0,      // normal
+    avgCharWidth: 7.5,     // approximate for system fonts at 14px
+  },
+  // Table text metrics  
+  table: {
+    fontSize: 14,          // text-sm/base = 14px
+    lineHeight: 1.5,       // 21px actual line height
+    letterSpacing: 0,      // normal
+    avgCharWidth: 7.5,     // approximate for system fonts at 14px
+  },
+  // Headline/title metrics
+  headline: {
+    fontSize: 16,          // text-base = 16px (cards)
+    lineHeight: 1.4,       // tighter for headlines
+    avgCharWidth: 8.5,
+  }
+};
+
+/**
+ * Calculate how many lines text will wrap into given a width
+ * @param {string} text - The text to measure
+ * @param {number} availableWidth - Width in pixels available for text
+ * @param {number} avgCharWidth - Average character width in pixels
+ * @returns {number} Number of lines the text will take
+ */
+const calculateLineCount = (text, availableWidth, avgCharWidth) => {
+  if (!text || availableWidth <= 0) return 0;
+  
+  const textLength = text.length;
+  const charsPerLine = Math.floor(availableWidth / avgCharWidth);
+  
+  if (charsPerLine <= 0) return Math.ceil(textLength / 10); // Fallback
+  
+  // Account for word wrapping - actual wrapping is ~15% less efficient than character count
+  const effectiveCharsPerLine = Math.floor(charsPerLine * 0.85);
+  const lineCount = Math.ceil(textLength / effectiveCharsPerLine);
+  
+  return Math.max(lineCount, 1);
+};
+
+/**
+ * Calculate the actual height needed for a card based on its content
+ * Uses font metrics and card width to calculate accurate text height
+ * 
+ * Card layout:
+ * - Header: Rating + Verified badge + Headline (2 lines max)
+ * - Body: Review text (scrollable when expanded)
+ * - Footer: Product info + Helpful votes (when expanded)
+ * - Button: Expand/collapse
+ */
+const calculateCardHeight = (review, isExpanded, cardWidth = 400) => {
+  if (!isExpanded) return CARD_HEIGHT_COLLAPSED;
+  
+  const reviewBodyText = review.review_body || '';
+  const reviewHeadlineText = review.review_headline || '';
+  
+  // Fixed component heights
+  const headerRatingHeight = 32;      // Star rating row
+  const headlineHeight = 48;          // 2-line headline (line-clamp-2)
+  const footerHeight = 70;            // Footer with product + helpful votes
+  const buttonHeight = 36;            // Expand/collapse button
+  const verticalPadding = 48;         // Total padding (p-4 top + bottom)
+  const borderHeight = 2;             // Top + bottom borders
+  
+  // Calculate available width for text (accounting for padding and borders)
+  const horizontalPadding = 32;       // p-4 on left and right = 16px each
+  const scrollbarWidth = 8;           // Reserve space for scrollbar
+  const availableTextWidth = cardWidth - horizontalPadding - scrollbarWidth;
+  
+  // Calculate body text height
+  const bodyLineCount = calculateLineCount(
+    reviewBodyText, 
+    availableTextWidth, 
+    FONT_METRICS.card.avgCharWidth
+  );
+  
+  const bodyLineHeightPx = FONT_METRICS.card.fontSize * FONT_METRICS.card.lineHeight;
+  const bodyTextHeight = bodyLineCount * bodyLineHeightPx;
+  
+  // Calculate total height
+  const totalHeight = 
+    headerRatingHeight + 
+    headlineHeight + 
+    verticalPadding + 
+    bodyTextHeight + 
+    footerHeight + 
+    buttonHeight + 
+    borderHeight;
+  
+  // Clamp between collapsed and max expanded height
+  return Math.min(Math.max(totalHeight, CARD_HEIGHT_COLLAPSED), CARD_HEIGHT_EXPANDED_MAX);
+};
+
+/**
+ * Calculate the actual height needed for a table row based on its content
+ * Uses font metrics and column widths to calculate accurate text height
+ * 
+ * Table row expands based on the tallest text column (review_body or review_headline)
+ */
+const calculateTableRowHeight = (review, isExpanded, visibleColumns = {}) => {
+  if (!isExpanded) return TABLE_ROW_HEIGHT;
+
+  const reviewBodyText = review.review_body || '';
+  const reviewHeadlineText = review.review_headline || '';
+  
+  // Find the column configurations for text columns
+  const reviewBodyCol = COLUMN_CONFIG.find(col => col.id === 'review_body');
+  const reviewHeadlineCol = COLUMN_CONFIG.find(col => col.id === 'review_headline');
+  
+  // Get actual visible column widths (use maxWidth as it's what the columns grow to)
+  const reviewBodyWidth = (visibleColumns['review_body'] !== false && reviewBodyCol) 
+    ? reviewBodycol.dataViewer?.maxWidth 
+    : 0;
+  const reviewHeadlineWidth = (visibleColumns['review_headline'] !== false && reviewHeadlineCol) 
+    ? reviewHeadlinecol.dataViewer?.maxWidth 
+    : 0;
+  
+  // Account for cell padding (12px on each side)
+  const cellPadding = 24;
+  const scrollbarWidth = 8;
+  
+  let maxTextHeight = 0;
+  
+  // Calculate height for review_body if visible
+  if (reviewBodyWidth > 0 && reviewBodyText) {
+    const availableWidth = reviewBodyWidth - cellPadding - scrollbarWidth;
+    const lineCount = calculateLineCount(
+      reviewBodyText, 
+      availableWidth, 
+      FONT_METRICS.table.avgCharWidth
+    );
+    const lineHeightPx = FONT_METRICS.table.fontSize * FONT_METRICS.table.lineHeight;
+    const textHeight = lineCount * lineHeightPx;
+    maxTextHeight = Math.max(maxTextHeight, textHeight);
+  }
+  
+  // Calculate height for review_headline if visible
+  if (reviewHeadlineWidth > 0 && reviewHeadlineText) {
+    const availableWidth = reviewHeadlineWidth - cellPadding - scrollbarWidth;
+    const lineCount = calculateLineCount(
+      reviewHeadlineText, 
+      availableWidth, 
+      FONT_METRICS.table.avgCharWidth
+    );
+    const lineHeightPx = FONT_METRICS.table.fontSize * FONT_METRICS.table.lineHeight;
+    const textHeight = lineCount * lineHeightPx;
+    maxTextHeight = Math.max(maxTextHeight, textHeight);
+  }
+  
+  // Add vertical padding (12px top + 12px bottom)
+  const verticalPadding = 24;
+  const totalHeight = maxTextHeight + verticalPadding;
+  
+  // Clamp between collapsed and max expanded height
+  // Add minimum of 60px to ensure there's always reasonable height
+  return Math.min(Math.max(totalHeight, TABLE_ROW_HEIGHT, 60), TABLE_ROW_HEIGHT_EXPANDED_MAX);
+};
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -71,6 +318,39 @@ const sanitizeText = (text) => {
   return String(text).trim();
 }
 
+// OPTIMIZED: Reusable textarea for HTML entity decoding
+let textareaCache = null;
+const getTextarea = () => {
+  if (!textareaCache) {
+    textareaCache = document.createElement('textarea');
+  }
+  return textareaCache;
+};
+
+const decodeHtmlEntities = (text) => {
+  if (!text) return '';
+  
+  // Use cached textarea element instead of creating new one each time
+  const textarea = getTextarea();
+  textarea.innerHTML = text;
+  let decoded = textarea.value;
+  
+  // Handle escaped backslashes (e.g., 5'10\\" becomes 5'10")
+  decoded = decoded.replace(/\\\\/g, '\\');
+  decoded = decoded.replace(/\\"/g, '"');
+  decoded = decoded.replace(/\\'/g, "'");
+  
+  // Convert HTML line breaks to actual line breaks
+  decoded = decoded.replace(/<br\s*\/?>/gi, '\n');
+  decoded = decoded.replace(/<\/p>/gi, '\n\n');
+  decoded = decoded.replace(/<p>/gi, '');
+  
+  // Remove any other HTML tags
+  decoded = decoded.replace(/<[^>]+>/g, '');
+  
+  return decoded;
+};
+
 const escapeHtml = (text) => {
   if (!text) return '';
   const div = document.createElement('div');
@@ -78,102 +358,113 @@ const escapeHtml = (text) => {
   return div.innerHTML;
 };
 
-const SafeText = ({ text, className = '' }) => {
+const SafeText = React.memo(({ text, className = '' }) => {
+  const decodedText = useMemo(() => decodeHtmlEntities(sanitizeText(text)), [text]);
+
   return (
     <span 
-      className={className}
-      dangerouslySetInnerHTML={{ __html: escapeHtml(text) }}
-    />
+      className={className} 
+      style={{ whiteSpace: className.includes('truncate') ? 'nowrap' : 'pre-line' }}
+    >
+      {decodedText}
+    </span>
   );
+});
+
+SafeText.displayName = 'SafeText';
+// Helper function to determine text alignment based on column data type
+const getColumnAlignment = (column) => {
+  // Use explicit alignment from config if provided, otherwise fall back to dataType logic
+  if (column.dataViewer?.alignment) return column.dataViewer?.alignment;
+  
+  // Fallback logic (should not be needed with alignment in config)
+  if (column.dataViewer?.dataType === 'boolean') return 'center';
+  if (column.dataViewer?.dataType === 'int64') return 'right';
+  return 'left';
 };
 
 // ============================================================
 // STAR RATING COMPONENT
 // ============================================================
-const StarRating = ({ rating }) => {
+const StarRating = React.memo(({ rating }) => {
   const color = rating >= 4 
     ? 'text-green-600 dark:text-green-400' 
     : rating === 3 
-    ? 'text-yellow-600 dark:text-yellow-400' 
+    ? 'text-yellow-600 dark:text-yellow-400'
     : 'text-red-600 dark:text-red-400';
-  
+
   return (
-    <div className="flex items-center gap-1">
-      <span className={`font-bold ${color}`}>{rating}</span>
-      <span className="text-yellow-400 dark:text-yellow-300">★</span>
+    <div className={`flex items-center gap-1 ${color}`}>
+      {[1, 2, 3, 4, 5].map(star => (
+        <svg
+          key={star}
+          className={`w-4 h-4 ${star <= rating ? 'fill-current' : 'stroke-current fill-none'}`}
+          viewBox="0 0 24 24"
+        >
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+        </svg>
+      ))}
+      <span className="ml-1 text-sm font-medium">{rating}</span>
+    </div>
+  );
+});
+
+StarRating.displayName = 'StarRating';
+
+// ============================================================
+// POP OUT MODAL
+// ============================================================
+const SimpleModal = ({ isOpen, onClose, children }) => {
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" 
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white dark:bg-gray-800 rounded-lg shadow-2xl overflow-hidden"
+        style={{ width: '90vw', height: '90vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close Button */}
+        <div className="absolute top-0 right-0 p-2 z-10">
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 bg-white/80 dark:bg-gray-800/80 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors"
+            aria-label="Close modal"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Modal Content */}
+        <div className="h-full overflow-hidden p-2">
+          {children}
+        </div>
+      </div>
     </div>
   );
 };
 
-// ============================================================
-// REVIEW CARD COMPONENT
-// ============================================================
-const ReviewCard = React.memo(({ review, isExpanded, onToggle, rowNumber }) => {
-  return (
-    <div 
-      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md dark:hover:shadow-gray-900/30 transition-shadow cursor-pointer"
-      onClick={onToggle}
-    >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs text-gray-500 dark:text-gray-500">#{rowNumber}</span>
-            <h4 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
-              <SafeText text={review.review_headline || 'No headline'} />
-            </h4>
-          </div>
-          {review.verified_purchase && (
-            <span className="inline-block text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 px-2 py-0.5 rounded mt-1">
-              Verified Purchase
-            </span>
-          )}
-        </div>
-        <StarRating rating={review.star_rating} />
-      </div>
-
-      <p className={`text-sm text-gray-700 dark:text-gray-300 ${isExpanded ? '' : 'line-clamp-3'}`}>
-        <SafeText text={review.review_body || 'No review text'} />
-      </p>
-
-      {(review.helpful_votes > 0 || isExpanded) && (
-        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 text-xs space-y-1">
-          <span className="text-gray-600 dark:text-gray-400 block">
-            {review.helpful_votes > 0 
-              ? `👍 ${review.helpful_votes} of ${review.total_votes || review.helpful_votes} found helpful`
-              : 'No helpful votes'}
-          </span>
-          {isExpanded && (
-            <>
-              {review.review_id && (
-                <div className="text-gray-500 dark:text-gray-500">Review ID: {review.review_id}</div>
-              )}
-              {review.customer_id && (
-                <div className="text-gray-500 dark:text-gray-500">Customer ID: {review.customer_id}</div>
-              )}
-              {review.product_title && (
-                <div className="text-gray-500 dark:text-gray-500">
-                  Product: <SafeText text={review.product_title} />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.review.review_id === nextProps.review.review_id &&
-    prevProps.isExpanded === nextProps.isExpanded &&
-    prevProps.rowNumber === nextProps.rowNumber
-  );
-});
-
-ReviewCard.displayName = 'ReviewCard';
-
-// ============================================================
-// COLUMN SELECTOR COMPONENT
-// ============================================================
 const ColumnVisibilityControl = ({ visibleColumns, onToggle }) => {
   const [isOpen, setIsOpen] = useState(false);
   
@@ -181,10 +472,10 @@ const ColumnVisibilityControl = ({ visibleColumns, onToggle }) => {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+        className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
         title="Show/hide columns"
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
         </svg>
       </button>
@@ -195,18 +486,21 @@ const ColumnVisibilityControl = ({ visibleColumns, onToggle }) => {
             className="fixed inset-0 z-10" 
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-20 p-3">
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Visible Columns</h4>
-            <div className="space-y-1 max-h-96 overflow-y-auto">
+          <div className="absolute left-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-20 p-2 max-h-80 overflow-y-auto">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1 px-2">Columns</div>
+            <div className="space-y-0.5">
               {COLUMN_CONFIG.filter(col => col.id !== 'row_number').map(col => (
-                <label key={col.id} className="flex items-center gap-2 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
+                <label 
+                  key={col.id} 
+                  className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={visibleColumns[col.id]}
                     onChange={() => onToggle(col.id)}
-                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                    className="w-3 h-3 rounded border-gray-300 dark:border-gray-600 text-blue-600"
                   />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">{col.label}</span>
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{col.label}</span>
                 </label>
               ))}
             </div>
@@ -218,259 +512,187 @@ const ColumnVisibilityControl = ({ visibleColumns, onToggle }) => {
 };
 
 // ============================================================
-// RESIZABLE MODAL COMPONENT
+// MAIN COMPONENT
 // ============================================================
-const ResizableModal = ({ isOpen, onClose, children }) => {
-  const [width, setWidth] = useState(80);
-  const [isDragging, setIsDragging] = useState(false);
-  const modalRef = useRef(null);
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e) => {
-      if (!modalRef.current) return;
-      const viewportWidth = window.innerWidth;
-      const newWidth = (e.clientX / viewportWidth) * 200;
-      setWidth(Math.min(Math.max(newWidth, 50), 95));
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black dark:bg-opacity-70 z-50 flex items-center justify-center p-4">
-      <div 
-        ref={modalRef}
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 relative"
-        style={{ width: `${width}%`, userSelect: isDragging ? 'none' : 'auto' }}
-      >
-        <div
-          className={`absolute left-0 top-0 bottom-0 w-2 hover:bg-blue-500/20 cursor-ew-resize ${
-            isDragging ? 'bg-blue-500/30' : ''
-          }`}
-          onMouseDown={() => setIsDragging(true)}
-          title="Drag to resize"
-        />
-        
-        <div
-          className={`absolute right-0 top-0 bottom-0 w-2 hover:bg-blue-500/20 cursor-ew-resize ${
-            isDragging ? 'bg-blue-500/30' : ''
-          }`}
-          onMouseDown={() => setIsDragging(true)}
-          title="Drag to resize"
-        />
-
-        <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Dataset Viewer</h3>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Close modal"
-          >
-            <svg className="w-6 h-6 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-hidden">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================
-// MAIN DATA VIEWER COMPONENT
-// ============================================================
-const DatasetViewer = ({ 
-  category, 
-  productId, 
-  taskNumber,
-  reviews = [],
-  reviewCount = 0,
-  totalCount = 0,
-  loading = false,
-  loadingMore = false,
-  progress = 0,
-  error = null,
-  onRetry = () => {}
-}) => {
-  // ============================================================
-  // LOCAL STATE
-  // ============================================================
+const DatasetViewer = ({ reviews = [], isModal = false, containerKey }) => {
+  // Core state
   const [viewMode, setViewMode] = useState('cards');
-  const [filter, setFilter] = useState('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [expandedReviews, setExpandedReviews] = useState(new Set());
-  
-  const [isPending, startTransition] = useTransition();
-  
-  const [productFilter, setProductFilter] = useState('all');
-  const [helpfulVotesInput, setHelpfulVotesInput] = useState(0);
-  const helpfulVotesThreshold = useDebounce(helpfulVotesInput, 300);
-  
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
-  
-  const [visibleColumns, setVisibleColumns] = useState(() => {
-    const initial = {};
-    COLUMN_CONFIG.forEach(col => {
-      initial[col.id] = col.defaultVisible;
-    });
-    return initial;
-  });
-  
-  // Refs for height measurement
-  const contentContainerRef = useRef(null);
-  const [containerHeight, setContainerHeight] = useState(600);
+  const [isPending, startTransition] = useTransition();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expandedReviews, setExpandedReviews] = useState(new Set());
+  const [visibleColumns, setVisibleColumns] = useState(
+    COLUMN_CONFIG.reduce((acc, col) => ({ ...acc, [col.id]: col.dataViewer?.defaultVisible }), {})
+  );
+  const { t } = useTranslation();
 
-  // ============================================================
-  // EFFECTS
-  // ============================================================
+  // Rating filter state
+  const [ratingFilter, setRatingFilter] = useState('all'); // 'all', 'positive', 'neutral', 'negative'
+  const [productFilter, setProductFilter] = useState('all');
+  const [helpfulVotesInput, setHelpfulVotesInput] = useState(0);
+  const helpfulVotesThreshold = useDebounce(helpfulVotesInput, 600);
+
+  // Refs for list management
+  const cardListRef = useRef(null);
+  const tableListRef = useRef(null);
+  const headerScrollRef = useRef(null);
+  const bodyScrollRef = useRef(null);
   
-  // Measure container height
+  // Refs for dynamic height calculation
+  const cardBodyContainerRef = useRef(null);
+  const tableBodyContainerRef = useRef(null);
+
+  // Dynamic heights using custom hook
+  const cardBodyHeight = useDynamicHeight(cardBodyContainerRef, [viewMode, expandedReviews, containerKey]);
+  const tableBodyHeight = useDynamicHeight(tableBodyContainerRef, [viewMode, expandedReviews, containerKey]);
+
+  // Force list recalculation when container resizes
   useEffect(() => {
-    const measureHeight = () => {
-      if (contentContainerRef.current) {
-        const height = contentContainerRef.current.clientHeight;
-        setContainerHeight(height > 100 ? height : 600);
-      }
-    };
+    if (containerKey !== undefined) {
+      // Small delay to ensure DOM has updated
+      const timeoutId = setTimeout(() => {
+        if (viewMode === 'cards' && cardListRef.current) {
+          cardListRef.current.resetAfterIndex(0);
+        } else if (viewMode === 'table' && tableListRef.current) {
+          tableListRef.current.resetAfterIndex(0);
+        }
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [containerKey, viewMode]);
 
-    measureHeight();
-    
-    // Add small delay to ensure layout is settled
-    const timer = setTimeout(measureHeight, 100);
-    const timer2 = setTimeout(measureHeight, 300); // Extra measurement for modal
-    
-    window.addEventListener('resize', measureHeight);
-    return () => {
-      clearTimeout(timer);
-      clearTimeout(timer2);
-      window.removeEventListener('resize', measureHeight);
-    };
-  }, [viewMode, isModalOpen]); // Re-measure when view mode OR modal state changes
-  
-  // Reset expanded reviews when filters/sorting changes
+  // Toggle review expansion and reset list item sizes
+  const toggleReview = useCallback((index) => {
+    setExpandedReviews(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+
+    // Reset cache after state update to ensure proper height recalculation
+    setTimeout(() => {
+      if (viewMode === 'cards' && cardListRef.current) {
+        cardListRef.current.resetAfterIndex(0);
+      } else if (viewMode === 'table' && tableListRef.current) {
+        tableListRef.current.resetAfterIndex(0);
+      }
+    }, 0);
+  }, [viewMode]);
+
+  // Clear expanded reviews when switching view modes
   useEffect(() => {
     setExpandedReviews(new Set());
-  }, [filter, productFilter, helpfulVotesThreshold, sortColumn, sortDirection]);
+  }, [viewMode]);
 
   // ============================================================
-  // COMPUTED VALUES
+  // FILTERING LOGIC
   // ============================================================
-  
+  const filteredReviews = useMemo(() => {
+    let result = [...reviews];
+        
+    // Filter by rating
+    if (ratingFilter !== 'all') {
+      if (ratingFilter === 'positive') {
+        result = result.filter(r => r.star_rating >= 4);
+      } else if (ratingFilter === 'neutral') {
+        result = result.filter(r => r.star_rating === 3);
+      } else if (ratingFilter === 'negative') {
+        result = result.filter(r => r.star_rating <= 2);
+      }
+    }
+
+    // Filter by product
+    if (productFilter && productFilter !== 'all') {
+      result = result.filter(r => r.product_id === productFilter);
+    }
+
+    // Filter by helpful votes
+    if (helpfulVotesThreshold > 0) {
+      result = result.filter(r => (r.helpful_votes || 0) >= helpfulVotesThreshold);
+    }
+    
+    return result;
+  }, [reviews, ratingFilter, productFilter, helpfulVotesThreshold]);
+
+  // Calculate filter counts for buttons
+  const filterCounts = useMemo(() => {
+    // Start with all reviews
+    let result = [...reviews];
+    
+    
+    // Apply product filter
+    if (productFilter && productFilter !== 'all') {
+      result = result.filter(r => r.product_id === productFilter);
+    }
+    
+    // Apply helpful votes filter
+    if (helpfulVotesThreshold > 0) {
+      result = result.filter(r => (r.helpful_votes || 0) >= helpfulVotesThreshold);
+    }
+    
+    // Now count by rating from the filtered set
+    if (!result || result.length === 0) {
+      return { positive: 0, neutral: 0, negative: 0 };
+    }
+    
+    return {
+      total: result.length,
+      positive: result.filter(r => r.star_rating >= 4).length,
+      neutral: result.filter(r => r.star_rating === 3).length,
+      negative: result.filter(r => r.star_rating <= 2).length
+    };
+  }, [reviews, productFilter, helpfulVotesThreshold]);
+
+  // Get unique products for product filter dropdown
   const uniqueProducts = useMemo(() => {
     if (!reviews || reviews.length === 0) return [];
-    const products = new Map();
+    const productMap = new Map();
     reviews.forEach(r => {
-      if (!products.has(r.product_id)) {
-        products.set(r.product_id, sanitizeText(r.product_title) || r.product_id);
+      if (r.product_id && !productMap.has(r.product_id)) {
+        productMap.set(r.product_id, r.product_title || r.product_id);
       }
     });
-    return Array.from(products.entries()).map(([id, title]) => ({ id, title }));
+    return Array.from(productMap.entries()).map(([id, title]) => ({ id, title }));
   }, [reviews]);
 
-  const filteredReviews = useMemo(() => {
-    if (!reviews || reviews.length === 0) return [];
-    
-    if (filter === 'all' && productFilter === 'all' && helpfulVotesThreshold === 0) {
-      return reviews;
-    }
-    
-    let filtered = reviews;
-    
-    if (productFilter !== 'all') {
-      filtered = filtered.filter(r => r.product_id === productFilter);
-    }
-    
-    if (helpfulVotesThreshold > 0) {
-      filtered = filtered.filter(r => r.helpful_votes >= helpfulVotesThreshold);
-    }
-    
-    if (filter !== 'all') {
-      switch (filter) {
-        case 'positive':
-          filtered = filtered.filter(r => r.star_rating >= 4);
-          break;
-        case 'negative':
-          filtered = filtered.filter(r => r.star_rating <= 2);
-          break;
-        case 'neutral':
-          filtered = filtered.filter(r => r.star_rating === 3);
-          break;
-      }
-    }
-    
-    return filtered;
-  }, [reviews, filter, productFilter, helpfulVotesThreshold]);
-
+  // ============================================================
+  // SORTING LOGIC
+  // ============================================================
   const sortedReviews = useMemo(() => {
     if (!sortColumn) return filteredReviews;
-    
+
     return [...filteredReviews].sort((a, b) => {
       let aVal = a[sortColumn];
       let bVal = b[sortColumn];
-      
-      if (['review_headline', 'review_body', 'product_title'].includes(sortColumn)) {
-        aVal = String(aVal || '').toLowerCase();
-        bVal = String(bVal || '').toLowerCase();
+
+      // Handle null/undefined values
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+
+      // Numeric comparison
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
       }
+
+      // String comparison
+      aVal = String(aVal).toLowerCase();
+      bVal = String(bVal).toLowerCase();
       
-      const comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      return sortDirection === 'asc' ? comparison : -comparison;
+      if (sortDirection === 'asc') {
+        return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      } else {
+        return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+      }
     });
   }, [filteredReviews, sortColumn, sortDirection]);
 
-  const filterCounts = useMemo(() => {
-    if (!reviews || reviews.length === 0) {
-      return { positive: 0, neutral: 0, negative: 0 };
-    }
-    return {
-      positive: reviews.filter(r => r.star_rating >= 4).length,
-      neutral: reviews.filter(r => r.star_rating === 3).length,
-      negative: reviews.filter(r => r.star_rating <= 2).length
-    };
-  }, [reviews]);
-
-  // ============================================================
-  // EVENT HANDLERS
-  // ============================================================
-  
-  const toggleReview = useCallback((index) => {
-    setExpandedReviews(prev => {
-      const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  }, []);
-  
-  const toggleColumn = useCallback((columnId) => {
-    setVisibleColumns(prev => ({
-      ...prev,
-      [columnId]: !prev[columnId]
-    }));
-  }, []);
-  
+  // Handle sorting
   const handleSort = useCallback((columnId) => {
     startTransition(() => {
       if (sortColumn === columnId) {
@@ -482,407 +704,528 @@ const DatasetViewer = ({
     });
   }, [sortColumn]);
 
-  const handleFilterChange = useCallback((newFilter) => {
-    startTransition(() => {
-      setFilter(newFilter);
-    });
-  }, []);
-
-  const handleProductFilterChange = useCallback((newProductFilter) => {
-    startTransition(() => {
-      setProductFilter(newProductFilter);
-    });
+  // Column visibility toggle
+  const toggleColumnVisibility = useCallback((columnId) => {
+    setVisibleColumns(prev => ({
+      ...prev,
+      [columnId]: !prev[columnId]
+    }));
   }, []);
 
   // ============================================================
-  // RENDER CONTENT
+  // CARD VIEW ROW RENDERER
   // ============================================================
-  
-  const ViewerContent = ({ isModal = false }) => (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3">
-        <div className="flex flex-col gap-3">
-          {/* Top Row */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              {/* View Mode Toggle */}
-              <div 
-                data-tour="view-mode-toggle"
-                className="view-mode-buttons flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1"
-              >
-                <button
-                  onClick={() => setViewMode('cards')}
-                  className={`px-3 py-1 rounded transition-colors ${
-                    viewMode === 'cards'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setViewMode('table')}
-                  className={`px-3 py-1 rounded transition-colors ${
-                    viewMode === 'table'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </button>
-              </div>
+  const CardRow = useCallback(({ index, style }) => {
+    const startIdx = index * CARDS_PER_ROW;
+    const cardsInRow = sortedReviews.slice(startIdx, startIdx + CARDS_PER_ROW);
 
-              {viewMode === 'table' && (
-                <ColumnVisibilityControl 
-                  visibleColumns={visibleColumns}
-                  onToggle={toggleColumn}
-                />
-              )}
-            </div>
+    return (
+      <div style={{ ...style, display: 'flex', gap: `${CARD_SPACING}px`, padding: `${CARD_SPACING}px` }}>
+        {cardsInRow.map((review, cardIndex) => {
+          const globalIndex = startIdx + cardIndex;
+          const isExpanded = expandedReviews.has(globalIndex);
 
-            <div className="flex items-center gap-3">
-              {isPending && (
-                <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-gray-400 border-t-transparent"></div>
-                  <span>Updating...</span>
+          return (
+            <div
+              key={review.review_id || globalIndex}
+              className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700 overflow-hidden"
+              style={{ 
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%' // Fill the row height (which is calculated based on content)
+              }}
+            >
+              {/* Card Header */}
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-start justify-between mb-2">
+                  <StarRating rating={review.star_rating} />
+                  {review.verified_purchase && (
+                    <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 px-2 py-1 rounded">
+                      Verified
+                    </span>
+                  )}
                 </div>
-              )}
-              
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                {sortedReviews.length} reviews
-                {sortedReviews.length !== reviews.length && (
-                  <span className="text-gray-500"> (filtered from {reviews.length})</span>
-                )}
-              </span>
-
-              {!isModal && (
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  data-tour="pop-out-dataviewer-button"
-                  className="pop-out-dataviewer-button p-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Filter Buttons */}
-          <div 
-            data-tour="filter-buttons"
-            className="filter-buttons flex flex-wrap items-center gap-2"
-          >
-            <button
-              onClick={() => handleFilterChange('all')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              All ({reviews.length})
-            </button>
-            <button
-              onClick={() => handleFilterChange('positive')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filter === 'positive'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              Positive ({filterCounts.positive})
-            </button>
-            <button
-              onClick={() => handleFilterChange('neutral')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filter === 'neutral'
-                  ? 'bg-yellow-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              Neutral ({filterCounts.neutral})
-            </button>
-            <button
-              onClick={() => handleFilterChange('negative')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filter === 'negative'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              Negative ({filterCounts.negative})
-            </button>
-
-            {uniqueProducts.length > 1 && (
-              <>
-                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
-                <select
-                  value={productFilter}
-                  onChange={(e) => handleProductFilterChange(e.target.value)}
-                  className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm border border-gray-300 dark:border-gray-600"
-                >
-                  <option value="all">All Products</option>
-                  {uniqueProducts.map(({ id, title }) => (
-                    <option key={id} value={id}>
-                      {title.length > 40 ? title.substring(0, 40) + '...' : title}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600 dark:text-gray-400">Min. Helpful:</label>
-              <input
-                type="number"
-                min="0"
-                value={helpfulVotesInput}
-                onChange={(e) => setHelpfulVotesInput(parseInt(e.target.value) || 0)}
-                className="w-20 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-300 dark:border-gray-600 text-sm"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Loading State */}
-      {loading && reviews.length === 0 && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-300 dark:border-gray-700 border-t-blue-600 mb-4"></div>
-            <p className="text-gray-600 dark:text-gray-400">Loading reviews...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Error State */}
-      {error && (
-        <div className="flex-1 flex items-center justify-center p-4">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 max-w-md">
-            <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-red-900 dark:text-red-200 mb-1">Error Loading Reviews</h3>
-                <p className="text-sm text-red-700 dark:text-red-300 mb-3">{error}</p>
-                <button
-                  onClick={onRetry}
-                  className="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700"
-                >
-                  Retry
-                </button>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">
+                  <SafeText text={review.review_headline || 'No headline'} />
+                </h3>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Empty State */}
-      {!loading && !error && reviews.length === 0 && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <svg className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-            </svg>
-            <p className="text-gray-600 dark:text-gray-400">No reviews available</p>
-          </div>
-        </div>
-      )}
+              {/* Card Body - Scrollable when expanded */}
+              <div 
+                className="p-4 flex-1 overflow-hidden"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                <div 
+                  className={`text-gray-700 dark:text-gray-300 text-sm ${
+                    isExpanded ? 'overflow-y-auto flex-1' : 'line-clamp-4'
+                  }`}
+                  style={isExpanded ? {
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: '#CBD5E0 transparent'
+                  } : {}}
+                  onClick={(e) => isExpanded && e.stopPropagation()}
+                >
+                  <SafeText text={review.review_body || 'No review text'} />
+                </div>
 
-      {/* Content Area - VIRTUAL SCROLLING */}
-      {!loading && !error && reviews.length > 0 && (
-        <div 
-          ref={contentContainerRef}
-          className="flex-1 overflow-hidden"
-        >
-          {viewMode === 'cards' ? (
-            // CARD VIEW - Virtual Scrolling
-            <FixedSizeList
-              height={containerHeight}
-              itemCount={Math.ceil(sortedReviews.length / CARDS_PER_ROW)}
-              itemSize={CARD_ROW_HEIGHT}
-              width="100%"
-              overscanCount={3}
-            >
-              {({ index, style }) => {
-                const startIdx = index * CARDS_PER_ROW;
-                const reviewsInRow = sortedReviews.slice(startIdx, startIdx + CARDS_PER_ROW);
-                
-                return (
-                  <div style={{ ...style, padding: '0 16px' }}>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
-                      {reviewsInRow.map((review, idx) => (
-                        <ReviewCard
-                          key={review.review_id || (startIdx + idx)}
-                          review={review}
-                          isExpanded={expandedReviews.has(startIdx + idx)}
-                          onToggle={() => toggleReview(startIdx + idx)}
-                          rowNumber={startIdx + idx + 1}
-                        />
-                      ))}
+                {/* Footer - Only show when expanded */}
+                {isExpanded && (
+                  <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
+                    <div className="truncate">
+                      <span className="font-medium">Product:</span> <SafeText text={review.product_title} />
+                    </div>
+                    <div className="flex justify-between">
+                      <span>
+                        <span className="font-medium">Helpful:</span> {review.helpful_votes || 0}
+                      </span>
+                      <span>
+                        <span className="font-medium">ID:</span> {review.review_id?.slice(0, 8)}...
+                      </span>
                     </div>
                   </div>
-                );
-              }}
-            </FixedSizeList>
-          ) : (
-            // TABLE VIEW - Virtual Scrolling with Fixed Column Widths
-            <div className="h-full flex flex-col p-4">
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 h-full flex flex-col overflow-x-auto">
-                {/* Fixed Header */}
-                <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700">
-                  <div style={{ display: 'flex', minWidth: 'fit-content' }}>
-                    {COLUMN_CONFIG.filter(col => visibleColumns[col.id]).map(col => (
-                      <div
-                        key={col.id}
-                        style={{
-                          width: `${COLUMN_WIDTHS[col.id]}px`,
-                          flexShrink: 0,
-                          padding: '8px 12px',
-                          fontWeight: 600,
-                          fontSize: '14px',
-                          cursor: col.sortable ? 'pointer' : 'default'
-                        }}
-                        className={`text-gray-700 dark:text-gray-300 ${
-                          col.sortable ? 'hover:bg-gray-200 dark:hover:bg-gray-600' : ''
-                        }`}
-                        onClick={() => col.sortable && handleSort(col.id)}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span>{col.label}</span>
-                          {col.sortable && sortColumn === col.id && (
-                            <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                )}
+              </div>
 
-                {/* Virtual Scrolling Body */}
-                <div className="flex-1 overflow-y-auto" style={{ overflowX: 'hidden' }}>
-                  <FixedSizeList
-                    height={containerHeight - 45}
-                    itemCount={sortedReviews.length}
-                    itemSize={TABLE_ROW_HEIGHT}
-                    width="100%"
-                    overscanCount={10}
-                  >
-                    {({ index, style }) => {
-                      const review = sortedReviews[index];
+              {/* Expand/Collapse Button */}
+              <button
+                onClick={() => toggleReview(globalIndex)}
+                className="w-full py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 border-t border-gray-200 dark:border-gray-700"
+              >
+                {isExpanded ? '▲ Show Less' : '▼ Read More'}
+              </button>
+            </div>
+          );
+        })}
+        {/* Fill empty space if last row has fewer cards */}
+        {cardsInRow.length < CARDS_PER_ROW && (
+          <div style={{ flex: CARDS_PER_ROW - cardsInRow.length, minWidth: 0 }} />
+        )}
+      </div>
+    );
+  }, [sortedReviews, expandedReviews, toggleReview]);
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+  const ViewerContent = useCallback(({ isModal = false } = {}) => (
+    <div className={`flex flex-col ${isModal ? 'h-full' : 'h-full'} bg-white dark:bg-gray-900`}>
+      {/* Compact Header */}
+      <div className="flex-shrink-0 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+        <div className="flex items-center justify-between gap-3">
+          {/* Left: Title + View Mode + Count */}
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t('dataViewer.title', 'Data Viewer')}
+            </h3>
+            <span className="text-gray-300 dark:text-gray-600">•</span>
+            
+            {/* View Mode Toggle - Compact */}
+            <div 
+              data-tour="view-mode-toggle"
+              className="view-mode-buttons flex bg-gray-100 dark:bg-gray-700 rounded-md p-0.5 gap-0.5"
+            >
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+                title={t('dataViewer.viewMode.cards', 'Card view')}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+                title={t('dataViewer.viewMode.table', 'Table view')}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+
+            {viewMode === 'table' && (
+              <ColumnVisibilityControl 
+                visibleColumns={visibleColumns}
+                onToggle={toggleColumnVisibility}
+              />
+            )}
+            
+            <span className="text-gray-300 dark:text-gray-600">•</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {sortedReviews.length.toLocaleString()} {t('dataViewer.reviewsCount', 'reviews')}
+            </span>
+          </div>
+
+          {/* Right: Pop-out button */}
+          {!isModal && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              data-tour="pop-out-dataviewer-button"
+              className="pop-out-dataviewer-button p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-md transition-colors"
+              title={t('dataViewer.openModal', 'Open in modal')}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Filter Buttons Row - Compact */}
+        <div 
+          data-tour="filter-buttons"
+          className="filter-buttons flex flex-wrap items-center gap-2 mt-2"
+        >
+          <button
+            onClick={() => startTransition(() => setRatingFilter('all'))}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+              ratingFilter === 'all'
+                ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {t('dataViewer.filters.all', 'All')} ({filterCounts.total})
+          </button>
+          <button
+            onClick={() => startTransition(() => setRatingFilter('positive'))}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+              ratingFilter === 'positive'
+                ? 'bg-green-600 dark:bg-green-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {t('dataViewer.filters.positive', 'Positive')} ({filterCounts.positive})
+          </button>
+          <button
+            onClick={() => startTransition(() => setRatingFilter('neutral'))}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+              ratingFilter === 'neutral'
+                ? 'bg-yellow-600 dark:bg-yellow-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {t('dataViewer.filters.neutral', 'Neutral')} ({filterCounts.neutral})
+          </button>
+          <button
+            onClick={() => startTransition(() => setRatingFilter('negative'))}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+              ratingFilter === 'negative'
+                ? 'bg-red-600 dark:bg-red-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            {t('dataViewer.filters.negative', 'Negative')} ({filterCounts.negative})
+          </button>
+
+          {uniqueProducts.length > 1 && (
+            <>
+              <div className="hidden sm:block h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
+              <select
+                value={productFilter}
+                onChange={(e) => startTransition(() => setProductFilter(e.target.value))}
+                className="px-2 py-1 rounded-md text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 w-auto min-w-[100px] max-w-[150px] sm:max-w-[200px] lg:max-w-[250px]"
+              >
+                <option value="all">{t('dataViewer.filters.allProducts', 'All Products')}</option>
+                {uniqueProducts.map(product => {
+                  // Adaptive truncation based on screen size
+                  const truncateAt = window.innerWidth < 640 ? 20 : window.innerWidth < 1024 ? 30 : 40;
+                  const displayTitle = product.title.length > truncateAt 
+                    ? `${product.title.substring(0, truncateAt)}...` 
+                    : product.title;
+                  
+                  return (
+                    <option key={product.id} value={product.id} title={product.title}>
+                      {displayTitle}
+                    </option>
+                  );
+                })}
+              </select>
+            </>
+          )}
+        </div>
+
+        {isPending && (
+          <div className="mt-1.5 text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+            <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-400 border-t-transparent"></div>
+            <span>{t('dataViewer.updating', 'Updating...')}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Content Area - Flexible Height */}
+      {sortedReviews.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
+          {t('dataViewer.noReviews', 'No reviews found')}
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {viewMode === 'cards' ? (
+            /* CARD VIEW with VariableSizeList */
+            <div 
+              ref={cardBodyContainerRef}
+              className="h-full w-full"
+            >
+              <VariableSizeList
+                ref={cardListRef}
+                height={cardBodyHeight}
+                itemCount={Math.ceil(sortedReviews.length / CARDS_PER_ROW)}
+                itemSize={(index) => {
+                  // Calculate the maximum height needed for this row
+                  // based on actual content of cards in the row
+                  const startIdx = index * CARDS_PER_ROW;
+                  const endIdx = Math.min(startIdx + CARDS_PER_ROW, sortedReviews.length);
+                  
+                  let maxHeight = CARD_HEIGHT_COLLAPSED;
+                  
+                  // Calculate card width: container width divided by cards per row, minus spacing
+                  // Assuming typical container width, accounting for padding and gaps
+                  const containerRef = cardBodyContainerRef.current;
+                  const containerWidth = containerRef ? containerRef.offsetWidth : 1200;
+                  const totalGaps = CARD_SPACING * (CARDS_PER_ROW + 1); // Gaps between cards and edges
+                  const cardWidth = (containerWidth - totalGaps) / CARDS_PER_ROW;
+                  
+                  // Check each card in the row and calculate its actual needed height
+                  for (let i = startIdx; i < endIdx; i++) {
+                    const review = sortedReviews[i];
+                    const isExpanded = expandedReviews.has(i);
+                    
+                    if (isExpanded) {
+                      const cardHeight = calculateCardHeight(review, true, cardWidth);
+                      maxHeight = Math.max(maxHeight, cardHeight);
+                    }
+                  }
+                  
+                  return maxHeight + CARD_SPACING;
+                }}
+                width="100%"
+                overscanCount={2}
+              >
+                {CardRow}
+              </VariableSizeList>
+            </div>
+          ) : (
+            /* TABLE VIEW with VariableSizeList */
+            <div className="flex flex-col h-full">
+              {/* Fixed Header - Synced Horizontal Scroll */}
+              <div className="flex-none overflow-hidden border-b border-gray-300 dark:border-gray-600">
+                <div
+                  ref={headerScrollRef}
+                  className="overflow-x-auto scrollbar-hide"
+                  style={{ overflowY: 'hidden' }}
+                >
+                  <div style={{ display: 'flex', minWidth: 'fit-content', backgroundColor: 'rgb(243 244 246)', /* dark mode handled by class below */ }}>
+                    {COLUMN_CONFIG.filter(col => visibleColumns[col.id]).map(col => {
+                      const alignment = getColumnAlignment(col);
+                      const justifyContent = alignment === 'center' ? 'center' : alignment === 'right' ? 'flex-end' : 'flex-start';
                       
                       return (
                         <div
-                          style={style}
-                          className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-200 dark:border-gray-700"
-                          onClick={() => toggleReview(index)}
+                          key={col.id}
+                          style={{
+                            minWidth: `${col.dataViewer?.minWidth}px`,
+                            width: `${col.dataViewer?.minWidth}px`,
+                            flexGrow: 1,
+                            flexShrink: 1,
+                            flexBasis: `${col.dataViewer?.minWidth}px`,
+                            maxWidth: `${col.dataViewer?.maxWidth}px`,
+                            padding: '8px 12px',
+                            fontWeight: 600,
+                            fontSize: '14px',
+                            cursor: col.dataViewer?.sortable ? 'pointer' : 'default',
+                            textAlign: alignment
+                          }}
+                          className={`text-gray-700 dark:text-gray-300 dark:bg-gray-700 ${
+                            col.dataViewer?.sortable ? 'hover:bg-gray-200 dark:hover:bg-gray-600' : ''
+                          }`}
+                          onClick={() => col.dataViewer?.sortable && handleSort(col.id)}
                         >
-                          <div style={{ display: 'flex', minWidth: 'fit-content' }}>
-                            {visibleColumns.row_number && (
-                              <div style={{ width: `${COLUMN_WIDTHS.row_number}px`, flexShrink: 0, padding: '12px' }} className="text-gray-600 dark:text-gray-400">
-                                {index + 1}
-                              </div>
-                            )}
-                            {visibleColumns.review_id && (
-                              <div style={{ width: `${COLUMN_WIDTHS.review_id}px`, flexShrink: 0, padding: '12px' }}>
-                                <span className="font-mono text-xs text-gray-600 dark:text-gray-400">
-                                  {review.review_id}
-                                </span>
-                              </div>
-                            )}
-                            {visibleColumns.customer_id && (
-                              <div style={{ width: `${COLUMN_WIDTHS.customer_id}px`, flexShrink: 0, padding: '12px' }} className="text-gray-700 dark:text-gray-300">
-                                {review.customer_id}
-                              </div>
-                            )}
-                            {visibleColumns.product_id && (
-                              <div style={{ width: `${COLUMN_WIDTHS.product_id}px`, flexShrink: 0, padding: '12px' }}>
-                                <span className="font-mono text-xs text-gray-600 dark:text-gray-400">
-                                  {review.product_id}
-                                </span>
-                              </div>
-                            )}
-                            {visibleColumns.product_title && (
-                              <div style={{ width: `${COLUMN_WIDTHS.product_title}px`, flexShrink: 0, padding: '12px' }} className="text-gray-700 dark:text-gray-300">
-                                <div className="line-clamp-2">
-                                  <SafeText text={review.product_title || '-'} />
-                                </div>
-                              </div>
-                            )}
-                            {visibleColumns.product_category && (
-                              <div style={{ width: `${COLUMN_WIDTHS.product_category}px`, flexShrink: 0, padding: '12px' }} className="text-gray-700 dark:text-gray-300">
-                                {review.product_category}
-                              </div>
-                            )}
-                            {visibleColumns.star_rating && (
-                              <div style={{ width: `${COLUMN_WIDTHS.star_rating}px`, flexShrink: 0, padding: '12px' }}>
-                                <StarRating rating={review.star_rating} />
-                              </div>
-                            )}
-                            {visibleColumns.review_headline && (
-                              <div style={{ width: `${COLUMN_WIDTHS.review_headline}px`, flexShrink: 0, padding: '12px' }}>
-                                <span className="font-medium text-gray-900 dark:text-gray-100 line-clamp-2">
-                                  <SafeText text={review.review_headline || '-'} />
-                                </span>
-                              </div>
-                            )}
-                            {visibleColumns.review_body && (
-                              <div style={{ width: `${COLUMN_WIDTHS.review_body}px`, flexShrink: 0, padding: '12px' }}>
-                                <p className={`text-gray-700 dark:text-gray-300 ${expandedReviews.has(index) ? '' : 'line-clamp-2'}`}>
-                                  <SafeText text={review.review_body || '-'} />
-                                </p>
-                              </div>
-                            )}
-                            {visibleColumns.helpful_votes && (
-                              <div style={{ width: `${COLUMN_WIDTHS.helpful_votes}px`, flexShrink: 0, padding: '12px' }} className="text-xs text-gray-600 dark:text-gray-400">
-                                {review.helpful_votes > 0 ? `${review.helpful_votes}/${review.total_votes || review.helpful_votes}` : '-'}
-                              </div>
-                            )}
-                            {visibleColumns.total_votes && (
-                              <div style={{ width: `${COLUMN_WIDTHS.total_votes}px`, flexShrink: 0, padding: '12px' }} className="text-xs text-gray-600 dark:text-gray-400">
-                                {review.total_votes || '-'}
-                              </div>
-                            )}
-                            {visibleColumns.verified_purchase && (
-                              <div style={{ width: `${COLUMN_WIDTHS.verified_purchase}px`, flexShrink: 0, padding: '12px', textAlign: 'center' }}>
-                                {review.verified_purchase ? (
-                                  <span className="inline-block w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full"></span>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent, gap: '4px' }}>
+                            <span>{col.label}</span>
+                            {col.dataViewer?.sortable && sortColumn === col.id && (
+                              <span>{sortDirection === 'asc' ? '↑' : '↓'}</span>
                             )}
                           </div>
                         </div>
                       );
-                    }}
-                  </FixedSizeList>
+                    })}
+                  </div>
                 </div>
+              </div>
+
+              {/* Virtual Scrolling Body - FixedSizeList handles ALL scrolling */}
+              <div 
+                ref={tableBodyContainerRef}
+                className="flex-1 min-h-0"
+                style={{ overflow: 'hidden' }}
+              >
+                <VariableSizeList
+                  ref={tableListRef}
+                  height={tableBodyHeight}
+                  itemCount={sortedReviews.length}
+                  itemSize={(index) => {
+                    // Calculate actual height needed based on content and column widths
+                    const review = sortedReviews[index];
+                    const isExpanded = expandedReviews.has(index);
+                    
+                    return calculateTableRowHeight(review, isExpanded, visibleColumns);
+                  }}
+                  width="100%"
+                  overscanCount={10}
+                  outerRef={(ref) => {
+                    bodyScrollRef.current = ref;
+                    // Attach scroll listener to sync header
+                    if (ref) {
+                      ref.addEventListener('scroll', (e) => {
+                        if (headerScrollRef.current) {
+                          headerScrollRef.current.scrollLeft = e.target.scrollLeft;
+                        }
+                      });
+                    }
+                  }}
+                >
+                  {({ index, style }) => {
+                    const review = sortedReviews[index];
+                    const isExpanded = expandedReviews.has(index);
+                    
+                    return (
+                      <div
+                        style={style}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-200 dark:border-gray-700"
+                        onClick={() => toggleReview(index)}
+                      >
+                        <div style={{ display: 'flex', minWidth: 'fit-content', height: '100%' }}>
+                          {COLUMN_CONFIG.filter(col => visibleColumns[col.id]).map(col => {
+                            const alignment = getColumnAlignment(col);
+                            let cellContent = review[col.id];
+                            
+                            // Format cell content based on column type
+                            if (col.id === 'star_rating' && cellContent) {
+                              cellContent = '⭐'.repeat(cellContent);
+                            } else if (col.id === 'verified_purchase') {
+                              cellContent = cellContent ? '✓' : !cellContent ? '✗' : '-';
+                            } else if (cellContent === null || cellContent === undefined || cellContent === '') {
+                              cellContent = '-';
+                            }
+                            
+                            // Special handling for review_body and review_headline to show full text when expanded
+                            const isTextColumn = col.id === 'review_body' || col.id === 'review_headline';
+                            
+                            return (
+                              <div
+                                key={col.id}
+                                style={{
+                                  minWidth: `${col.dataViewer?.minWidth}px`,
+                                  width: `${col.dataViewer?.minWidth}px`,
+                                  flexGrow: 1,
+                                  flexShrink: 1,
+                                  flexBasis: `${col.dataViewer?.minWidth}px`,
+                                  maxWidth: `${col.dataViewer?.maxWidth}px`,
+                                  padding: '12px',
+                                  textAlign: alignment,
+                                  display: 'flex',
+                                  alignItems: isTextColumn ? 'flex-start' : 'center',
+                                  overflow: 'hidden'
+                                }}
+                                className={`${
+                                  col.id === 'row_number' 
+                                    ? 'text-gray-600 dark:text-gray-400' 
+                                    : 'text-gray-900 dark:text-gray-100'
+                                }`}
+                              >
+                                {col.id === 'row_number' ? (
+                                  // Row number with expand indicator
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs">{isExpanded ? '▼' : '▶'}</span>
+                                    <span>{index + 1}</span>
+                                  </div>
+                                ) : isTextColumn && isExpanded ? (
+                                  // Expanded text with scrolling - height controlled by row
+                                  <div 
+                                    className="overflow-y-auto pr-2 w-full h-full"
+                                    style={{
+                                      scrollbarWidth: 'thin',
+                                      scrollbarColor: '#CBD5E0 transparent'
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <SafeText text={cellContent} />
+                                  </div>
+                                ) : isTextColumn ? (
+                                  // Collapsed text with truncation - override SafeText's pre-line
+                                  <div className="truncate w-full overflow-hidden" style={{ lineHeight: '1.5' }}>
+                                    <SafeText text={cellContent} className="block truncate" />
+                                  </div>
+                                ) : col.dataType === 'string' ? (
+                                  // Other string columns (IDs, product titles, etc.)
+                                  <div className={col.id === 'product_title' ? 'truncate w-full' : 'w-full'}>
+                                    <SafeText text={cellContent} />
+                                  </div>
+                                ) : (
+                                  // Non-string cells (numbers, stars, verified badge, etc.)
+                                  <span>{cellContent}</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }}
+                </VariableSizeList>
               </div>
             </div>
           )}
         </div>
       )}
     </div>
-  );
+  ), [
+    sortedReviews,
+    viewMode,
+    isPending,
+    expandedReviews,
+    visibleColumns,
+    sortColumn,
+    sortDirection,
+    cardBodyHeight,
+    tableBodyHeight,
+    toggleReview,
+    handleSort,
+    toggleColumnVisibility,
+    CardRow,
+    reviews,
+    ratingFilter,
+    filterCounts,
+    uniqueProducts,
+    productFilter,
+    helpfulVotesInput,
+    setViewMode,
+    setIsModalOpen,
+    setRatingFilter,
+    setProductFilter,
+    setHelpfulVotesInput
+  ]);
 
   return (
     <>
       <ViewerContent />
-      <ResizableModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
+      <SimpleModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <ViewerContent isModal={true} />
-      </ResizableModal>
+      </SimpleModal>
     </>
   );
 };
 
-export {COLUMN_CONFIG, DatasetViewer}
 export default DatasetViewer;

@@ -46,8 +46,8 @@ function checkTargetsExist(steps) {
  * Wait for targets to be mounted in DOM
  * Returns true if all targets exist, false if timeout
  */
-async function waitForTargets(steps, maxWaitMs = 3000) { // ✅ Increased to 5 seconds
-  const checkInterval = 100; // ✅ Increased to 200ms
+async function waitForTargets(steps, maxWaitMs = 3000) { // 3 seconds
+  const checkInterval = 100; // 100ms
   const maxAttempts = maxWaitMs / checkInterval;
   let attempts = 0;
   
@@ -163,7 +163,7 @@ export function useTutorial(taskNumber, condition) {
         return;
     }
     
-    setSteps(tutorialSteps);
+    setSteps(availableSteps);
     setTutorialType(type);
     setRun(true);
     
@@ -174,16 +174,7 @@ export function useTutorial(taskNumber, condition) {
         stepCount: tutorialSteps.length
     });
     }, []);
-
-    // Then wrap in useMemo for step generation
-    const currentSteps = useMemo(() => {
-    return tutorialType === 'full'
-        ? getTutorialSteps(taskNumber, condition, t)
-        : tutorialType === 'screen'
-        ? getScreenSteps(t)
-        : getTaskSteps(condition, t);
-    }, [tutorialType, taskNumber, condition, t]);
-
+    
   /**
    * Handle Joyride callbacks
    */
@@ -202,7 +193,12 @@ export function useTutorial(taskNumber, condition) {
     }
 
     // Handle completion/skip
-    if (status === 'finished') {
+    const isLastStep = index === steps.length - 1;
+    const isFinished = status === 'finished' || 
+                      (type === 'step:after' && isLastStep && action === 'next');
+    
+    if (isFinished) {
+      console.log('✅ Tutorial completed!');
       setRun(false);
       
       track('TUTORIAL_COMPLETED', {
@@ -221,6 +217,7 @@ export function useTutorial(taskNumber, condition) {
         markTaskTutorialShown(taskNumber);
       }
     } else if (status === 'skipped') {
+      console.log('⏭️ Tutorial skipped');
       setRun(false);
       
       track('TUTORIAL_SKIPPED', {

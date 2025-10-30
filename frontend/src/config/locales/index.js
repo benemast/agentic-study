@@ -1,4 +1,5 @@
-// frontend/src/locales/index.js
+// frontend/src/config/locales/index.js
+
 import { en } from './en';
 import { de } from './de';
 

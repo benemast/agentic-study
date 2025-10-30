@@ -1,0 +1,182 @@
+{
+  "load-reviews": {
+    "id": "load-reviews",
+    "category": "input",
+    "config_fields": {
+      "category": {
+        "type": "select",
+        "required": true,
+        "options": ["shoes", "wireless"],
+        "default": null
+      },
+      "limit": {
+        "type": "number",
+        "required": false,
+        "min": 1,
+        "max": 10000,
+        "default": null
+      }
+    }
+  },
+  "clean-data": {
+    "id": "clean-data",
+    "category": "processing",
+    "config_fields": {
+      "remove_nulls": {
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "normalize_text": {
+        "type": "boolean",
+        "required": false,
+        "default": true
+      },
+      "remove_duplicates": {
+        "type": "boolean",
+        "required": false,
+        "default": false
+      }
+    }
+  },
+  "filter-reviews": {
+    "id": "filter-reviews",
+    "category": "processing",
+    "config_fields": {
+      "field": {
+        "type": "select",
+        "required": true,
+        "options": "dynamic_columns",
+        "default": null
+      },
+      "operator": {
+        "type": "select",
+        "required": true,
+        "options": "dynamic_based_on_field",
+        "default": "equal"
+      },
+      "value": {
+        "type": "dynamic_based_on_field",
+        "required": true,
+        "default": ""
+      }
+    }
+  },
+  "sort-reviews": {
+    "id": "sort-reviews",
+    "category": "processing",
+    "config_fields": {
+      "sort_by": {
+        "type": "select",
+        "required": true,
+        "options": "dynamic_columns",
+        "default": null
+      },
+      "descending": {
+        "type": "select",
+        "required": true,
+        "options": [true, false],
+        "default": true
+      }
+    }
+  },
+  "review-sentiment-analysis": {
+    "id": "review-sentiment-analysis",
+    "category": "analysis",
+    "config_fields": {
+      "extract_themes": {
+        "type": "boolean",
+        "required": true,
+        "default": true
+      },
+      "theme_separation": {
+        "type": "select",
+        "required": true,
+        "options": ["combined", "by_sentiment"],
+        "default": "combined"
+      },
+      "max_themes_per_category": {
+        "type": "number",
+        "required": true,
+        "min": 1,
+        "max": 10,
+        "default": 1
+      },
+      "include_percentages": {
+        "type": "boolean",
+        "required": false,
+        "default": false
+      }
+    }
+  },
+  "generate-insights": {
+    "id": "generate-insights",
+    "category": "analysis",
+    "config_fields": {
+      "focus_area": {
+        "type": "multiselect",
+        "required": true,
+        "options": [
+          "competitive_positioning",
+          "customer_experience",
+          "marketing_messages",
+          "product_improvements"
+        ],
+        "default": null
+      },
+      "max_recommendations": {
+        "type": "number",
+        "required": true,
+        "min": 1,
+        "max": 10,
+        "default": null
+      }
+    }
+  },
+  "show-results": {
+    "id": "show-results",
+    "category": "output",
+    "config_fields": {
+      "include_sections": {
+        "type": "multiselect",
+        "required": false,
+        "options": [
+          "executive_summary",
+          "themes",
+          "recommendations",
+          "statistics",
+          "data_preview"
+        ],
+        "default": ["data_preview"]
+      },
+      "statistics_metrics": {
+        "type": "multiselect",
+        "required": false,
+        "options": [
+          "sentiment_distribution",
+          "review_summary",
+          "rating_distribution",
+          "verified_rate",
+          "theme_coverage",
+          "sentiment_consistency"
+        ],
+        "depends_on": "include_sections.statistics",
+        "default": null
+      },
+      "show_visualizations": {
+        "type": "boolean",
+        "required": false,
+        "depends_on": "include_sections.statistics",
+        "default": null
+      },
+      "max_data_items": {
+        "type": "number",
+        "required": false,
+        "min": 1,
+        "max": 1000,
+        "depends_on": "include_sections.data_preview",
+        "default": null
+      }
+    }
+  }
+}

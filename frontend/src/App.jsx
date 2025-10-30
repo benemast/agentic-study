@@ -7,6 +7,7 @@ import DemographicsQuestionnaire from './components/study/DemographicsQuestionna
 import WorkflowBuilder from './components/workflow/WorkflowBuilder';
 import AIChat from './components/assistant/AIChat';
 import LanguageSwitcher from './components/LanguageSwitcher';
+import ThemeSwitcher from './components/ThemeSwitcher';
 
 // Hooks
 import { useSession } from './hooks/useSession';
@@ -137,7 +138,16 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
       {/* Language Switcher */}
       {!isCollapsed && (
         <div className="p-4 border-t border-gray-200">
-          <LanguageSwitcher />
+          <div className="flex items-center gap-2"> 
+            <LanguageSwitcher 
+              variant="compact" 
+              className="bg-white dark:bg-gray-800 shadow-lg"
+            />
+            <ThemeSwitcher 
+              variant="icon-only"
+              className="bg-white dark:bg-gray-800 shadow-lg"
+            />
+          </div>
         </div>
       )}
     </div>

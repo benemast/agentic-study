@@ -68,7 +68,7 @@ async def get_shoes_reviews(
     max_rating: Optional[int] = Query(None, ge=1, le=5),
     verified_only: Optional[bool] = Query(None),
     exclude_malformed: Optional[bool] = Query(True),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
@@ -145,7 +145,7 @@ async def get_wireless_reviews(
     max_rating: Optional[int] = Query(None, ge=1, le=5),
     verified_only: Optional[bool] = Query(None),
     exclude_malformed: Optional[bool] = Query(True),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):

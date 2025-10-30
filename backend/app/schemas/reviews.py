@@ -191,7 +191,7 @@ class ReviewFilterParams(BaseModel):
     malformed_type: Optional[MalformedType] = None
     product_id: Optional[str] = None
     is_main_product: Optional[bool] = None
-    limit: int = Field(default=100, ge=1, le=1000)
+    limit: int = Field(default=100, ge=1, le=2000)
     offset: int = Field(default=0, ge=0)
     
     @field_validator('max_rating')

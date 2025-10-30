@@ -10,12 +10,14 @@ import traceback
 
 from app.models.execution import ExecutionCheckpoint, WorkflowExecution
 from app.orchestrator.llm.circuit_breaker import CircuitBreakerOpen
-from .state_manager import HybridStateManager
-from .graphs.workflow_builder import WorkflowBuilderGraph
-from .graphs.ai_assistant import AIAssistantGraph
+from app.orchestrator.state_manager import HybridStateManager
+from app.orchestrator.graphs.workflow_builder import WorkflowBuilderGraph
+from app.orchestrator.graphs.ai_assistant import AIAssistantGraph
 
 from app.websocket.manager import ws_manager
-from .degradation import graceful_degradation
+from app.orchestrator.degradation import graceful_degradation
+from app.configs.langsmith_config import create_run_config, should_trace_execution
+from app.configs.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +162,22 @@ class OrchestrationService:
             
             # Execute graph
             logger.info(f"Executing graph for execution {execution.id}")
-            final_state = await graph.ainvoke(initial_state)
+
+            should_trace = should_trace_execution(settings.langsmith_sample_rate)
+
+            # Create LangSmith config
+            if should_trace:
+                langsmith_config = create_run_config(
+                    execution_id=execution.id,
+                    session_id=session_id,
+                    condition=condition,
+                    task_data=task_data
+                )
+            else:
+                langsmith_config = {"callbacks": [], "metadata": {"traced": False}}
+
+
+            final_state = await graph.ainvoke(initial_state, config=langsmith_config)
             
             # Update execution record with results
             execution.status = 'completed'

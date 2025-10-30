@@ -17,7 +17,12 @@ from .config import (
 from .langsmith_config import (
     init_langsmith,
     get_langsmith_url,
-    LangSmithContext
+    LangSmithContext,
+    create_run_config,
+    scrub_pii_from_state,
+    format_input_for_langsmith,
+    format_output_for_langsmith,
+    should_trace_execution,  
 )
 from .sentry_config import (
     before_breadcrumb,
@@ -44,6 +49,11 @@ __all__ = [
     'init_langsmith',
     'get_langsmith_url',
     'LangSmithContext',
+    'create_run_config',
+    'scrub_pii_from_state',
+    'format_input_for_langsmith',
+    'format_output_for_langsmith',
+    'should_trace_execution',
     
     # Schemas
     'before_breadcrumb',

@@ -185,16 +185,22 @@ class Settings(BaseSettings):
         description="Enables tracing via LangSmith"
     )
     langsmith_endpoint: str = Field(
-        default=None,
+        default="https://eu.api.smith.langchain.com",
         description="LangSmith API endpoint"
     )
     langsmith_api_key: Optional[str] = Field(
-        default="https://eu.api.smith.langchain.com",
+        default=None,
         description="API key used with LangSmith"
     )
     langsmith_project: str = Field(
         default="agentic-study",
         description="Project name for organizing traces"    
+    )
+    langsmith_sample_rate: float = Field(
+        default=1.0,
+        description="Fraction of traces to send to LangSmith (0.0-1.0). Use 1.0 for dev, 0.1-0.3 for production",
+        ge=0.0,
+        le=1.0
     )
 
     # Redis (optional)

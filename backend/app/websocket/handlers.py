@@ -392,6 +392,7 @@ async def handle_session_sync(session_id: str, message: dict):
             'error': str(e)
         })
 
+
 async def handle_session_end(session_id: str, message: dict):
     """End session via WebSocket"""
     request_id = message.get('request_id')
@@ -1175,9 +1176,7 @@ async def handle_batch_request(session_id: str, message: dict):
 
 async def handle_workflow_execute(session_id: str, message: dict):
     """
-    Handle Workflow Builder execution request
-    
-    UPDATED: Now aligned with REST pattern
+    Handle Workflow Builder execution requests
     - Creates execution record FIRST
     - Uses execute_workflow_with_id (new method)
     - Launches async task (non-blocking)
@@ -1213,12 +1212,12 @@ async def handle_workflow_execute(session_id: str, message: dict):
         ws_manager.subscribe(session_id, 'execution')
         
         # ============================================================
-        # STEP 1: Create execution record FIRST (like REST does)
+        # STEP 1: Create execution record
         # ============================================================
         with get_db_context() as db:
             execution = WorkflowExecution(
                 session_id=session_id,
-                condition='workflow_builder',  # ✅ HARDCODED - no ambiguity
+                condition='workflow_builder',  # HARDCODED = no ambiguity
                 status='pending',
                 workflow_definition=workflow,
                 task_description=None,
@@ -1247,7 +1246,7 @@ async def handle_workflow_execute(session_id: str, message: dict):
                 
                 # Use separate DB context for execution
                 with get_db_context() as bg_db:
-                    await orchestrator.execute_workflow_with_id(  # ✅ NEW METHOD
+                    await orchestrator.execute_workflow_with_id(
                         db=bg_db,
                         execution_id=execution_id,
                         session_id=session_id,
@@ -1339,7 +1338,7 @@ async def handle_agent_execute(session_id: str, message: dict):
         with get_db_context() as db:
             execution = WorkflowExecution(
                 session_id=session_id,
-                condition='ai_assistant',  # ✅ HARDCODED - no ambiguity
+                condition='ai_assistant',  # HARDCODED = no ambiguity
                 status='pending',
                 workflow_definition=None,
                 task_description=task_description,

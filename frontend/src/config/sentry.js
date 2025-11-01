@@ -181,7 +181,7 @@ export function initSentry() {
   }
 
   if (!import.meta.env.VITE_SENTRY_DSN) {
-    console.warn('⚠️ Sentry DSN not configured');
+    console.warn('Sentry DSN not configured');
     return;
   }
     try{
@@ -419,7 +419,7 @@ export function initSentry() {
             ],
         });
     
-        console.log('✅ Sentry initialized with PII scrubbing (GDPR compliant)');
+        console.log('Sentry initialized with PII scrubbing (GDPR compliant)');
 
     } catch (error) {
         console.error('Failed to initialize Sentry:', error);

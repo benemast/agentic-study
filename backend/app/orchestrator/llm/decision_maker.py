@@ -8,6 +8,10 @@ import logging
 import json
 from datetime import datetime
 
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+
 from ..degradation import graceful_degradation
 
 from .client import llm_client
@@ -18,20 +22,63 @@ from .tool_schemas import (
     ActionType,
     map_action_to_tool
 )
+from app.configs.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================================
+# PYDANTIC MODEL FOR STRUCTURED OUTPUT
+# ============================================================
+
+class LLMDecisionResponse(BaseModel):
+    """Structured LLM decision output - ReAct pattern"""
+    thought: str = Field(
+        description="Your reasoning about what to do next (Thought step)",
+        min_length=20,
+        max_length=500
+    )
+    action: str = Field(
+        description="Action type: load, filter, clean, sort, analyze, generate, output, or finish"
+    )
+    tool_name: Optional[str] = Field(
+        None,
+        description="Specific tool ID to use (Action step)"
+    )
+    action_input: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameters for the tool"
+    )
+    confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Confidence level (0.0-1.0)"
+    )
+
+
+# ============================================================
+# HYBRID DECISION MAKER
+# ============================================================
+
 class DecisionMaker:
     """
-    Makes intelligent decisions about what action to take next
+    HYBRID: LangChain structured output + Custom production infrastructure
     
-    Features:
-    - Streaming LLM calls for reduced latency (TTFB < 1s)
-    - Real-time 'agent_thinking' WebSocket events
-    - Context-aware decision making using tool registry
-    - Tool availability checking via registry
-    - Confidence thresholds
-    - Fallback strategies
+    LangChain Features:
+    - Structured output (Pydantic validation)
+    - ReAct prompt templates  
+    - Clean parsing
+    
+    Custom Production Features:
+    - Circuit breaker (fault tolerance)
+    - Retry with exponential backoff
+    - TTL-based caching
+    - Token usage tracking
+    - Streaming with callbacks
+    - Timeout protection
+    - Metrics tracking
+    - Graceful degradation
     """
     
     def __init__(self, confidence_threshold: float = 0.6, enable_streaming: bool = True):
@@ -48,7 +95,23 @@ class DecisionMaker:
         self.registry = tool_registry
         self.enable_streaming = enable_streaming
         
-        # For WebSocket updates during streaming
+        # Production LLM client (circuit breaker, retry, caching, metrics)
+        self.production_client = llm_client
+        
+        # LangChain LLM with structured output
+        self.langchain_llm = ChatOpenAI(
+            model=settings.openai_model_name,
+            temperature=0.0,
+            api_key=settings.openai_api_key,
+            streaming=enable_streaming
+        )
+        
+        # Bind structured output to LangChain LLM
+        self.llm_with_structure = self.langchain_llm.with_structured_output(
+            LLMDecisionResponse
+        )
+        
+        # For WebSocket updates
         self.websocket_manager = None
         
         logger.info(
@@ -69,7 +132,7 @@ class DecisionMaker:
         memory: List[Dict[str, Any]]
     ) -> AgentDecision:
         """
-        Determine the next action to take with STREAMING support
+        Determine the next action to take with STREAMING and SMART VERBOSITY ESCALATION
         Streams decision-making process to frontend via WebSocket
         
         Args:
@@ -79,6 +142,11 @@ class DecisionMaker:
             
         Returns:
             Validated AgentDecision with action, tool, reasoning, confidence
+            
+        Verbosity Escalation:
+            - Attempt 0: "brief" (~200 tokens total)
+            - Attempt 1: "standard" (~1000 tokens total)
+            - Attempt 2+: "full" (~2500 tokens total)
             
         Example WebSocket Events:
             - type: 'agent_thinking', chunk: 'Based on...'
@@ -95,6 +163,13 @@ class DecisionMaker:
             logger.info("Degradation: Using rule-based decision (no LLM)")
             return self._get_safe_fallback_decision(state, "System degraded")
 
+        # SMART VERBOSITY ESCALATION
+        retry_count = state.get('decision_retry_count', 0)
+        verbosity = self._get_verbosity_for_retry(retry_count)
+        
+        logger.info(
+            f"🤔 Making decision (attempt #{retry_count + 1}, verbosity={verbosity})"
+        )
 
         # Build context-rich prompt
         prompt = self._build_decision_prompt(
@@ -103,7 +178,8 @@ class DecisionMaker:
             memory
         )
         
-        system_prompt = self._build_system_prompt(state)
+        # Build system prompt with smart verbosity
+        system_prompt = self._build_system_prompt(state, verbosity)
         
         # ========================================
         # STREAMING CALLBACK SETUP
@@ -188,60 +264,107 @@ class DecisionMaker:
             logger.error(f"Error in decision making: {e}", exc_info=True)
             return self._get_safe_fallback_decision(state, str(e))
     
-    def _build_system_prompt(self, state: Dict[str, Any]) -> str:
-        """Build system prompt with role definition"""
-        available_tools_str = self.validator.format_tools_for_prompt(state)
+    def _build_system_prompt(self, state: Dict[str, Any], verbosity: str = "brief") -> str:
+        """
+        Build system prompt with role definition and smart verbosity
         
-        return f"""You are an autonomous AI assistant that plans and executes data analysis tasks.
+        Args:
+            state: Current workflow state
+            verbosity: Tool description detail level ("brief", "standard", "full")
+        """
+        # Get tools with appropriate verbosity
+        available_tools_str = self.validator.format_tools_for_prompt(state, verbosity)
+        
+        return f"""AI assistant for data analysis tasks.
 
-CRITICAL WORKFLOW RULES:
-1. ALWAYS start with 'load_reviews' tool as your FIRST action
-2. ALWAYS end with 'show_results' tool as your LAST action before finishing
-3. Never use 'load_reviews' after the first step
-4. Never use 'show_results' until you're ready to finish
-5. Use 'show_results' exactly once, at the end
+WORKFLOW RULES:
+1. load_reviews FIRST (step 1 only)
+2. show_results LAST (before finish only)
+3. finish AFTER show_results
 
-Workflow pattern:
-Step 1: load_reviews (REQUIRED FIRST)
-Step 2-N: Any analysis/transformation tools
-Step N+1: show_results (REQUIRED LAST)
-Step N+2: finish
+Pattern: load_reviews → other data / analysis tools → show_results → finish
 
-Available tools:
-{{available_tools_str}}
+Tools: {available_tools_str}
 
-Guidelines:
-1. Start with loading data (load_reviews)
-2. Clean/filter data before analysis
-3. Analyze sentiment when you have review text data
-4. Generate insights from analyzed data
-4. Format final output (show_results) 
-5. Finish only after show_results
-6. Be efficient - don't repeat unnecessary steps
-7. Always explain your reasoning clearly
-8. Use actual tool IDs from the available tools list above
+Return JSON:
+{{"action": "load|filter|clean|analyze|generate|output|finish", "tool_name": "tool_id", "reasoning": "why", "tool_params": {{}}, "confidence": 0.0-1.0, "alternatives_considered": []}}"""
 
-Your role:
-- Analyze the current task state
-- Decide the next logical action
-- Choose appropriate tools based on availability
-- Provide clear reasoning for decisions
-
-Decision format (JSON):
-{{
-  "action": "load|filter|clean|sort|combine|analyze|generate|output|finish",
-  "tool_name": "specific_tool_id (e.g., load_reviews, review_sentiment_analysis)",
-  "reasoning": "Clear explanation of why this is the right next step",
-  "tool_params": {{}},
-  "confidence": 0.0-1.0,
-  "alternatives_considered": ["other options you thought about"]
-}}
-
-REMEMBER: 
-- load_reviews = FIRST tool only
-- show_results = LAST tool before finish
-- finish = AFTER show_results only"""
+    def _get_verbosity_for_retry(self, retry_count: int) -> str:
+        """
+        Smart verbosity escalation based on retry attempts
+        
+        Progressive escalation strategy:
+        - First attempt (0): Brief descriptions to minimize token usage
+        - Second attempt (1): Standard descriptions with use cases
+        - Third+ attempt (2+): Full descriptions with all metadata
+        
+        Args:
+            retry_count: Number of previous retry attempts (0 = first try)
+            
+        Returns:
+            Verbosity level: "brief", "standard", or "full"
+        """
+        if retry_count == 0:
+            return "brief"      # ~200 tokens total, fast first attempt
+        elif retry_count == 1:
+            return "standard"   # ~1000 tokens, add context for struggling LLM
+        else:
+            return "full"       # ~2500 tokens, provide all details
     
+        # OLD PROMPT
+        """
+        You are an autonomous AI assistant that plans and executes data analysis tasks.
+
+        CRITICAL WORKFLOW RULES:
+        1. ALWAYS start with 'load_reviews' tool as your FIRST action
+        2. ALWAYS end with 'show_results' tool as your LAST action before finishing
+        3. Never use 'load_reviews' after the first step
+        4. Never use 'show_results' until you're ready to finish
+        5. Use 'show_results' exactly once, at the end
+
+        Workflow pattern:
+        Step 1: load_reviews (REQUIRED FIRST)
+        Step 2-N: Any analysis/transformation tools
+        Step N+1: show_results (REQUIRED LAST)
+        Step N+2: finish
+
+        Available tools:
+        {{available_tools_str}}
+
+        Guidelines:
+        1. Start with loading data (load_reviews)
+        2. Clean/filter data before analysis
+        3. Analyze sentiment when you have review text data
+        4. Generate insights from analyzed data
+        4. Format final output (show_results) 
+        5. Finish only after show_results
+        6. Be efficient - don't repeat unnecessary steps
+        7. Always explain your reasoning clearly
+        8. Use actual tool IDs from the available tools list above
+
+        Your role:
+        - Analyze the current task state
+        - Decide the next logical action
+        - Choose appropriate tools based on availability
+        - Provide clear reasoning for decisions
+
+        Decision format (JSON):
+        {{
+        "action": "load|filter|clean|sort|combine|analyze|generate|output|finish",
+        "tool_name": "specific_tool_id (e.g., load_reviews, review_sentiment_analysis)",
+        "reasoning": "Clear explanation of why this is the right next step",
+        "tool_params": {{}},
+        "confidence": 0.0-1.0,
+        "alternatives_considered": ["other options you thought about"]
+        }}
+
+
+        REMEMBER: 
+        - load_reviews = FIRST tool only
+        - show_results = LAST tool before finish
+        - finish = AFTER show_results only
+        """
+
     def _build_decision_prompt(
         self,
         task_description: str,
@@ -268,7 +391,7 @@ Current State:
         
         # Memory summary
         if memory:
-            recent_history = self._format_memory(memory[-5:])  # Last 5 steps
+            recent_history = self._format_memory(memory[-3:])  # Last 3 steps
             state_summary += f"\nRecent History:\n{recent_history}\n"
         else:
             state_summary += "\nThis is the first step.\n"
@@ -325,8 +448,13 @@ Respond with a JSON object containing your decision and reasoning.
         else:
             tool_name_str = None
         
-        # Validate tool parameters
-        tool_params = response.get('tool_params', {})
+        # Get tool parameters (action_input in ReAct)
+        tool_params = response.get('action_input', {})
+        if isinstance(tool_params, str):
+            try:
+                tool_params = json.loads(tool_params)
+            except:
+                tool_params = {}
         
         # Build validated decision
         decision = AgentDecision(
@@ -413,6 +541,14 @@ Respond with a JSON object containing your decision and reasoning.
                 reasoning=f"Fallback: All processing done, showing results. Error: {error_reason}",
                 confidence=0.5
             )
+    
+    def get_llm_metrics(self) -> Dict[str, Any]:
+        """Get combined metrics from production client"""
+        return self.production_client.get_metrics()
+    
+    def get_circuit_breaker_state(self) -> Dict[str, Any]:
+        """Get circuit breaker state"""
+        return self.production_client.get_circuit_breaker_state()
 
 
 # ============================================================

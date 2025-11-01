@@ -25,7 +25,7 @@ class ReviewCategory(str, Enum):
 
 
 # ============================================================
-# BASE SCHEMAS (DRY principle applied)
+# BASE SCHEMAS
 # ============================================================
 
 class ReviewStudyBase(BaseModel):
@@ -47,34 +47,6 @@ class ReviewStudyBase(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-
-class ReviewFullBase(BaseModel):
-    """
-    Base schema for full review data (backend operations)
-    Includes all fields including internal metadata
-    """
-    review_id: str = Field(..., max_length=50)
-    product_id: str = Field(..., max_length=50)
-    product_id_original: str = Field(..., max_length=50)
-    product_title: str = Field(..., max_length=500)
-    product_title_original: str = Field(..., max_length=500)
-    product_parent: int = Field(..., gt=0)
-    product_category: str = Field(..., max_length=50)
-    star_rating: int = Field(..., ge=1, le=5)
-    avg_star_rating: float = Field(..., ge=0.0, le=5.0)
-    review_headline: str = Field(default="", max_length=500)
-    review_body: str = Field(default="", max_length=10000)
-    verified_purchase: bool
-    review_date: date
-    helpful_votes: int = Field(..., ge=0)
-    total_votes: int = Field(..., ge=0)
-    customer_id: int = Field(..., gt=0)
-    vine: bool
-    marketplace: str = Field(..., min_length=2, max_length=2)
-    is_main_product: bool
-    is_malformed: bool
-    malformed_type: Optional[str] = Field(None, max_length=50)
-
     @field_validator('total_votes')
     @classmethod
     def validate_votes(cls, v: int, info) -> int:
@@ -84,6 +56,32 @@ class ReviewFullBase(BaseModel):
             raise ValueError('total_votes must be >= helpful_votes')
         return v
 
+class ReviewWorkBase(ReviewStudyBase):
+    """
+    Base schema for review data as required by orchestrator tools (backend operations)
+    Includes all necessary fields including internal metadata
+
+    Inherits from ReviewStudyBase
+    """
+    is_main_product: bool
+    is_malformed: bool
+    malformed_type: Optional[str] = Field(None, max_length=50)
+
+class ReviewFullBase(ReviewWorkBase):
+    """
+    Base schema for full review data (backend operations)
+    Includes all fields including internal metadata
+
+    Inherits from ReviewStudyBase
+    """
+    product_id_original: str = Field(..., max_length=50)
+    product_title_original: str = Field(..., max_length=500)
+    product_parent: int = Field(..., gt=0)
+    product_category: str = Field(..., max_length=50)
+    avg_star_rating: float = Field(..., ge=0.0, le=5.0)
+    review_date: date
+    vine: bool
+    marketplace: str = Field(..., min_length=2, max_length=2)
 
 class ReviewUpdateBase(BaseModel):
     """
@@ -187,12 +185,12 @@ class ReviewFilterParams(BaseModel):
     min_rating: Optional[int] = Field(None, ge=1, le=5)
     max_rating: Optional[int] = Field(None, ge=1, le=5)
     verified_only: Optional[bool] = None
-    exclude_malformed: Optional[bool] = True  # Default to excluding spam
+    exclude_malformed: Optional[bool] = None
     malformed_type: Optional[MalformedType] = None
     product_id: Optional[str] = None
     is_main_product: Optional[bool] = None
-    limit: int = Field(default=100, ge=1, le=2000)
-    offset: int = Field(default=0, ge=0)
+    limit: Optional[int] = Field(None, ge=1, le=2000)
+    offset: Optional[int] = Field(None, ge=0)
     
     @field_validator('max_rating')
     @classmethod
@@ -246,6 +244,48 @@ def batch_to_study_format(reviews: List) -> List[ReviewStudyBase]:
         List of ReviewStudyBase objects
     """
     return [to_study_format(review) for review in reviews]
+
+
+def to_work_format(review) -> ReviewWorkBase:
+    """
+    Convert full review model to study-safe format
+    Works with any review type (Shoes/Wireless)
+    
+    Args:
+        review: ShoesReview or WirelessReview SQLAlchemy model
+        
+    Returns:
+        ReviewWorkBase with only participant-visible fields
+    """
+    return ReviewWorkBase(
+        review_id=review.review_id,
+        product_id=review.product_id,
+        product_title=review.product_title,
+        product_category=review.product_category,
+        review_headline=review.review_headline  or "",
+        review_body=review.review_body  or "",
+        star_rating=review.star_rating,
+        verified_purchase=review.verified_purchase,
+        helpful_votes=review.helpful_votes,
+        total_votes=review.total_votes,
+        customer_id=review.customer_id,
+        is_main_product=review.is_main_product,
+        is_malformed=review.is_malformed,
+        malformed_type= review.malformed_type
+    )
+
+
+def batch_to_work_format(reviews: List) -> List[ReviewWorkBase]:
+    """
+    Convert list of review models to study-safe format
+    
+    Args:
+        reviews: List of review models (any category)
+        
+    Returns:
+        List of ReviewStudyBase objects
+    """
+    return [to_work_format(review) for review in reviews]
 
 
 def get_response_schema(category: str, study_mode: bool = False):

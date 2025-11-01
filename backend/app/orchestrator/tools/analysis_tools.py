@@ -3,37 +3,36 @@ from typing import Dict, Any, List, Optional, Callable
 import logging
 import time
 from collections import Counter
-
+import asyncio
 from app.orchestrator.tools.base_tool import BaseTool
-
-# Import the LLM client from existing infrastructure
-from app.orchestrator.llm.client import llm_client
 
 logger = logging.getLogger(__name__)
 
-
 class ReviewSentimentAnalysisTool(BaseTool):
     """
-    LLM-Powered Sentiment Analysis of Product Reviews with Streaming Progress
+    LLM-Powered Sentiment Analysis + Theme Extraction
+
+    Analyzes sentiment AND extracts key themes/topics from customer reviews.
+    Identifies what customers discuss most and how they feel about specific aspects.
     
     Features:
-    - Batch processing for efficiency (10 reviews per API call)
-    - Structured JSON outputs for reliability
-    - Real-time batch progress updates via WebSocket
-    - "Thinking" indicators during LLM processing
-    - Context-aware analysis (understands nuance, sarcasm)
-    - Combined rating + text analysis
+    - Sentiment classification (positive/neutral/negative)
+    - Theme/topic extraction (e.g., "sound quality", "comfort", "battery life")
+    - Theme-sentiment correlation (how customers feel about each theme)
+    - Batch processing with streaming progress
+    - Real-time WebSocket updates
     - Confidence scoring and reasoning
-    - Automatic fallback if LLM fails
     
-    Sentiment categories:
-    - Positive: Customer satisfaction evident
-    - Neutral: Mixed or moderate feedback  
-    - Negative: Customer dissatisfaction
+    Output Structure:
+    - Enriched records with sentiment columns
+    - Theme analysis grouped by sentiment or combined
+    - Theme percentages (optional)
+    - Overall sentiment distribution
     """
     
-    # Batch size for LLM calls (balance between cost and speed)
-    BATCH_SIZE = 10
+    BATCH_SIZE = 500  # Reviews per LLM call
+    MAX_REVIEWS = 1000  # Cost protection limit
+    RECOMMENDED_MAX = 500  # Warn above this
 
     # Keyword lists for text analysis fallback
     POSITIVE_KEYWORDS = {
@@ -51,45 +50,60 @@ class ReviewSentimentAnalysisTool(BaseTool):
     }
     
     def __init__(self):
-        self.name = "Review Sentiment Analysis"
-        self.llm_client = llm_client  # Use the global LLM client
-        self.websocket_manager = None  # Injected by orchestrator
+        super().__init__(
+            name="Review Sentiment Analysis",
+            timeout=600  # 10 minutes
+        )
+        self.websocket_manager = None   # Injected by orchestrator
+        self.llm_client = None          # Injected by orchestrator
     
-    def set_websocket_manager(self, ws_manager):
-        """
-        Set WebSocket manager for real-time progress updates
-        Called by orchestrator during initialization
-        """
-        self.websocket_manager = ws_manager
-        logger.info("WebSocket manager injected into ReviewSentimentAnalysisTool")
-    
-    async def _analyze_batch_with_llm(
+    async def _send_progress(
+        self, 
+        session_id: str, 
+        execution_id: int, 
+        step: str, 
+        progress: int,
+        details: str = None
+    ):
+        """Send progress update via WebSocket"""
+
+        if self.websocket_manager and session_id:
+            try:
+                await self.websocket_manager.send_to_session(session_id, {
+                    'type': 'sentiment_analysis_progress',
+                    'execution_id': execution_id,
+                    'tool_name': self.name,
+                    'step': step,
+                    'progress': progress,
+                    'details': details
+                })
+            except Exception as e:
+                logger.error(f"Failed to send progress update: {e}")
+
+    async def _analyze_batch_with_themes(
         self, 
         reviews_batch: List[Dict[str, Any]],
+        extract_themes: bool,
         session_id: Optional[str] = None,
         execution_id: Optional[int] = None,
         batch_num: int = 1,
         total_batches: int = 1
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
-        Analyze a batch of reviews using the LLM client with progress updates
+        Analyze batch of reviews for sentiment AND themes using LLM
         
-        Args:
-            reviews_batch: List of up to 10 reviews to analyze
-            session_id: Session ID for WebSocket updates
-            execution_id: Execution ID for tracking
-            batch_num: Current batch number (1-indexed)
-            total_batches: Total number of batches
-            
         Returns:
-            List of analyzed reviews with sentiment fields added
+            {
+                'analyzed_reviews': List[Dict] with sentiment fields,
+                'batch_themes': List[str] themes mentioned in this batch
+            }
         """
-        # Build prompt with review data
+        # Build review text for prompt
         reviews_text = ""
         for i, review in enumerate(reviews_batch, 1):
             star_rating = review.get('star_rating', 'N/A')
-            headline = review.get('review_headline', '')[:100]  # Truncate
-            body = review.get('review_body', '')[:300]  # Truncate to save tokens
+            headline = review.get('review_headline', '')[:100]
+            body = review.get('review_body', '')[:600]
             
             reviews_text += f"""
 --- Review {i} ---
@@ -98,37 +112,88 @@ Headline: {headline}
 Body: {body}
 """
         
-        system_prompt = """You are a sentiment analysis expert for e-commerce product reviews.
-Analyze each review and classify its sentiment as 'positive', 'neutral', or 'negative'.
+        # Dynamic system prompt based on theme extraction
+        if extract_themes:
+            system_prompt = """You are a sentiment analysis expert for product reviews.
+Analyze each review and:
+1. Classify sentiment as 'positive', 'neutral', or 'negative'
+2. Extract key themes/topics the customer discusses (e.g., "sound quality", "comfort", "battery life", "durability")
 
-Consider:
-- Star rating (but don't rely on it exclusively - read the text)
-- Text sentiment (satisfaction, praise, complaints, warnings)
-- Context and nuance (sarcasm, mixed feelings, moderate feedback)
+## Considerations
+- **Star rating**: Use as a supporting feature, but secondary to the written text.
+- **Text sentiment**: Focus on expressions of satisfaction, praise, or complaints in the review.
+- **Context and nuance**: Account for sarcasm, subtlety, or mixed emotions where present.
 
-Classification guidelines:
-- Positive: Customer is satisfied, would recommend, praises product
-- Neutral: Mixed feelings, moderate feedback, factual without strong opinion
-- Negative: Dissatisfied, complaints, warnings, would not recommend
+## Sentiment Classification Criteria
+- **Positive**: Indicates satisfaction, willingness to recommend, or explicit praise for the product.
+- **Neutral**: Shows mixed or balanced feelings, moderate or factual feedback.
+- **Negative**: Communicates dissatisfaction, complaints, cautions, or warnings.
 
-Return a JSON object with this EXACT structure:
+Themes:
+- Extract 2-4 specific topics per review
+- Use customer language (not generic categories)
+- Focus on product aspects mentioned (e.g., "bass quality" not just "sound")
+
+Return JSON with this EXACT structure:
+```json
 {
   "reviews": [
     {
       "review_number": 1,
       "sentiment": "positive",
       "confidence": "high",
-      "reasoning": "Customer highly satisfied with product quality"
+      "reasoning": "Customer highly satisfied with sound quality and comfort",
+      "themes": ["sound quality", "comfort", "value for money"]
     }
+    // Repeat for each review, using review_number 1, 2, 3, ...
   ]
 }
+```
+- Ensure ALL reviews provided are analyzed and included, numbered sequentially starting from 1.
+After reviewing all results, validate that all required output fields are present and every review is included. If any output issue is detected, self-correct before returning your final output."""
+        else:
+            # Sentiment-only prompt (no themes)
+            system_prompt = """Developer: # Role and Objective
+You are an expert in sentiment analysis, specializing in classifying product reviews.
 
-IMPORTANT: Include ALL reviews in your response, numbering them 1, 2, 3, etc."""
+# Instructions
+Begin with a concise checklist (3-7 bullets) of how you will approach the sentiment analysis task; keep items conceptual, not implementation-level.
+- For each product review, analyze and classify its sentiment as **'positive'**, **'neutral'**, or **'negative'**.
+- Prioritize the text content of the review over the star rating when assessing sentiment.
+
+## Considerations
+- **Star rating**: Use as a supporting feature, but secondary to the written text.
+- **Text sentiment**: Focus on expressions of satisfaction, praise, or complaints in the review.
+- **Context and nuance**: Account for sarcasm, subtlety, or mixed emotions where present.
+
+## Sentiment Classification Criteria
+- **Positive**: Indicates satisfaction, willingness to recommend, or explicit praise for the product.
+- **Neutral**: Shows mixed or balanced feelings, moderate or factual feedback.
+- **Negative**: Communicates dissatisfaction, complaints, cautions, or warnings.
+
+# Output Format
+- Set reasoning_effort=medium to ensure a sufficient depth of analysis appropriate for nuanced sentiment tasks.
+Return results in the following JSON format:
+```json
+{
+  "reviews": [
+    {
+      "review_number": 1,
+      "sentiment": "positive",
+      "confidence": "high",
+      "reasoning": "Customer satisfied"
+    }
+    // Repeat for each review, using review_number 1, 2, 3, ...
+  ]
+}
+```
+- Ensure ALL reviews provided are analyzed and included, numbered sequentially starting from 1.
+After reviewing all results, validate that all required output fields are present and every review is included. If any output issue is detected, self-correct before returning your final output."""
         
-        user_prompt = f"""Analyze the sentiment of these {len(reviews_batch)} product reviews:
+        user_prompt = f"""Analyze these {len(reviews_batch)} product reviews:
 {reviews_text}
 
-Return JSON with sentiment analysis for each review."""
+Return JSON with analysis for each review."""
         
         # Send batch start notification
         if self.websocket_manager and session_id:
@@ -142,14 +207,14 @@ Return JSON with sentiment analysis for each review."""
                     'progress_percentage': int((batch_num - 1) / total_batches * 100)
                 })
             except Exception as e:
-                logger.warning(f"Failed to send batch start notification: {e}")
+                logger.warning(f"Failed to send batch start: {e}")
         
-        # Streaming callback for activity indication
-        chunk_count = [0]  # Use list to allow modification in nested function
-        last_update = [0]  # Track last update to avoid spam
+        # Streaming callback
+        chunk_count = [0]
+        last_update = [0]
         
         async def on_thinking_chunk(chunk: str):
-            """Callback for each streaming chunk - shows 'thinking' activity"""
+            """Show 'thinking' activity during LLM processing"""
             chunk_count[0] += 1
             # Send thinking update every 25 chunks (reduces message spam)
             if chunk_count[0] - last_update[0] >= 25 and self.websocket_manager and session_id:
@@ -162,28 +227,29 @@ Return JSON with sentiment analysis for each review."""
                     })
                     last_update[0] = chunk_count[0]
                 except Exception as e:
-                    logger.warning(f"Failed to send thinking notification: {e}")
+                    logger.warning(f"Failed to send thinking update: {e}")
         
         try:
-            logger.info(f"Calling LLM for sentiment analysis batch {batch_num}/{total_batches}")
+            logger.info(f"Calling LLM for batch {batch_num}/{total_batches}")
             
-            # Use streaming for progress indication (but keep JSON parsing)
+            # Call LLM with streaming
             response = await self.llm_client.get_structured_decision(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 expected_fields=['reviews'],
-                stream=True,  # Enable streaming for progress
-                on_chunk=on_thinking_chunk  # Progress callback
+                stream=True,
+                on_chunk=on_thinking_chunk
             )
             
-            # Map LLM results back to reviews
+            # Map LLM results to reviews
             analyzed_reviews = []
+            batch_themes = []  # Collect themes from this batch
             llm_results = response.get('reviews', [])
             
-            logger.info(f"LLM returned analysis for {len(llm_results)} reviews")
+            logger.info(f"LLM returned {len(llm_results)} review analyses")
             
             for i, review in enumerate(reviews_batch):
-                # Find matching LLM result by review_number
+                # Find matching LLM result
                 llm_result = None
                 for result in llm_results:
                     if result.get('review_number') == i + 1:
@@ -191,29 +257,35 @@ Return JSON with sentiment analysis for each review."""
                         break
                 
                 if not llm_result and i < len(llm_results):
-                    # Fallback: use position if review_number doesn't match
-                    llm_result = llm_results[i]
+                    llm_result = llm_results[i]  # Fallback by position
                 
-                # Build analyzed review with LLM results
                 if llm_result:
-                    analyzed_review = {
-                        **review,  # Keep all original fields
-                        'sentiment': llm_result.get('sentiment', 'neutral'),
-                        'confidence': llm_result.get('confidence', 'medium'),
-                        'sentiment_reasoning': llm_result.get('reasoning', 'No reasoning provided')
-                    }
-                else:
-                    # No LLM result for this review - use fallback
+                    # Build analyzed review
                     analyzed_review = {
                         **review,
-                        'sentiment': self._fallback_sentiment(review.get('star_rating', 3)),
-                        'confidence': 'low',
-                        'sentiment_reasoning': 'LLM analysis missing, used rating fallback'
+                        'sentiment': llm_result.get('sentiment', 'neutral'),
+                        'sentiment_confidence': llm_result.get('confidence', 'medium'),
+                        'sentiment_reasoning': llm_result.get('reasoning', 'No reasoning provided')
                     }
-                
-                analyzed_reviews.append(analyzed_review)
+                    
+                    # Add themes if extracted
+                    if extract_themes and 'themes' in llm_result:
+                        themes = llm_result.get('themes', [])
+                        analyzed_review['themes'] = themes
+                        batch_themes.extend(themes)  # Collect for aggregation
+                    
+                    analyzed_reviews.append(analyzed_review)
+                else:
+                    # Fallback if LLM didn't return result
+                    analyzed_reviews.append({
+                        **review,
+                        'sentiment': self._fallback_sentiment(review.get('star_rating', 3)),
+                        'sentiment_confidence': 'low',
+                        'sentiment_reasoning': 'LLM analysis missing, used rating fallback',
+                        'themes': [] if extract_themes else None
+                    })
             
-            # Send batch complete notification
+            # Send batch complete
             if self.websocket_manager and session_id:
                 try:
                     await self.websocket_manager.send_to_session(session_id, {
@@ -224,41 +296,33 @@ Return JSON with sentiment analysis for each review."""
                         'progress_percentage': int(batch_num / total_batches * 100)
                     })
                 except Exception as e:
-                    logger.warning(f"Failed to send batch complete notification: {e}")
+                    logger.warning(f"Failed to send batch complete: {e}")
             
-            return analyzed_reviews
+            return {
+                'analyzed_reviews': analyzed_reviews,
+                'batch_themes': batch_themes
+            }
             
         except Exception as e:
-            logger.error(f"LLM sentiment analysis failed for batch {batch_num}: {e}", exc_info=True)
+            logger.error(f"LLM batch analysis failed: {e}", exc_info=True)
             
-            # Send error notification
-            if self.websocket_manager and session_id:
-                try:
-                    await self.websocket_manager.send_to_session(session_id, {
-                        'type': 'sentiment_batch_error',
-                        'execution_id': execution_id,
-                        'batch_number': batch_num,
-                        'error': str(e)
-                    })
-                except Exception as ws_error:
-                    logger.warning(f"Failed to send error notification: {ws_error}")
-            
-            # Fallback: simple rating-based sentiment for all reviews
-            return [
-                {
-                    **review,
-                    'sentiment': self._fallback_sentiment(review.get('star_rating', 3)),
-                    'confidence': 'low',
-                    'sentiment_reasoning': f'LLM failed ({type(e).__name__}), used rating fallback'
-                }
-                for review in reviews_batch
-            ]
+            # Fallback: rating-based sentiment
+            return {
+                'analyzed_reviews': [
+                    {
+                        **review,
+                        'sentiment': self._fallback_sentiment(review.get('star_rating', 3)),
+                        'sentiment_confidence': 'low',
+                        'sentiment_reasoning': f'LLM failed ({type(e).__name__}), used rating fallback',
+                        'themes': [] if extract_themes else None
+                    }
+                    for review in reviews_batch
+                ],
+                'batch_themes': []
+            }
     
     def _fallback_sentiment(self, star_rating: int) -> str:
-        """
-        Fallback sentiment classification based on star rating only
-        Used when LLM analysis fails
-        """
+        """Fallback sentiment based on rating"""
         if star_rating >= 4:
             return 'positive'
         elif star_rating == 3:
@@ -266,203 +330,393 @@ Return JSON with sentiment analysis for each review."""
         else:
             return 'negative'
     
+    def _aggregate_themes(
+        self, 
+        analyzed_reviews: List[Dict[str, Any]],
+        theme_separation: str,
+        max_themes_per_category: int,
+        include_percentages: bool
+    ) -> Dict[str, Any]:
+        """
+        Aggregate themes across all reviews
+        
+        Returns theme analysis with counts/percentages
+        Percentages show: "What % of reviews mention this theme?"
+        """
+        if theme_separation == 'by_sentiment':
+            # Separate themes by sentiment
+            # Track UNIQUE REVIEWS per theme (not just mentions)
+            positive_themes = {}  # theme -> set of review_ids
+            neutral_themes = {}
+            negative_themes = {}
+            
+            for review in analyzed_reviews:
+                review_id = review.get('review_id')
+                sentiment = review.get('sentiment', 'neutral')
+                themes = review.get('themes', [])
+                
+                # Count each theme once per review (deduplicate)
+                seen_in_review = set()
+                for theme in themes:
+                    theme_lower = theme.lower()
+                    if theme_lower not in seen_in_review:
+                        seen_in_review.add(theme_lower)
+                        
+                        if sentiment == 'positive':
+                            if theme_lower not in positive_themes:
+                                positive_themes[theme_lower] = set()
+                            positive_themes[theme_lower].add(review_id)
+                        elif sentiment == 'neutral':
+                            if theme_lower not in neutral_themes:
+                                neutral_themes[theme_lower] = set()
+                            neutral_themes[theme_lower].add(review_id)
+                        else:
+                            if theme_lower not in negative_themes:
+                                negative_themes[theme_lower] = set()
+                            negative_themes[theme_lower].add(review_id)
+            
+            # Convert sets to counts
+            positive_counts = Counter({theme: len(review_ids) for theme, review_ids in positive_themes.items()})
+            neutral_counts = Counter({theme: len(review_ids) for theme, review_ids in neutral_themes.items()})
+            negative_counts = Counter({theme: len(review_ids) for theme, review_ids in negative_themes.items()})
+            
+            # Count reviews per sentiment for accurate percentages
+            positive_review_count = sum(1 for r in analyzed_reviews if r.get('sentiment') == 'positive')
+            neutral_review_count = sum(1 for r in analyzed_reviews if r.get('sentiment') == 'neutral')
+            negative_review_count = sum(1 for r in analyzed_reviews if r.get('sentiment') == 'negative')
+            
+            # Build result structure
+            result = {
+                'type': 'by_sentiment',
+                'positive_themes': self._format_themes(
+                    positive_counts, 
+                    max_themes_per_category, 
+                    positive_review_count, 
+                    include_percentages
+                ),
+                'neutral_themes': self._format_themes(
+                    neutral_counts, 
+                    max_themes_per_category, 
+                    neutral_review_count, 
+                    include_percentages
+                ),
+                'negative_themes': self._format_themes(
+                    negative_counts, 
+                    max_themes_per_category, 
+                    negative_review_count, 
+                    include_percentages
+                )
+            }
+        else:
+            # Combined themes (all sentiments together)
+            # Track unique reviews per theme
+            theme_reviews = {}  # theme -> set of review_ids
+            
+            for review in analyzed_reviews:
+                review_id = review.get('review_id')
+                themes = review.get('themes', [])
+                
+                # Deduplicate within review
+                seen_in_review = set()
+                for theme in themes:
+                    theme_lower = theme.lower()
+                    if theme_lower not in seen_in_review:
+                        seen_in_review.add(theme_lower)
+                        
+                        if theme_lower not in theme_reviews:
+                            theme_reviews[theme_lower] = set()
+                        theme_reviews[theme_lower].add(review_id)
+            
+            # Convert to counts
+            theme_counts = Counter({theme: len(review_ids) for theme, review_ids in theme_reviews.items()})
+            total_reviews = len(analyzed_reviews)
+            
+            result = {
+                'type': 'combined',
+                'themes': self._format_themes(
+                    theme_counts, 
+                    max_themes_per_category, 
+                    total_reviews, 
+                    include_percentages
+                )
+            }
+        
+        return result
+    
+    def _format_themes(
+        self, 
+        theme_counter: Counter, 
+        max_count: int, 
+        total_reviews: int,
+        include_percentages: bool
+    ) -> List[Dict[str, Any]]:
+        """Format themes with counts and optional percentages"""
+        top_themes = theme_counter.most_common(max_count)
+        
+        formatted = []
+        for theme, count in top_themes:
+            theme_data = {
+                'theme': theme,
+                'count': count
+            }
+            
+            if include_percentages:
+                percentage = (count / total_reviews * 100) if total_reviews > 0 else 0
+                theme_data['percentage'] = round(percentage, 2)
+            
+            formatted.append(theme_data)
+        
+        return formatted
+    
+    def _sample_reviews_strategically(
+        self, 
+        reviews: List[Dict[str, Any]], 
+        target_count: int
+    ) -> List[Dict[str, Any]]:
+        """Sample reviews maintaining rating distribution"""
+        # Group by rating
+        by_rating = {}
+        for review in reviews:
+            rating = review.get('star_rating', 3)
+            if rating not in by_rating:
+                by_rating[rating] = []
+            by_rating[rating].append(review)
+        
+        # Calculate sampling proportions
+        sampled = []
+        for rating in sorted(by_rating.keys()):
+            rating_reviews = by_rating[rating]
+            proportion = len(rating_reviews) / len(reviews)
+            sample_size = max(1, int(target_count * proportion))
+            
+            # Sample this rating group
+            if len(rating_reviews) <= sample_size:
+                sampled.extend(rating_reviews)
+            else:
+                import random
+                sampled.extend(random.sample(rating_reviews, sample_size))
+        
+        return sampled[:target_count]
+    
     async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyze sentiment of reviews using OpenAI with real-time progress updates
+        Execute sentiment analysis with theme extraction
         
         Args:
             input_data: {
-                'data': {
-                    'records': List[Dict] - Reviews to analyze (from LoadReviewsTool)
-                        Each review should have: star_rating, review_body, review_headline
+                'records': List[Dict],              # Direct access (no 'data' wrapper)
+                'total': int,                       # Optional
+                'category': str,                    # Optional
+                'config': Dict[str, Any]            # Parameters in config object
+                    'extract_themes': bool - Extract recurring topics/themes from reviews (default: True),
+                    'theme_separation': Literal['combined', 'by_sentiment'] - How to organize themes: 'combined' (all together) or 'by_sentiment' (positive/negative separate),
+                    'max_themes_per_category': int - Maximum number of themes to extract per category (default: 1),
+                    'include_percentages': bool - Calculate percentage of reviews mentioning each theme (default: True)
+                    'batch_size': int
                 },
-                'aggregate_by_product': bool (optional) - Group by product_id,
-                'state': Dict (optional) - Workflow state with session_id and execution_id
+                'state': {                       # State in state object
+                    'session_id': str,
+                    'execution_id': int,
+                    'condition': str
+                }
+                'session_id': str - For WebSocket updates (optional),
+                'execution_id': int - For WebSocket updates (optional)
             }
-            
+        
         Returns:
-            Dictionary with:
-            - success: bool
-            - data: {
-                'records': List[Dict] with sentiment added to each review,
-                'overall_sentiment': Dict with counts and percentages,
-                'product_aggregates': Dict (if aggregate_by_product=True),
-                'statistics': Dict with detailed stats
-              }
-            - execution_time_ms: int
-            - metadata: Dict
+            {
+                'success': bool,
+                'data': {
+                    'column_data': Dict[review_id, sentiment_fields],
+                    'columns_added': List[str],
+                    'tool_results': {
+                        'sentiment_summary': {...},
+                        'theme_analysis': {...}
+                    }
+                }
+            }
         """
         start_time = time.time()
         
         try:
-            # Support both direct 'reviews' and nested 'data.records' structure
-            data = input_data.get('data', {})
-            reviews = data.get('records', input_data.get('reviews', []))
+            self._log_input_to_file(input_data)
+
+            reviews = input_data.get('records', [])
             
-            if not reviews:
-                return {
-                    'success': False,
-                    'error': 'No reviews provided for analysis',
-                    'data': None
-                }
+            # Extract config parameters from 'config' object
+            config = input_data.get('config', {})
+            extract_themes = config.get('extract_themes', True)
+            theme_separation = config.get('theme_separation', 'combined')
+            max_themes_per_category = config.get('max_themes_per_category', 5)
+            include_percentages = config.get('include_percentages', True)
+            batch_size = config.get('batch_size', self.BATCH_SIZE)
             
-            aggregate_by_product = input_data.get('aggregate_by_product', False)
-            
-            # Get session info for WebSocket updates
+            # State info
             state = input_data.get('state', {})
             session_id = state.get('session_id')
             execution_id = state.get('execution_id')
             
-            logger.info(f"Starting LLM sentiment analysis for {len(reviews)} reviews")
+            if not reviews:
+                return {
+                    'success': False,
+                    'error': 'No reviews provided',
+                    'data': None
+                }
             
-            # Process reviews in batches
+            original_count = len(reviews)
+            
+            logger.info(
+                f"Starting sentiment analysis: {original_count} reviews, "
+                f"extract_themes={extract_themes}, theme_separation={theme_separation}"
+            )
+            
+            # Cost protection: Sample if too large
+            if original_count > self.MAX_REVIEWS:
+                await self._send_progress(
+                    session_id, execution_id,
+                    "Large dataset - sampling",
+                    5,
+                    f"Sampling {self.MAX_REVIEWS} from {original_count} reviews"
+                )
+                reviews = self._sample_reviews_strategically(reviews, self.MAX_REVIEWS)
+                logger.warning(f"Sampled dataset: {original_count} → {len(reviews)} reviews")
+            
+            # Batch processing
+            await self._send_progress(
+                session_id, execution_id,
+                "Starting analysis",
+                10,
+                f"Processing {len(reviews)} reviews in batches"
+            )
+            
             analyzed_reviews = []
-            total_batches = (len(reviews) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
+            all_themes = []
             
-            # Send overall start notification
-            if self.websocket_manager and session_id:
-                try:
-                    await self.websocket_manager.send_to_session(session_id, {
-                        'type': 'sentiment_analysis_start',
-                        'execution_id': execution_id,
-                        'total_reviews': len(reviews),
-                        'total_batches': total_batches,
-                        'batch_size': self.BATCH_SIZE
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to send analysis start notification: {e}")
+            total_batches = (len(reviews) + batch_size - 1) // batch_size
             
-            for batch_idx in range(0, len(reviews), self.BATCH_SIZE):
-                batch = reviews[batch_idx:batch_idx + self.BATCH_SIZE]
-                batch_num = (batch_idx // self.BATCH_SIZE) + 1
+            for batch_idx in range(0, len(reviews), batch_size):
+                batch = reviews[batch_idx:batch_idx + batch_size]
+                batch_num = (batch_idx // batch_size) + 1
                 
-                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} reviews)")
-                
-                # Analyze this batch with progress updates
-                batch_results = await self._analyze_batch_with_llm(
+                # Analyze this batch
+                batch_result = await self._analyze_batch_with_themes(
                     reviews_batch=batch,
+                    extract_themes=extract_themes,
                     session_id=session_id,
                     execution_id=execution_id,
                     batch_num=batch_num,
                     total_batches=total_batches
                 )
-                analyzed_reviews.extend(batch_results)
                 
-                # Small delay between batches to avoid rate limits
-                if batch_idx + self.BATCH_SIZE < len(reviews):
+                analyzed_reviews.extend(batch_result['analyzed_reviews'])
+                all_themes.extend(batch_result['batch_themes'])
+                
+                # Small delay between batches
+                if batch_idx + batch_size < len(reviews):
                     await asyncio.sleep(0.1)
             
-            # Calculate overall statistics
+            # Calculate sentiment distribution
             sentiment_counts = Counter()
-            product_sentiments = {}
-            
             for review in analyzed_reviews:
                 sentiment = review.get('sentiment', 'neutral')
-                product_id = review.get('product_id', 'unknown')
-                
-                # Update counts
                 sentiment_counts[sentiment] += 1
+            
+            total_analyzed = len(analyzed_reviews)
+            
+            sentiment_summary = {
+                'positive': sentiment_counts['positive'],
+                'neutral': sentiment_counts['neutral'],
+                'negative': sentiment_counts['negative'],
+                'total': total_analyzed,
+                'percentages': {
+                    'positive': round(sentiment_counts['positive'] / total_analyzed * 100, 2),
+                    'neutral': round(sentiment_counts['neutral'] / total_analyzed * 100, 2),
+                    'negative': round(sentiment_counts['negative'] / total_analyzed * 100, 2)
+                },
+                'dominant_sentiment': max(sentiment_counts, key=sentiment_counts.get)
+            }
+            
+            # Aggregate themes if extracted
+            theme_analysis = None
+            if extract_themes:
+                theme_analysis = self._aggregate_themes(
+                    analyzed_reviews,
+                    theme_separation,
+                    max_themes_per_category,
+                    include_percentages
+                )
+                logger.info(f"Extracted {len(all_themes)} total theme mentions")
+            
+            # Prepare column data for enrichment (maps to shared_state)
+            column_data = {}
+            for review in analyzed_reviews:
+                review_id = review['review_id']
+                column_data[review_id] = {
+                    'sentiment': review['sentiment'],
+                    'sentiment_confidence': review['sentiment_confidence'],
+                    'sentiment_reasoning': review['sentiment_reasoning']
+                }
                 
-                # Aggregate by product if requested
-                if aggregate_by_product:
-                    if product_id not in product_sentiments:
-                        product_sentiments[product_id] = Counter()
-                    product_sentiments[product_id][sentiment] += 1
-            
-            # Calculate percentages
-            total_reviews = len(analyzed_reviews)
-            overall_sentiment = {
-                'positive': {
-                    'count': sentiment_counts['positive'],
-                    'percentage': round(sentiment_counts['positive'] / total_reviews * 100, 2)
-                },
-                'neutral': {
-                    'count': sentiment_counts['neutral'],
-                    'percentage': round(sentiment_counts['neutral'] / total_reviews * 100, 2)
-                },
-                'negative': {
-                    'count': sentiment_counts['negative'],
-                    'percentage': round(sentiment_counts['negative'] / total_reviews * 100, 2)
-                }
-            }
-            
-            # Determine dominant sentiment
-            dominant_sentiment = max(sentiment_counts, key=sentiment_counts.get)
-            
-            # Calculate average star rating
-            avg_rating = sum(r.get('star_rating', 3) for r in analyzed_reviews) / total_reviews
-            
-            # Build result data
-            result_data = {
-                **data,  # Preserve original data structure
-                'records': analyzed_reviews,  # Replace records with analyzed versions
-                'overall_sentiment': overall_sentiment,
-                'dominant_sentiment': dominant_sentiment,
-                'statistics': {
-                    'total_reviews': total_reviews,
-                    'average_rating': round(avg_rating, 2),
-                    'sentiment_distribution': dict(sentiment_counts),
-                    'confidence_breakdown': {
-                        'high': sum(1 for r in analyzed_reviews if r.get('confidence') == 'high'),
-                        'medium': sum(1 for r in analyzed_reviews if r.get('confidence') == 'medium'),
-                        'low': sum(1 for r in analyzed_reviews if r.get('confidence') == 'low')
-                    },
-                    'batches_processed': total_batches,
-                    'llm_model': self.llm_client.model
-                }
-            }
-            
-            # Add product aggregates if requested
-            if aggregate_by_product:
-                product_summary = {}
-                for product_id, sentiments in product_sentiments.items():
-                    total = sum(sentiments.values())
-                    product_summary[product_id] = {
-                        'total_reviews': total,
-                        'positive': sentiments['positive'],
-                        'neutral': sentiments['neutral'],
-                        'negative': sentiments['negative'],
-                        'dominant_sentiment': max(sentiments, key=sentiments.get),
-                        'positive_percentage': round(sentiments['positive'] / total * 100, 2) if total > 0 else 0
-                    }
-                result_data['product_aggregates'] = product_summary
+                if extract_themes:
+                    column_data[review_id]['themes'] = review.get('themes', [])
             
             execution_time = int((time.time() - start_time) * 1000)
             
-            # Send completion notification
+            # Send completion
             if self.websocket_manager and session_id:
                 try:
                     await self.websocket_manager.send_to_session(session_id, {
                         'type': 'sentiment_analysis_complete',
                         'execution_id': execution_id,
-                        'total_reviews_analyzed': total_reviews,
-                        'dominant_sentiment': dominant_sentiment,
+                        'total_reviews_analyzed': total_analyzed,
+                        'dominant_sentiment': sentiment_summary['dominant_sentiment'],
+                        'themes_extracted': len(all_themes) if extract_themes else 0,
                         'execution_time_ms': execution_time
                     })
                 except Exception as e:
-                    logger.warning(f"Failed to send completion notification: {e}")
+                    logger.warning(f"Failed to send completion: {e}")
             
             logger.info(
-                f"LLM sentiment analysis complete: "
-                f"{sentiment_counts['positive']} positive, "
-                f"{sentiment_counts['neutral']} neutral, "
-                f"{sentiment_counts['negative']} negative "
+                f"✅ Sentiment analysis complete: "
+                f"{sentiment_counts['positive']}+ {sentiment_counts['neutral']}= {sentiment_counts['negative']}- "
                 f"({execution_time}ms)"
             )
             
-            return {
+            # Build result for shared_state mapping
+            result_data = {
+                # For apply_enrichment()
+                'column_data': column_data,
+                'columns_added': ['sentiment', 'sentiment_confidence', 'sentiment_reasoning'] + 
+                                (['themes'] if extract_themes else []),
+                
+                # For tool_results registry
+                'tool_results': {
+                    'sentiment_summary': sentiment_summary,
+                    'theme_analysis': theme_analysis,
+                    'statistics': {
+                        'reviews_analyzed': total_analyzed,
+                        'batches_processed': total_batches,
+                        'themes_extracted': len(all_themes) if extract_themes else 0,
+                        'llm_model': self.llm_client.model
+                    }
+                }
+            }
+            
+            results = {
                 'success': True,
                 'data': result_data,
                 'execution_time_ms': execution_time,
                 'metadata': {
                     'tool': self.name,
-                    'reviews_analyzed': total_reviews,
-                    'dominant_sentiment': dominant_sentiment,
-                    'average_rating': round(avg_rating, 2),
-                    'batches_processed': total_batches,
-                    'llm_model': self.llm_client.model
+                    'reviews_analyzed': total_analyzed,
+                    'dominant_sentiment': sentiment_summary['dominant_sentiment'],
+                    'themes_extracted': extract_themes
                 }
             }
+
+            self._log_results_to_file(results)
+
+            return results
             
         except Exception as e:
             logger.error(f"Error in ReviewSentimentAnalysisTool: {e}", exc_info=True)
@@ -473,90 +727,11 @@ Return JSON with sentiment analysis for each review."""
                 'execution_time_ms': int((time.time() - start_time) * 1000)
             }
 
-
-class SentimentAnalysisTool(BaseTool):
-    """Analyze sentiment of text data"""
-    
-    def __init__(self):
-        self.name = "Sentiment Analysis"
-    
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyze sentiment of text records
-        
-        Args:
-            input_data: Contains 'data' with text records
-            
-        Returns:
-            Data with sentiment scores
-        """
-        start_time = time.time()
-        
-        try:
-            data = input_data.get('data', {})
-            records = data.get('records', [])
-            
-            logger.info(f"Analyzing sentiment for {len(records)} records")
-            
-            # Simulate sentiment analysis
-            # In real implementation: use OpenAI, HuggingFace, or other NLP models
-            analyzed_records = []
-            sentiment_summary = {'positive': 0, 'neutral': 0, 'negative': 0}
-            
-            for record in records:
-                text = record.get('text', '')
-                
-                # Simple mock sentiment (in real: call ML model)
-                # Based on text length as proxy
-                value = record.get('value', 50)
-                if value > 60:
-                    sentiment = 'positive'
-                    score = 0.8
-                elif value < 40:
-                    sentiment = 'negative'
-                    score = 0.7
-                else:
-                    sentiment = 'neutral'
-                    score = 0.5
-                
-                sentiment_summary[sentiment] += 1
-                
-                analyzed_records.append({
-                    **record,
-                    'sentiment': sentiment,
-                    'sentiment_score': score
-                })
-            
-            execution_time = int((time.time() - start_time) * 1000)
-            
-            return {
-                'success': True,
-                'data': {
-                    **data,
-                    'records': analyzed_records,
-                    'sentiment_summary': sentiment_summary
-                },
-                'execution_time_ms': execution_time,
-                'metadata': {
-                    'tool': self.name,
-                    'records_analyzed': len(analyzed_records)
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in SentimentAnalysisTool: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'data': None
-            }
-
-
 class GenerateInsightsTool(BaseTool):
     """
     Generate insights from analyzed data using LLM with STREAMING SUPPORT
     
-    ✅ NEW FEATURES:
+    NEW FEATURES:
     - Streaming LLM calls for reduced latency (TTFB < 1s)
     - Real-time progress updates via WebSocket
     - Thinking indicators during LLM processing
@@ -569,121 +744,12 @@ class GenerateInsightsTool(BaseTool):
     """
     
     def __init__(self):
-        self.name = "Generate Insights"
-        self.llm_client = llm_client
-        self.websocket_manager = None
-    
-    def set_websocket_manager(self, ws_manager):
-        """
-        Set WebSocket manager for real-time updates
-        Called by orchestrator during initialization
-        """
-        self.websocket_manager = ws_manager
-        logger.info("✅ WebSocket manager injected into GenerateInsightsTool")
-    
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Generate insights with streaming support
-        
-        Args:
-            input_data: Contains 'data' to analyze and 'state' for WebSocket info
-            
-        Returns:
-            Data with insights added
-        """
-        start_time = time.time()
-        
-        try:
-            data = input_data.get('data', {})
-            records = data.get('records', [])
-            
-            # Get session info for WebSocket updates
-            state = input_data.get('state', {})
-            session_id = state.get('session_id')
-            execution_id = state.get('execution_id')
-            
-            logger.info(f"Generating insights from {len(records)} records")
-            
-            # Send start notification
-            if self.websocket_manager and session_id:
-                try:
-                    await self.websocket_manager.send_insight_generation_start(
-                        session_id=session_id,
-                        execution_id=execution_id,
-                        record_count=len(records)
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to send start notification: {e}")
-            
-            # Create streaming callback for progress indication
-            chunk_count = [0]
-            last_update = [0]
-            
-            async def on_thinking_chunk(chunk: str):
-                """
-                Show thinking progress during LLM generation
-                Throttled to every 25 chunks to avoid WebSocket spam
-                """
-                chunk_count[0] += 1
-                
-                # Send thinking update every 25 chunks
-                if chunk_count[0] - last_update[0] >= 25 and self.websocket_manager and session_id:
-                    try:
-                        await self.websocket_manager.send_insight_thinking(
-                            session_id= session_id, 
-                            execution_id = execution_id,
-                            chunks_received = chunk_count[0]
-                        )
-                        last_update[0] = chunk_count[0]
-                    except Exception as e:
-                        logger.warning(f"Failed to send thinking notification: {e}")
-            
-            # Generate insights using LLM with streaming
-            insights = await self._generate_insights_with_llm(
-                data=data,
-                on_chunk=on_thinking_chunk
-            )
-            
-            execution_time = int((time.time() - start_time) * 1000)
-            
-
-            # Send completion notification
-            if self.websocket_manager and session_id:
-                try:
-                    await self.websocket_manager.send_insight_generation_complete(
-                        session_id = session_id,
-                        execution_id = execution_id,
-                        insights_count = len(insights),
-                        execution_time_ms = execution_time
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to send completion notification: {e}")
-            
-            logger.info(
-                f"✅ Insights generated: {len(insights)} insights in {execution_time}ms"
-            )
-            
-            return {
-                'success': True,
-                'data': {
-                    **data,
-                    'insights': insights
-                },
-                'execution_time_ms': execution_time,
-                'metadata': {
-                    'tool': self.name,
-                    'insights_generated': len(insights),
-                    'streaming_enabled': True
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in GenerateInsightsTool: {e}", exc_info=True)
-            return {
-                'success': False,
-                'error': str(e),
-                'data': None
-            }
+        super().__init__(
+            name="Generate Insights",
+            timeout=600  # 10 minutes for LLM processing
+        )
+        self.websocket_manager = None   # Injected by orchestrator
+        self.llm_client = None          # Injected by orchestrator
     
     async def _generate_insights_with_llm(
         self,
@@ -716,36 +782,48 @@ class GenerateInsightsTool(BaseTool):
         neutral_pct = (neutral_count / max(total_reviews, 1)) * 100
         negative_pct = (negative_count / max(total_reviews, 1)) * 100
         
-        # Build rich prompt
-        prompt = f"""Analyze this product review data and generate 3-5 actionable business insights:
+        # Build compressed prompt
+        prompt = f"""Generate 3-5 actionable insights from review data.
 
-**Data Summary:**
-- Total Reviews Analyzed: {total_reviews}
-- Sentiment Distribution:
-  - Positive: {positive_count} ({positive_pct:.1f}%)
-  - Neutral: {neutral_count} ({neutral_pct:.1f}%)
-  - Negative: {negative_count} ({negative_pct:.1f}%)
+Data: {total_reviews} reviews
+Sentiment: {positive_pct:.0f}% pos, {neutral_pct:.0f}% neu, {negative_pct:.0f}% neg
 
-**Task:**
-Generate insights that:
-1. Identify key trends or patterns
-2. Highlight opportunities for improvement
-3. Note strengths or positive feedback themes
-4. Suggest concrete actions based on the data
-5. Address any concerning patterns in negative reviews
+Output JSON: {{"insights": ["insight 1", "insight 2", "insight 3"]}}
 
-**Output Format (JSON):**
-{{
-  "insights": [
-    "Insight 1: [Specific, actionable insight]",
-    "Insight 2: [Specific, actionable insight]",
-    "Insight 3: [Specific, actionable insight]"
-  ]
-}}
-
-Make insights specific, data-driven, and actionable for product managers or business stakeholders.
-"""
+Focus: trends, improvements, actions."""
         
+        #OLD PROMPT
+        # Build rich prompt
+        """Analyze this product review data and generate 3-5 actionable business insights:
+
+        **Data Summary:**
+        - Total Reviews Analyzed: {total_reviews}
+        - Sentiment Distribution:
+        - Positive: {positive_count} ({positive_pct:.1f}%)
+        - Neutral: {neutral_count} ({neutral_pct:.1f}%)
+        - Negative: {negative_count} ({negative_pct:.1f}%)
+
+        **Task:**
+        Generate insights that:
+        1. Identify key trends or patterns
+        2. Highlight opportunities for improvement
+        3. Note strengths or positive feedback themes
+        4. Suggest concrete actions based on the data
+        5. Address any concerning patterns in negative reviews
+
+        **Output Format (JSON):**
+        {{
+        "insights": [
+            "Insight 1: [Specific, actionable insight]",
+            "Insight 2: [Specific, actionable insight]",
+            "Insight 3: [Specific, actionable insight]"
+        ]
+        }}
+
+        Make insights specific, data-driven, and actionable for product managers or business stakeholders.
+        """
+
+        #system_prompt = """Expert e-commerce analyst. Generate actionable insights from review data. Output valid JSON with 'insights' array."""
         system_prompt = """You are an expert data analyst and business strategist specializing in e-commerce product reviews.
 
 Your role:
@@ -826,7 +904,116 @@ Output must be valid JSON with an 'insights' array."""
         
         return insights
 
+    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate insights with streaming support
+        
+        Args:
+            input_data: Contains 'data' to analyze and 'state' for WebSocket info
+            
+        Returns:
+            Data with insights added
+        """
+        start_time = time.time()
+        
+        try:
+            self._log_input_to_file(input_data)
 
+            data = input_data.get('data', {})
+            records = data.get('records', [])
+            
+            # Get session info for WebSocket updates
+            state = input_data.get('state', {})
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+            
+            logger.info(f"Generating insights from {len(records)} records")
+            
+            # Send start notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_insight_generation_start(
+                        session_id=session_id,
+                        execution_id=execution_id,
+                        record_count=len(records)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send start notification: {e}")
+            
+            # Create streaming callback for progress indication
+            chunk_count = [0]
+            last_update = [0]
+            
+            async def on_thinking_chunk(chunk: str):
+                """
+                Show thinking progress during LLM generation
+                Throttled to every 25 chunks to avoid WebSocket spam
+                """
+                chunk_count[0] += 1
+                
+                # Send thinking update every 25 chunks
+                if chunk_count[0] - last_update[0] >= 25 and self.websocket_manager and session_id:
+                    try:
+                        await self.websocket_manager.send_insight_thinking(
+                            session_id= session_id, 
+                            execution_id = execution_id,
+                            chunks_received = chunk_count[0]
+                        )
+                        last_update[0] = chunk_count[0]
+                    except Exception as e:
+                        logger.warning(f"Failed to send thinking notification: {e}")
+            
+            # Generate insights using LLM with streaming
+            insights = await self._generate_insights_with_llm(
+                data=data,
+                on_chunk=on_thinking_chunk
+            )
+            
+            execution_time = int((time.time() - start_time) * 1000)
+            
+
+            # Send completion notification
+            if self.websocket_manager and session_id:
+                try:
+                    await self.websocket_manager.send_insight_generation_complete(
+                        session_id = session_id,
+                        execution_id = execution_id,
+                        insights_count = len(insights),
+                        execution_time_ms = execution_time
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send completion notification: {e}")
+            
+            logger.info(
+                f"✅ Insights generated: {len(insights)} insights in {execution_time}ms"
+            )
+            
+            results = {
+                'success': True,
+                'data': {
+                    **data,
+                    'insights': insights
+                },
+                'execution_time_ms': execution_time,
+                'metadata': {
+                    'tool': self.name,
+                    'insights_generated': len(insights),
+                    'streaming_enabled': True
+                }
+            }
+        
+            self._log_results_to_file(results)
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in GenerateInsightsTool: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e),
+                'data': None
+            }
+    
 class ShowResultsTool(BaseTool):
     """
     Final output tool - condenses and presents workflow results
@@ -844,79 +1031,13 @@ class ShowResultsTool(BaseTool):
     """
     
     def __init__(self):
-        self.name = "Show Results"
-    
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Format and present final results from all previous tools
+        super().__init__(
+            name="Show Results",
+            timeout=30
+        )
+        self.websocket_manager = None   # Injected by orchestrator
+        self.llm_client = None          # Injected by orchestrator
         
-        Args:
-            input_data: {
-                'data': Current dataset with all transformations,
-                'session_id': Session identifier (optional),
-                'execution_id': Workflow execution ID (optional)
-            }
-            
-        Returns:
-            Comprehensive formatted results with:
-            - Executive summary
-            - Pipeline overview
-            - Data summary
-            - Key insights
-            - Final dataset
-        """
-        start_time = time.time()
-        
-        try:
-            data = input_data.get('data', {})
-            
-            logger.info("📊 ShowResults: Formatting final output")
-            
-            # Build comprehensive results
-            formatted_results = {
-                'executive_summary': self._create_executive_summary(data),
-                'pipeline_summary': self._create_pipeline_summary(data),
-                'data_summary': self._create_data_summary(data),
-                'key_insights': self._extract_key_insights(data),
-                'recommendations': self._generate_recommendations(data),
-                'final_dataset': {
-                    'records': data.get('records', []),
-                    'record_count': len(data.get('records', []))
-                },
-                'metadata': {
-                    'processed_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'workflow_complete': True,
-                    'output_format': 'enhanced_v1'
-                }
-            }
-            
-            execution_time = int((time.time() - start_time) * 1000)
-            
-            logger.info(
-                f"✅ ShowResults: Formatted {len(data.get('records', []))} "
-                f"records with {len(formatted_results.get('key_insights', []))} insights "
-                f"in {execution_time}ms"
-            )
-            
-            return {
-                'success': True,
-                'data': formatted_results,
-                'execution_time_ms': execution_time,
-                'metadata': {
-                    'tool': self.name,
-                    'output_ready': True,
-                    'is_final_output': True  # Flag this as final tool
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error in ShowResultsTool: {e}", exc_info=True)
-            return {
-                'success': False,
-                'error': str(e),
-                'data': None
-            }
-    
     def _create_executive_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create high-level executive summary
@@ -1220,39 +1341,58 @@ class ShowResultsTool(BaseTool):
         else:
             return "Mixed"
     """Format and prepare results for output"""
-    
-    def __init__(self):
-        self.name = "Show Results"
-    
+        
     async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Format results for presentation
+        Format and present final results from all previous tools
         
         Args:
-            input_data: Contains all processed data
+            input_data: {
+                'data': Current dataset with all transformations,
+                'session_id': Session identifier (optional),
+                'execution_id': Workflow execution ID (optional)
+            }
             
         Returns:
-            Formatted results
+            Comprehensive formatted results with:
+            - Executive summary
+            - Pipeline overview
+            - Data summary
+            - Key insights
+            - Final dataset
         """
         start_time = time.time()
         
         try:
             data = input_data.get('data', {})
             
-            logger.info("Formatting results for output")
+            logger.info("📊 ShowResults: Formatting final output")
             
-            # Format results
+            # Build comprehensive results
             formatted_results = {
-                'summary': self._create_summary(data),
-                'data': data.get('records', []),
-                'insights': data.get('insights', []),
+                'executive_summary': self._create_executive_summary(data),
+                'pipeline_summary': self._create_pipeline_summary(data),
+                'data_summary': self._create_data_summary(data),
+                'key_insights': self._extract_key_insights(data),
+                'recommendations': self._generate_recommendations(data),
+                'final_dataset': {
+                    'records': data.get('records', []),
+                    'record_count': len(data.get('records', []))
+                },
                 'metadata': {
-                    'total_records': len(data.get('records', [])),
-                    'processed_at': time.strftime('%Y-%m-%d %H:%M:%S')
+                    'processed_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'workflow_complete': True,
+                    'output_format': 'enhanced_v1'
                 }
             }
             
             execution_time = int((time.time() - start_time) * 1000)
+            
+            logger.info(
+                f"✅ ShowResults: Formatted {len(data.get('records', []))} "
+                f"records with {len(formatted_results.get('key_insights', []))} insights "
+                f"in {execution_time}ms"
+            )
             
             return {
                 'success': True,
@@ -1260,12 +1400,13 @@ class ShowResultsTool(BaseTool):
                 'execution_time_ms': execution_time,
                 'metadata': {
                     'tool': self.name,
-                    'output_ready': True
+                    'output_ready': True,
+                    'is_final_output': True  # Flag this as final tool
                 }
             }
             
         except Exception as e:
-            logger.error(f"Error in ShowResultsTool: {e}")
+            logger.error(f"❌ Error in ShowResultsTool: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -1286,3 +1427,4 @@ class ShowResultsTool(BaseTool):
             summary['sentiment_distribution'] = data['sentiment_summary']
         
         return summary
+

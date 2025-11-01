@@ -146,7 +146,8 @@ async def get_execution_status(
         
         if 'error' in status:
             raise HTTPException(status_code=404, detail=status['error'])
-        
+        status['steps_completed'] = status.get('step_number', 0)
+        status['execution_time_ms'] = status.get('total_time_ms', 0)
         return ExecutionStatusResponse(**status)
         
     except HTTPException:

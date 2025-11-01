@@ -207,8 +207,8 @@ export const NODE_TEMPLATES = [
     ],
     defaultConfig: {
       field: null,
-      operator: 'equal',
-      value: ''
+      operator: null,
+      value: null
     }
   },
 

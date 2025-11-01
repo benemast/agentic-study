@@ -169,7 +169,7 @@ const Dashboard = () => {
           <div>Session ID: <span className="font-mono">{sessionId || 'Loading...'}</span></div>
           <div>Participant: #{participantId || 'N/A'}</div>
           <div>Status: <span className={isHealthy ? 'text-green-600' : 'text-red-600'}>
-            {isHealthy ? '✅ Healthy' : '⚠️ Issues'}
+            {isHealthy ? 'Healthy' : 'Issues'}
           </span></div>
         </div>
       </div>

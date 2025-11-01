@@ -30,6 +30,14 @@ def before_send(event, hint):
     This runs automatically for every error captured by Sentry
     """
     try:
+        # Ensure transaction key exists (Sentry SDK bug workaround)
+        if 'transaction' not in event:
+            event['transaction'] = 'unknown'
+        
+        # Ensure contexts exists
+        if 'contexts' not in event:
+            event['contexts'] = {}
+        
         # Add exception details if available
         if 'exc_info' in hint:
             exc_type, exc_value, exc_tb = hint['exc_info']

@@ -409,11 +409,11 @@ export const de = {
         description: 'Hier finden Sie Ihre Rolle, Ihr Ziel und welche Ausgabe erwartet wird. Klicken Sie auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
       },
       datasetViewer: {
-        title: '📊 Datensatz-Viewer',
+        title: 'Datensatz-Viewer',
         description: 'Dies ist Ihre Datenquelle - Kundenbewertungen, die Sie analysieren werden. Sie können hier durch alle verfügbaren Bewertungen scrollen.',
       },
       viewModes: {
-        title: '🔄 Ansichtsmodi wechseln',
+        title: 'Ansichtsmodi wechseln',
         description: 'Wechseln Sie zwischen Kartenansicht (einfacher zu lesen) und Tabellenansicht (kompakter). Wählen Sie, was am besten für Sie funktioniert!',
       },
       filterReviews: {
@@ -542,7 +542,7 @@ export const de = {
         example: 'Beispiel: "Finde die Top 3 negativen Themen" oder "Analysiere die Stimmungsverteilung"',
       },
       aiTakesAction: {
-        title: '🔄 KI handelt',
+        title: 'KI handelt',
         description: 'Die KI wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um Ihre Fragen zu beantworten. Sie sehen im Chat, was sie tut.',
       },
       reviewResults: {
@@ -898,6 +898,7 @@ export const de = {
         settings: {
           // General
           notConfigured: 'Nicht konfiguriert',
+          locked: 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.',
           
           // Sentiment Analysis Node
           sentiment: {

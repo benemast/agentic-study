@@ -171,7 +171,7 @@ class WebSocketClient {
         this.ws = new WebSocket(wsUrl);
         
         this.ws.onopen = () => {
-          console.log('✅ WebSocket connected');
+          console.log('WebSocket connected');
           this.isConnected = true;
           
           // Process queued messages

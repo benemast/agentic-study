@@ -347,11 +347,11 @@ export const validateSerializedWorkflow = (serializedWorkflow) => {
  */
 export const printWorkflow = (nodes, edges) => {
   if (!nodes || !edges) {
-    console.warn('⚠️ Cannot print workflow: nodes or edges is undefined');
+    console.warn('Cannot print workflow: nodes or edges is undefined');
     return;
   }
   
-  console.group('🔄 Workflow Structure');
+  console.group('Workflow Structure');
   
   console.log('📦 Nodes:', nodes.length);
   nodes.forEach(node => {

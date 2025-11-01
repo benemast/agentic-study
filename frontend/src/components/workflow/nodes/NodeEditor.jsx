@@ -13,11 +13,11 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
 
   // Extract config schema and current config from node
   const configSchema = useMemo(() => node?.data?.configSchema || [], [node]);
-  const nodeLabel = useMemo(() => t(node?.data?.label || ''), [node, t]);
-  const nodeDescription = useMemo(() => {
-    const desc = node?.data?.description;
-    return desc ? t(desc) : '';
-  }, [node, t]);
+  const nodeLabel = useMemo(() => node?.data?.label || '', [node]);
+  const nodeDescription = useMemo(() => node?.data?.description || '', [node]); 
+  const shouldTranslate = useCallback((str) => {
+    return typeof str === 'string' && str.includes('.');
+  }, []);
 
   // Initialize config from node data
   useEffect(() => {
@@ -319,8 +319,8 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
           onMouseLeave={() => setShowTooltip(false)}
         />
         {showTooltip && (
-          <div className="absolute left-0 top-full mt-1 z-50 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
-            <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+          <div className="absolute left-0 top-full mt-1 z-50 w-64 p-2 bg-gray-900 dark:bg-gray-800 text-white text-xs rounded shadow-lg border border-gray-700">
+            <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 dark:bg-gray-800 transform rotate-45 border-l border-t border-gray-700"></div>
             {t(help)}
           </div>
         )}
@@ -359,27 +359,27 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
     const baseInputClass = `w-full px-3 py-2 border rounded-lg transition-colors ${
       error 
         ? 'border-red-500 focus:ring-red-500' 
-        : 'border-gray-300 focus:ring-blue-500'
+        : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
     } ${
       isLocked 
-        ? 'bg-gray-100 cursor-not-allowed' 
-        : 'bg-white'
-    } focus:ring-2 focus:border-transparent`;
+        ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' 
+        : 'bg-white dark:bg-gray-900'
+    } focus:ring-2 focus:border-transparent dark:text-gray-100`;
 
     return (
       <div key={field.key} className="space-y-2">
         {/* Label */}
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {fieldLabel}
             {field.required && <span className="text-red-500 ml-1">*</span>}
-            {isLocked && <LockIcon className="inline ml-2 w-3 h-3 text-gray-400" />}
+            {isLocked && <LockIcon className="inline ml-2 w-3 h-3 text-gray-400 dark:text-gray-500" />}
           </label>
         </div>
 
         {/* Help Text */}
         {fieldHelp && (
-          <div className="flex items-start gap-2 text-xs text-gray-500">
+          <div className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400">
             <InfoIcon className="w-3 h-3 mt-0.5 flex-shrink-0" />
             <span>{fieldHelp}</span>
           </div>
@@ -461,7 +461,7 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
             </option>
             {options.map(opt => (
               <option key={String(opt.value)} value={String(opt.value)}>
-                {t(opt.label)}
+                {shouldTranslate(opt.label) ? t(opt.label) : opt.label}
               </option>
             ))}
           </select>
@@ -469,30 +469,34 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
 
         {/* Multiselect */}
         {field.type === 'multiselect' && (
-          <div className="space-y-2 p-3 border border-gray-300 rounded-lg bg-gray-50 max-h-60 overflow-y-auto">
+          <div className="space-y-2 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900 max-h-60 overflow-y-auto">
             {options.length === 0 ? (
-              <p className="text-sm text-gray-500">No options available</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">No options available</p>
             ) : (
               options.map(opt => (
                 <label 
                   key={opt.value} 
-                  className="flex items-start space-x-2 cursor-pointer hover:bg-gray-100 p-2 rounded transition-colors"
+                  className="flex items-start space-x-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded transition-colors"
                 >
                   <input
                     type="checkbox"
                     checked={(value || []).includes(opt.value)}
                     onChange={(e) => handleMultiselectChange(field.key, opt.value, e.target.checked)}
                     disabled={isLocked}
-                    className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0"
+                    className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center">
-                      <span className="text-sm text-gray-700">{t(opt.label)}</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {shouldTranslate(opt.label) ? t(opt.label) : opt.label}
+                      </span>
                       <OptionHelpTooltip help={opt.help} />
                     </div>
                     {/* Show help text inline if no hover tooltip (fallback) */}
                     {!opt.help && opt.description && (
-                      <p className="text-xs text-gray-500 mt-0.5">{t(opt.description)}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {shouldTranslate(opt.description) ? t(opt.description) : opt.description}
+                      </p>
                     )}
                   </div>
                 </label>
@@ -515,6 +519,7 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
     resolveOptions,
     handleConfigChange,
     handleMultiselectChange,
+    shouldTranslate,
     t
   ]);
 
@@ -556,30 +561,30 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
     const isCollapsed = collapsedSections[sectionKey];
 
     return (
-      <div key={sectionKey} className="border border-gray-200 rounded-lg overflow-hidden">
+      <div key={sectionKey} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         {/* Section Header */}
         <button
           onClick={() => toggleSection(sectionKey)}
-          className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+          className="w-full flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
           <div className="flex items-center gap-2">
             {isCollapsed ? (
-              <ChevronRight className="w-4 h-4 text-gray-500" />
+              <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             ) : (
-              <ChevronDown className="w-4 h-4 text-gray-500" />
+              <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             )}
-            <span className="text-sm font-medium text-gray-700">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {sectionLabel} {t('workflow.builder.nodeEditor.options') || 'Options'}
             </span>
           </div>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {fields.filter(f => isFieldVisible(f)).length} {t('workflow.builder.nodeEditor.fields') || 'fields'}
           </span>
         </button>
 
         {/* Section Content */}
         {!isCollapsed && (
-          <div className="p-4 space-y-4 bg-white">
+          <div className="p-4 space-y-4 bg-white dark:bg-gray-900">
             {fields.map(renderField)}
           </div>
         )}
@@ -595,21 +600,21 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50 p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
+        <div className="flex items-center justify-between p-6 border-b dark:border-gray-700">
           <div>
-            <h3 className="text-xl font-semibold text-gray-900">
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
               {t('workflow.builder.nodeEditor.title')}
             </h3>
-            <p className="text-sm text-gray-500 mt-1">{nodeLabel}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{nodeLabel}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             <XIcon size={20} />
           </button>
@@ -617,18 +622,18 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
 
         {/* Description */}
         {nodeDescription && (
-          <div className="px-6 py-3 bg-blue-50 border-b border-blue-100">
-            <p className="text-sm text-blue-800">{nodeDescription}</p>
+          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800">
+            <p className="text-sm text-blue-800 dark:text-blue-200">{nodeDescription}</p>
           </div>
         )}
 
         {/* Locked Fields Notice */}
         {hasLockedFields && (
-          <div className="px-6 py-3 bg-amber-50 border-b border-amber-100">
+          <div className="px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800">
             <div className="flex items-start gap-2">
-              <LockIcon className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-amber-800">
-                Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.
+              <LockIcon className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                {t('workflow.builder.nodeEditor.noConfig') || 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.'}
               </p>
             </div>
           </div>
@@ -658,10 +663,10 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t bg-gray-50">
-          <div className="text-sm text-gray-500">
+        <div className="flex items-center justify-between p-6 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
             {Object.keys(validationErrors).length > 0 && (
-              <span className="text-red-500">
+              <span className="text-red-500 dark:text-red-400">
                 {t('workflow.builder.nodeEditor.fixErrors', { count: Object.keys(validationErrors).length }) || 
                  `Please fix ${Object.keys(validationErrors).length} error(s)`}
               </span>
@@ -670,13 +675,13 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
           <div className="flex space-x-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 font-medium transition-colors"
             >
               {t('workflow.builder.nodeEditor.cancel')}
             </button>
             <button
               onClick={handleSave}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+              className="px-6 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 font-medium transition-colors"
             >
               {t('workflow.builder.nodeEditor.save')}
             </button>

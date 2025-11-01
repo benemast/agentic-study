@@ -15,7 +15,7 @@ export const initAnalytics = ({ sessionId, participantId }) => {
   }
   
   if (!clarityId) {
-    console.warn('⚠️ Clarity ID not configured');
+    console.warn('Clarity ID not configured');
     return;
   }
   
@@ -38,7 +38,7 @@ export const initAnalytics = ({ sessionId, participantId }) => {
           window.clarity('identify', sessionId, {
             participant_id: participantId,
           });
-          console.log('✅ Clarity tracking started');
+          console.log('Clarity tracking started');
         }
       }, 100);
       

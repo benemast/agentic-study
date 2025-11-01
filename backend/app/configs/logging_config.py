@@ -72,7 +72,7 @@ def setup_logging(debug: bool = False):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(CONSOLE_LEVEL if not debug else logging.DEBUG)
     console_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d:%(funcName)s] - %(message)s',
         datefmt='%H:%M:%S'
     )
     console_handler.setFormatter(console_formatter)

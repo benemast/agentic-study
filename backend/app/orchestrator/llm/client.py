@@ -2,7 +2,7 @@
 """
 Robust LLM Client with circuit breaker, streaming support, and error handling
 """
-from typing import Dict, Any, Optional, List, Callable, Awaitable
+from typing import Dict, Any, Optional, List, Callable, Awaitable, Literal
 import asyncio
 import logging
 import json
@@ -10,6 +10,7 @@ from datetime import datetime
 import time
 from openai import AsyncOpenAI
 from openai import APIError, RateLimitError, APITimeoutError
+
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     """
-    Robust LLM client with:
+    Robust LLM client with model-appropriate parameter handling
+    Supports GPT-3.5, GPT-4, GPT-5 (with new verbosity & reasoning features)
+    Other Features:
     - Circuit breaker for fault tolerance
     - Streaming for latency reduction
     - Real-time progress callbacks
@@ -60,9 +63,77 @@ class LLMClient:
         # Cache with TTL (1 hour) and size limit (100 entries)
         self.cache = TTLCache(maxsize=100, ttl=3600)
         
-        logger.info(f"✅ LLM Client initialized with model: {self.model}")
-        logger.info(f"✅ Streaming enabled: {settings.use_stream}")
-        logger.info(f"✅ Circuit breaker enabled: {self.circuit_breaker}")
+        logger.info(f"LLM Client initialized with model: {self.model}")
+        logger.info(f"Streaming enabled: {settings.use_stream}")
+        logger.info(f"Circuit breaker enabled: {self.circuit_breaker}")
+    
+    def _is_gpt5_model(self) -> bool:
+        """Check if current model is GPT-5 series"""
+        return self.model.startswith('gpt-5')
+    
+    def _build_api_params(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_format: Optional[Dict[str, str]] = None,
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        reasoning_effort: Optional[Literal["minimal", "medium", "high"]] = None,
+        stream: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Build model-appropriate API parameters
+        
+        Args:
+            messages: Chat messages
+            temperature: Sampling temperature (not supported by o1/o3)
+            max_tokens: Token limit
+            response_format: Response format (e.g., {"type": "json_object"})
+            verbosity: GPT-5 only - output length (low/medium/high)
+            reasoning_effort: GPT-5 only - reasoning depth (minimal/medium/high)
+            stream: Enable streaming
+        
+        Returns:
+            Dict with only valid parameters for the current model
+        """
+        params = {
+            "model": self.model,
+            "messages": messages,
+        }
+        
+        # Token limit (different parameter names)
+        if max_tokens:
+            if self.model.startswith(('gpt-4', 'gpt-5', 'o1', 'o3')):
+                params["max_completion_tokens"] = max_tokens
+            else:
+                params["max_tokens"] = max_tokens
+        
+        # Temperature (not supported by o1/o3 reasoning models)
+        if temperature is not None and not self.model.startswith(('o1', 'o3', 'gpt-5')):
+            params["temperature"] = temperature
+        
+        # Response format
+        if response_format:
+            params["response_format"] = response_format
+        
+        # GPT-5 specific features
+        if self._is_gpt5_model():
+            # Verbosity: control output length
+            if verbosity:
+                params["verbosity"] = verbosity
+            
+            # Reasoning effort: minimal for speed, medium/high for complex tasks
+            if reasoning_effort:
+                params["reasoning_effort"] = reasoning_effort
+        
+        # Streaming
+        if stream:
+            params["stream"] = True
+            # Add stream_options if available in settings
+            if hasattr(settings, 'include_usage') and settings.include_usage:
+                params["stream_options"] = {"include_usage": True}
+        
+        return params
     
     @retry(
         stop=stop_after_attempt(3),
@@ -77,7 +148,10 @@ class LLMClient:
         max_tokens: int = 500,
         response_format: Optional[Dict[str, str]] = None,
         cache_key: Optional[str] = None,
-        timeout: float = 60.0
+        timeout: float = 60.0,
+        # GPT-5 new features
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        reasoning_effort: Optional[Literal["minimal", "medium", "high"]] = None
     ) -> Dict[str, Any]:
         """
         Make chat completion request with circuit breaker protection
@@ -89,6 +163,8 @@ class LLMClient:
             response_format: Optional response format
             cache_key: Optional cache key
             timeout: Request timeout
+            verbosity: GPT-5 only - output length (low/medium/high)
+            reasoning_effort: GPT-5 only - reasoning depth (minimal/medium/high)
             
         Returns:
             Response dict with 'content', 'tokens', 'model', 'cached'
@@ -112,6 +188,8 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
+                verbosity=verbosity,
+                reasoning_effort=reasoning_effort,
                 timeout=timeout
             )
             
@@ -125,9 +203,7 @@ class LLMClient:
             # Circuit breaker rejected call
             self.circuit_breaker_rejections += 1
             logger.error(f"Circuit breaker rejection: {e.message}")
-            
-            # Return error response instead of raising
-            # This allows callers to implement fallback logic
+
             return {
                 'content': None,
                 'error': 'circuit_breaker_open',
@@ -142,21 +218,27 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
         response_format: Optional[Dict[str, str]],
+        verbosity: Optional[str],
+        reasoning_effort: Optional[str],
         timeout: float
     ) -> Dict[str, Any]:
         """Internal method for actual API call"""
         start_time = asyncio.get_event_loop().time()
         
         try:
+            # Build model-appropriate parameters
+            params = self._build_api_params(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+                verbosity=verbosity,
+                reasoning_effort=reasoning_effort,
+                stream=False
+            )
             # Create completion with timeout
             completion = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format=response_format
-                ),
+                self.client.chat.completions.create(**params),
                 timeout=timeout
             )
             
@@ -169,7 +251,7 @@ class LLMClient:
             elapsed = asyncio.get_event_loop().time() - start_time
             
             logger.info(
-                f"✅ LLM completion: {tokens} tokens, {elapsed:.2f}s, "
+                f"LLM completion: {tokens} tokens, {elapsed:.2f}s, "
                 f"model={completion.model}"
             )
             
@@ -198,7 +280,10 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 500,
         on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
-        timeout: float = 120.0
+        timeout: float = 120.0,
+        # GPT-5 new features
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        reasoning_effort: Optional[Literal["minimal", "medium", "high"]] = None
     ) -> Dict[str, Any]:
         """
         STREAMING chat completion with circuit breaker protection
@@ -209,6 +294,8 @@ class LLMClient:
             max_tokens: Maximum tokens
             on_chunk: Async callback for each content chunk
             timeout: Request timeout
+            verbosity: GPT-5 only - output length (low/medium/high)
+            reasoning_effort: GPT-5 only - reasoning depth (minimal/medium/high)
             
         Returns:
             Dict with full content, tokens, model, metrics
@@ -227,6 +314,8 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 on_chunk=on_chunk,
+                verbosity=verbosity,
+                reasoning_effort=reasoning_effort,
                 timeout=timeout
             )
             
@@ -251,6 +340,8 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
         on_chunk: Optional[Callable[[str], Awaitable[None]]],
+        verbosity: Optional[str],
+        reasoning_effort: Optional[str],
         timeout: float
     ) -> Dict[str, Any]:
         """Internal method for streaming API call"""
@@ -263,15 +354,19 @@ class LLMClient:
         finish_reason = None
         
         try:
+            # Build model-appropriate parameters
+            params = self._build_api_params(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                verbosity=verbosity,
+                reasoning_effort=reasoning_effort,
+                stream=True
+            )
+            
             # Create streaming completion
             stream = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True
-                ),
+                self.client.chat.completions.create(**params),
                 timeout=5  # Quick timeout for stream setup
             )
             
@@ -313,7 +408,7 @@ class LLMClient:
             self.total_tokens += tokens_used
             
             logger.info(
-                f"✅ Streaming LLM completed: {tokens_used} tokens, "
+                f"Streaming LLM completed: {tokens_used} tokens, "
                 f"{chunk_count} chunks, {elapsed:.2f}s, TTFB={ttfb_ms}ms"
             )
             
@@ -343,6 +438,9 @@ class LLMClient:
         self,
         prompt: str,
         system_prompt: str = "You are a helpful AI assistant.",
+        temperature: float = 0.3,
+        max_tokens: int = 500,
+        timeout: float = 60.0,
         expected_fields: List[str] = None,
         stream: bool = False,
         on_chunk: Optional[Callable[[str], Awaitable[None]]] = None
@@ -372,21 +470,21 @@ class LLMClient:
         if stream and on_chunk:
             response = await self.chat_completion_stream(
                 messages=messages,
-                temperature=0.3,
-                max_tokens=500,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 on_chunk=on_chunk
             )
         elif stream:
             response = await self.chat_completion_stream(
                 messages=messages,
-                temperature=0.3,
-                max_tokens=500
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
         else:
             response = await self.chat_completion(
                 messages=messages,
-                temperature=0.3,
-                max_tokens=500,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
         
@@ -408,7 +506,7 @@ class LLMClient:
                         result[field] = None
             
             logger.debug(
-                f"✅ Structured decision parsed: {len(result)} fields, "
+                f"Structured decision parsed: {len(result)} fields, "
                 f"streamed={response.get('streamed', False)}"
             )
             
@@ -431,8 +529,11 @@ class LLMClient:
             'total_streaming_requests': self.total_streaming_requests,
             'total_tokens': self.total_tokens,
             'total_errors': self.total_errors,
+            'total_streaming_requests': self.total_streaming_requests,
             'circuit_breaker_rejections': self.circuit_breaker_rejections,
+            'circuit_breaker_state': self.circuit_breaker.get_state(),
             'cache_size': len(self.cache),
+            'cache_maxsize': self.cache.maxsize,
             'circuit_breaker': cb_state
         }
     

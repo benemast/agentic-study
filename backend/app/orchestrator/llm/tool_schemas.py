@@ -242,10 +242,6 @@ class ReviewSentimentAnalysisParams(BaseModel):
     )
     
     # Additional features (not in frontend but used internally)
-    aggregate_by_product: bool = Field(
-        default=False,
-        description="Group sentiment analysis by product_id (internal use)"
-    )
     batch_size: int = Field(
         default=10,
         ge=1,
@@ -309,7 +305,7 @@ class ShowResultsParams(BaseModel):
         'data_preview'
     ]] = Field(
         default=['data_preview'],
-        description="Sections to include in the output report"
+        description="Sections to include in the output report. Options: executive_summary, themes, recommendations, statistics, data_preview"
     )
     statistics_metrics: Optional[List[Literal[
         'sentiment_distribution',
@@ -391,11 +387,7 @@ PARAMETER_SCHEMAS = {
     'clean_data': CleanDataParams,
     'review_sentiment_analysis': ReviewSentimentAnalysisParams,
     'generate_insights': GenerateInsightsParams,
-    'show_results': ShowResultsParams,
-
-    # Tools without parameters
-    'combine_data': None,       # Legacy/unused
-    'sentiment_analysis': None, # Legacy/unused
+    'show_results': ShowResultsParams
 }
 
 # ============================================================
@@ -556,12 +548,20 @@ class ToolValidator:
         # Return AI IDs
         return [tool_def.ai_id for tool_def in available_defs]
     
-    def format_tools_for_prompt(self, state: Optional[Dict[str, Any]] = None) -> str:
+    def format_tools_for_prompt(
+        self, 
+        state: Optional[Dict[str, Any]] = None,
+        verbosity: str = "brief"
+    ) -> str:
         """
-        Format tool descriptions for LLM prompt
+        Format tool descriptions for LLM prompt with tiered verbosity
         
         Args:
             state: Optional state to filter by availability
+            verbosity: Description detail level ("brief", "standard", "full")
+                - "brief": ~20 tokens/tool, first sentence only
+                - "standard": ~100 tokens/tool, core info + use cases  
+                - "full": ~250 tokens/tool, complete metadata
             
         Returns:
             Formatted string of available tools
@@ -575,18 +575,18 @@ class ToolValidator:
         else:
             tool_defs = self.registry.get_all_definitions()
         
-        # Format for prompt
+        # Format for prompt with tiered descriptions
         lines = []
         for i, tool_def in enumerate(tool_defs, 1):
-            lines.append(f"{i}. {tool_def.ai_id}: {tool_def.description}")
+            # Get description based on verbosity level
+            if verbosity == "brief":
+                desc = tool_def.get_brief_description()
+            elif verbosity == "standard":
+                desc = tool_def.get_standard_description()
+            else:  # "full"
+                desc = tool_def.get_full_description()
             
-            # Add parameter info if available
-            param_schema = PARAMETER_SCHEMAS.get(tool_def.ai_id)
-            if param_schema:
-                fields = param_schema.__fields__
-                param_names = list(fields.keys())
-                if param_names:
-                    lines.append(f"   Parameters: {', '.join(param_names)}")
+            lines.append(f"{i}. {tool_def.ai_id}: {desc}")
         
         return "\n".join(lines)
     
@@ -678,38 +678,94 @@ class ToolValidator:
 
 def map_action_to_tool(
     action: ActionType,
-    state: Dict[str, Any]
+    state: Dict[str, Any],
+    allow_fallback: bool = True
 ) -> Optional[str]:
     """
-    Infer appropriate tool AI ID from action type
+    Infer appropriate tool AI ID from action type with optional fallback
+    
+    Maps high-level actions to specific tool IDs and validates they can be 
+    executed. If primary tool unavailable, optionally tries fallback tools.
     
     Args:
-        action: High-level action
+        action: High-level action (LOAD, FILTER, ANALYZE, etc.)
         state: Current workflow state
+        allow_fallback: If True, try alternative tools when primary unavailable
         
     Returns:
-        Tool AI ID or None
+        Tool AI ID if valid tool found, None otherwise
+        
+    Examples:
+        >>> map_action_to_tool(ActionType.LOAD, state)
+        'load_reviews'
+        
+        >>> map_action_to_tool(ActionType.ANALYZE, state)
+        'review_sentiment_analysis'
     """
-    # Simple action -> tool mapping
-    mapping = {
-        ActionType.GATHER: 'gather_data',
-        ActionType.FILTER: 'filter_data',
+    # PRIMARY MAPPINGS
+    primary_mapping = {
+        ActionType.LOAD: 'load_reviews',
+        ActionType.FILTER: 'filter_reviews',
         ActionType.CLEAN: 'clean_data',
-        ActionType.SORT: 'sort_data',
-        ActionType.COMBINE: 'combine_data',
-        ActionType.ANALYZE: 'sentiment_analysis',
+        ActionType.SORT: 'sort_reviews',
+        ActionType.ANALYZE: 'review_sentiment_analysis',
         ActionType.GENERATE: 'generate_insights',
         ActionType.OUTPUT: 'show_results',
+        ActionType.FINISH: None,
     }
     
-    tool_ai_id = mapping.get(action)
+    # FALLBACK MAPPINGS
+    fallback_mapping = {
+        ActionType.LOAD: [],  # No fallback - must load data
+        ActionType.FILTER: ['sort_reviews'],  # Can sort instead of filter
+        ActionType.CLEAN: [],  # No fallback
+        ActionType.SORT: ['filter_reviews'],  # Can filter instead of sort
+        ActionType.ANALYZE: [],  # No fallback for analysis
+        ActionType.GENERATE: [],  # No fallback
+        ActionType.OUTPUT: [],  # Must show results
+        ActionType.FINISH: [],
+    }
+
+    # Get primary tool
+    primary_tool_id = primary_mapping.get(action)
     
-    # Validate tool can be executed
-    if tool_ai_id:
-        validator = ToolValidator()
-        can_execute, _ = validator.can_execute_tool(tool_ai_id, state)
-        if can_execute:
-            return tool_ai_id
+    # If action maps to None (e.g., FINISH), return None
+    if primary_tool_id is None:
+        logger.debug(f"Action '{action}' maps to None (no tool needed)")
+        return None
+    
+    # Use singleton validator instead of creating new instance
+    validator = get_tool_validator()
+    
+    # Try primary tool
+    can_execute, reason = validator.can_execute_tool(primary_tool_id, state)
+    if can_execute:
+        logger.debug(f"✅ Mapped action '{action}' to tool '{primary_tool_id}'")
+        return primary_tool_id
+    
+    # LOG: Primary tool cannot execute
+    logger.debug(
+        f" Primary tool '{primary_tool_id}' cannot execute for action "
+        f"'{action}': {reason}"
+    )
+    
+    # FALLBACK: Try alternative tools if enabled
+    if allow_fallback:
+        fallbacks = fallback_mapping.get(action, [])
+        for fallback_tool_id in fallbacks:
+            can_execute, _ = validator.can_execute_tool(fallback_tool_id, state)
+            if can_execute:
+                logger.info(
+                    f"Using fallback tool '{fallback_tool_id}' for action '{action}' "
+                    f"(primary '{primary_tool_id}' unavailable)"
+                )
+                return fallback_tool_id
+        
+        if fallbacks:  # Only log warning if there were fallbacks to try
+            logger.warning(
+                f"No executable tool found for action '{action}' "
+                f"(tried: {primary_tool_id}, {fallbacks})"
+            )
     
     return None
 
@@ -746,7 +802,6 @@ def list_all_tools() -> Dict[str, Dict[str, Any]]:
 # ============================================================
 
 # Export validator instance
-#tool_validator = ToolValidator()
 _tool_validator_instance = None
 
 def get_tool_validator() -> ToolValidator:

@@ -12,6 +12,12 @@ from app.configs.config import settings
 from app.models.execution import ExecutionCheckpoint, ExecutionLog
 from .checkpoint_buffer import checkpoint_buffer
 from .redis_hash_manager import redis_hash_state 
+from .graphs.shared_state import (
+    SharedWorkflowState,
+    initialize_state,
+    get_row_operation_summary,
+    get_data_source_info
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +26,16 @@ class HybridStateManager:
     """
     Manages execution state using Redis for speed and PostgreSQL for persistence.
     
-    Redis: Fast in-memory state during execution
-    PostgreSQL: Strategic checkpoints for analysis and recovery
+    Architecture:
+    - Redis: Fast in-memory state with hash structures (200x more efficient)
+    - PostgreSQL: Strategic checkpoints for analysis and recovery
+    - TypedDict: LangGraph-compatible state schema
+    
+    Features:
+    - SQL data source tracking
+    - Row operation history
+    - Product title deduplication
+    - Efficient field-level updates
     """
     
     def __init__(self, use_buffer: bool = True, use_hash: bool = True):
@@ -48,11 +62,11 @@ class HybridStateManager:
         try:
             self.redis_client.ping()
             logger.info(
-                f"✅ Redis connected for state management "
+                f"Redis connected for state management "
                 f"(hash_mode: {use_hash}, buffering: {use_buffer})"
             )
         except redis.ConnectionError as e:
-            logger.error(f"❌ Redis connection failed: {e}")
+            logger.error(f"Redis connection failed: {e}")
             raise
     
     # ==================== MEMORY (Redis) ====================
@@ -62,6 +76,10 @@ class HybridStateManager:
         Save current execution state to Redis
         
         Uses hash structure if enabled (200x more efficient for updates)
+        
+        Args:
+            execution_id: Unique execution identifier
+            state: SharedWorkflowState (TypedDict at runtime = dict)
         """
         if self.use_hash and self.redis_hash_state:
             # Use hash structure (efficient)
@@ -81,7 +99,7 @@ class HybridStateManager:
             logger.error(f"Failed to save state to Redis: {e}")
             raise
     
-    def get_state_from_memory(self, execution_id: int) -> Optional[Dict[str, Any]]:
+    def get_state_from_memory(self, execution_id: int) -> Optional[SharedWorkflowState]:
         """
         Retrieve current execution state from Redis
         
@@ -89,7 +107,7 @@ class HybridStateManager:
             execution_id: Unique execution identifier
             
         Returns:
-            State dictionary or None if not found
+            SharedWorkflowState (TypedDict) or None if not found
         """
         if self.use_hash and self.redis_hash_state:
             # Try hash format first
@@ -112,9 +130,15 @@ class HybridStateManager:
             logger.error(f"Failed to retrieve state from Redis: {e}")
             return None
     
+    # ==================== FIELD UPDATES (Atomic & Efficient) ====================
+    
     def update_state_field(self, execution_id: int, field: str, value: Any) -> None:
         """
         Update a single field in Redis state (atomic operation)
+        
+        Examples:
+            state_manager.update_state_field(123, 'status', 'completed')
+            state_manager.update_state_field(123, 'current_node', 'sentiment')
         
         Args:
             execution_id: Unique execution identifier
@@ -137,9 +161,19 @@ class HybridStateManager:
         updates: Dict[str, Any]
     ) -> None:
         """
-        ✅ Update multiple fields atomically
-        
+        Update multiple fields atomically
         More efficient than updating one-by-one
+        
+        Example:
+            state_manager.update_state_fields(123, {
+                'step_number': 5,
+                'current_node': 'filter_reviews',
+                'status': 'running'
+            })
+        
+        Args:
+            execution_id: Unique execution identifier
+            updates: Dictionary of field updates
         """
         if self.use_hash and self.redis_hash_state:
             # ✅ Batch field update
@@ -153,12 +187,23 @@ class HybridStateManager:
     
     def increment_field(self, execution_id: int, field: str, amount: int = 1) -> int:
         """
-        ✅ Atomically increment a numeric field
+        Atomically increment a numeric field
         
-        Perfect for step_number, total_time_ms, etc.
+        Perfect for: step_number, total_time_ms
+        
+        Example:
+            state_manager.increment_field(123, 'step_number', 1)
+        
+        Args:
+            execution_id: Unique execution identifier
+            field: Numeric field to increment
+            amount: Amount to increment by
+            
+        Returns:
+            New field value
         """
         if self.use_hash and self.redis_hash_state:
-            # ✅ Atomic increment (very fast)
+            # Atomic increment (very fast)
             return self.redis_hash_state.increment_field(execution_id, field, amount)
         else:
             # Fallback: get, increment, save
@@ -178,9 +223,23 @@ class HybridStateManager:
         item: Any
     ) -> bool:
         """
-        ✅ Append item to a list field (e.g., errors, warnings)
+        Append item to a list field
         
-        More efficient than fetching list, appending, and saving
+        Use for: errors, warnings, row_operation_history
+        
+        Example:
+            state_manager.append_to_list_field(123, 'errors', {
+                'step': 5,
+                'message': 'Connection timeout'
+            })
+        
+        Args:
+            execution_id: Unique execution identifier
+            field: List field name
+            item: Item to append
+            
+        Returns:
+            True if successful
         """
         if self.use_hash and self.redis_hash_state:
             return self.redis_hash_state.append_to_list_field(execution_id, field, item)
@@ -194,6 +253,134 @@ class HybridStateManager:
                 self.save_state_to_memory(execution_id, state)
                 return True
             return False
+    
+    # ==================== STATE STRUCTURE HELPERS ====================
+    
+    def update_data_source(
+        self,
+        execution_id: int,
+        sql_query: str,
+        query_params: Dict[str, Any],
+        row_count: int,
+        category: str
+    ) -> None:
+        """
+        Update SQL data source reference
+        
+        Example:
+            state_manager.update_data_source(
+                123,
+                sql_query="SELECT * FROM reviews...",
+                query_params={'category': 'headphones'},
+                row_count=2000,
+                category='headphones'
+            )
+        """
+        data_source = {
+            'sql_query': sql_query,
+            'query_params': query_params,
+            'executed_at': datetime.utcnow().isoformat(),
+            'row_count_at_load': row_count,
+            'category': category,
+            'can_reload': True
+        }
+        self.update_state_field(execution_id, 'data_source', data_source)
+        logger.info(f"✓ SQL reference stored: {row_count} rows from query")
+    
+    def add_row_operation(
+        self,
+        execution_id: int,
+        tool_id: str,
+        tool_name: str,
+        operation_type: str,
+        rows_before: int,
+        rows_after: int,
+        criteria: Optional[Dict[str, Any]] = None,
+        execution_time_ms: int = 0
+    ) -> None:
+        """
+        Track row modification operation
+        
+        Example:
+            state_manager.add_row_operation(
+                123,
+                tool_id='filter_reviews',
+                tool_name='Filter Reviews',
+                operation_type='filter',
+                rows_before=2000,
+                rows_after=500,
+                criteria={'min_rating': 4}
+            )
+        """
+        operation = {
+            'tool_id': tool_id,
+            'tool_name': tool_name,
+            'operation_type': operation_type,
+            'tool_category': 'data',
+            'rows_before': rows_before,
+            'rows_after': rows_after,
+            'rows_removed': rows_before - rows_after,
+            'criteria': criteria or {},
+            'timestamp': datetime.utcnow().isoformat(),
+            'execution_time_ms': execution_time_ms
+        }
+        
+        self.append_to_list_field(execution_id, 'row_operation_history', operation)
+        
+        logger.info(
+            f"✓ Row operation tracked: {tool_name} reduced dataset from "
+            f"{rows_before} to {rows_after} rows "
+            f"({rows_before - rows_after} removed, {rows_after/rows_before*100:.1f}% remaining)"
+        )
+    
+    def update_record_store(
+        self,
+        execution_id: int,
+        record_store: Dict[str, Any]
+    ) -> None:
+        """
+        Update record store (after filter/clean)
+        
+        Example:
+            state_manager.update_record_store(123, state['record_store'])
+        """
+        self.update_state_field(execution_id, 'record_store', record_store)
+    
+    def update_enrichment_registry(
+        self,
+        execution_id: int,
+        enrichment_registry: Dict[str, Any]
+    ) -> None:
+        """
+        Update enrichment registry (after column addition)
+        
+        Example:
+            state_manager.update_enrichment_registry(123, state['enrichment_registry'])
+        """
+        self.update_state_field(execution_id, 'enrichment_registry', enrichment_registry)
+    
+    def get_row_summary(self, state: SharedWorkflowState) -> Dict[str, Any]:
+        """
+        Get row operation summary from state
+        
+        Returns:
+            - total_operations: Number of filter/clean operations
+            - initial_rows: Row count at load
+            - current_rows: Row count now
+            - total_removed: Total rows removed
+            - reduction_pct: Percentage reduction
+        """
+        return get_row_operation_summary(state)
+    
+    def get_sql_reference(self, state: SharedWorkflowState) -> Optional[Dict[str, Any]]:
+        """
+        Get SQL data source info from state
+        
+        Returns SQL query, parameters, and metadata
+        """
+        return get_data_source_info(state)
+    
+    # ==================== LIFECYCLE MANAGEMENT ====================
     
     def clear_memory_state(self, execution_id: int) -> None:
         """
@@ -225,7 +412,7 @@ class HybridStateManager:
         execution_id: int,
         step_number: int,
         checkpoint_type: str,
-        state: Dict[str, Any],
+        state: SharedWorkflowState,
         node_id: Optional[str] = None,
         user_interaction: bool = False,
         agent_reasoning: Optional[str] = None,
@@ -241,24 +428,30 @@ class HybridStateManager:
             execution_id: Unique execution identifier
             step_number: Current step in execution
             checkpoint_type: Type of checkpoint
-            state: Full state snapshot
+            state: Full state snapshot (SharedWorkflowState)
             buffered: If True, use buffer for batching (default)
             ... other args ...
             
         Returns:
             Created checkpoint record
         """
+
+        state['checkpoints_created'] = state.get('checkpoints_created', 0) + 1 
+
+        sanitized_state = state
+        sanitized_metadata = metadata if metadata else {}
+
         checkpoint = ExecutionCheckpoint(
             execution_id=execution_id,
             step_number=step_number,
             checkpoint_type=checkpoint_type,
             node_id=node_id,
-            state_snapshot=state,
+            state_snapshot=sanitized_state,  # TypedDict = dict at runtime
             timestamp=datetime.utcnow(),
             time_since_last_step_ms=time_since_last_ms,
             user_interaction=user_interaction,
             agent_reasoning=agent_reasoning,
-            checkpoint_metadata=metadata or {}
+            checkpoint_metadata=sanitized_metadata or {}
         )
         
         # Use buffering for performance
@@ -290,7 +483,7 @@ class HybridStateManager:
         execution_id: int,
         step_number: int,
         checkpoint_type: str,
-        state: Dict[str, Any],
+        state: SharedWorkflowState,
         **kwargs
     ):
         """
@@ -325,7 +518,7 @@ class HybridStateManager:
 
     async def flush_checkpoints(self, execution_id: Optional[int] = None) -> int:
         """
-         Manually flush checkpoint buffer
+        Manually flush checkpoint buffer
         
         Args:
             execution_id: If provided, flush only checkpoints for this execution
@@ -340,14 +533,14 @@ class HybridStateManager:
             return await self.buffer.flush_for_execution(execution_id)
         else:
             return await self.buffer.flush()
-        
+
     def checkpoint_with_redis_update(
         self,
         db: Session,
         execution_id: int,
         step_number: int,
         checkpoint_type: str,
-        state: Dict[str, Any],
+        state: SharedWorkflowState,
         **kwargs
     ) -> ExecutionCheckpoint:
         """
@@ -367,21 +560,23 @@ class HybridStateManager:
             Created checkpoint
         """
         try:
-            # 1. Create checkpoint (not committed yet)
-            checkpoint = self.checkpoint_to_db(
-                db=db,
-                execution_id=execution_id,
-                step_number=step_number,
-                checkpoint_type=checkpoint_type,
-                state=state,
-                **kwargs
+            # Create checkpoint (not committed yet)
+            checkpoint = asyncio.run(
+                self.checkpoint_to_db(
+                    db=db,
+                    execution_id=execution_id,
+                    step_number=step_number,
+                    checkpoint_type=checkpoint_type,
+                    state=state,
+                    buffered=False,  # Direct write for atomicity
+                    **kwargs
+                )
             )
             
-            # 2. Update Redis
+            # Update Redis
             self.save_state_to_memory(execution_id, state)
             
-            # 3. Commit DB transaction
-            # Note: Caller should commit, but we can do it here if isolated
+            # Commit DB transaction
             db.commit()
             
             logger.info(f"✓ Atomic checkpoint complete: {checkpoint_type}")
@@ -472,7 +667,7 @@ class HybridStateManager:
     # ==================== METRICS ====================
     
     def get_buffer_metrics(self) -> Dict[str, Any]:
-        """✅ Get checkpoint buffer performance metrics"""
+        """Get checkpoint buffer performance metrics"""
         if not self.use_buffer or not self.buffer:
             return {'buffering_enabled': False}
         
@@ -482,7 +677,7 @@ class HybridStateManager:
         }
     
     def get_redis_metrics(self) -> Dict[str, Any]:
-        """✅ Get Redis hash performance metrics"""
+        """Get Redis hash performance metrics"""
         if not self.use_hash or not self.redis_hash_state:
             return {'hash_mode_enabled': False}
         
@@ -492,7 +687,7 @@ class HybridStateManager:
         }
     
     def get_all_metrics(self) -> Dict[str, Any]:
-        """✅ Get all performance metrics"""
+        """Get all performance metrics"""
         return {
             'checkpoint_batching': self.get_buffer_metrics(),
             'redis_optimization': self.get_redis_metrics()
@@ -591,8 +786,16 @@ class HybridStateManager:
         return False
     
     async def shutdown(self):
-        """✅ Cleanup on shutdown - flush remaining checkpoints"""
+        """Cleanup on shutdown - flush remaining checkpoints"""
         logger.info("Shutting down HybridStateManager")
         
         if self.use_buffer and self.buffer:
             await self.buffer.shutdown()
+
+# ==================== SINGLETON INSTANCE ====================
+
+# Create singleton instance
+state_manager = HybridStateManager(
+    use_buffer=True,  # Enable checkpoint batching
+    use_hash=True     # Enable Redis hash structures
+)

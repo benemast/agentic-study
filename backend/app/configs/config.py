@@ -4,7 +4,7 @@ Centralized configuration with validation
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, computed_field, PrivateAttr
-from typing import Optional
+from typing import Optional, Literal
 from pathlib import Path
 from dotenv import load_dotenv
 import os
@@ -64,6 +64,21 @@ class Settings(BaseSettings):
         default=False,
         description="Include obfuscation strings in stream response. Set in streaming_options."
     )
+
+    verbosity: Optional[Literal["low", "medium", "high"]] = Field(
+        default="medium",
+        description="GPT-5: Control output length (low=terse, medium=balanced, high=verbose)"
+    )
+    
+    reasoning_effort: Optional[Literal["minimal", "medium", "high"]] = Field(
+        default="medium",
+        description="GPT-5: Control reasoning depth (minimal=fast/simple, medium=default, high=complex)"
+    )    
+    # Usage recommendations:
+    # - verbosity="low" → for chat UI (concise responses)
+    # - verbosity="high" → for research/analysis tasks (detailed responses)
+    # - reasoning_effort="minimal" → for simple extraction/formatting
+    # - reasoning_effort="high" → for multi-step planning/complex reasoning
 
     # ============================================================
     # APPLICATION SETTINGS

@@ -92,7 +92,7 @@ class ConnectionMonitor {
       return;
     }
     
-    this.log('🛑 Stopping ConnectionMonitor...');
+    this.log('Stopping ConnectionMonitor...');
     
     // Cleanup browser listeners
     if (typeof window !== 'undefined') {
@@ -303,7 +303,7 @@ class ConnectionMonitor {
   }
   
   resetErrors() {
-    this.log('🔄 Resetting errors...', true);
+    this.log('Resetting errors...', true);
     this.currentFailureCount = 0;
     this.lastSuccessfulCheck = Date.now();
     this.updateConnectionStatus(true);

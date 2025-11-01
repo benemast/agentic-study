@@ -67,9 +67,9 @@ async def lifespan(app: FastAPI):
     # 🆕 Initialize LangSmith tracing
     langsmith_enabled = init_langsmith(settings)
     if langsmith_enabled:
-        logger.info("✅ LangSmith tracing initialized successfully")
+        logger.info("LangSmith tracing initialized successfully")
     else:
-        logger.info("ℹ️  Running without LangSmith tracing")
+        logger.info("Running without LangSmith tracing")
     
     logger.info("Agentic Study API started successfully")
     yield
@@ -139,7 +139,6 @@ async def preflight_handler(rest_of_path: str, request: Request):
             "Access-Control-Max-Age": "3600",
         }
     )
-
 
 # Include routers
 app.include_router(sessions.router)

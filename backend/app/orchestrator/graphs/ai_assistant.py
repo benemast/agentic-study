@@ -3,7 +3,11 @@
 AI Assistant Graph - Autonomous agent with intelligent decision making
 """
 from langgraph.graph import StateGraph, END
-from typing import Dict, Any
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool as langchain_tool
+from langchain_core.messages import HumanMessage, SystemMessage
+from typing import Dict, Any, List, Optional
 import logging
 import time
 from datetime import datetime
@@ -11,6 +15,12 @@ from datetime import datetime
 from .shared_state import SharedWorkflowState, AgentDecision
 from ..tools.registry import tool_registry
 from ..llm.decision_maker import decision_maker
+
+from ..llm.tool_schemas import (
+    ActionType, 
+    get_tool_validator,
+    PARAMETER_SCHEMAS
+)
 from app.configs.config import settings
 from app.database import get_db_context
 
@@ -19,9 +29,13 @@ logger = logging.getLogger(__name__)
 
 class AIAssistantGraph:
     """
-    Autonomous agent that plans and executes tasks using LLM
+    Autonomous agent (with LangChain integration) that plans and executes tasks using LLM
     
     Features:
+    - LangChain tool binding for robust tool calling
+    - Registry tools converted to LangChain formatat
+    - Structured planning with better prompts
+    - Fallback handling and retries
     - Intelligent decision making via LLM
     - Validated tool calls
     - Confidence tracking
@@ -156,6 +170,45 @@ class AIAssistantGraph:
             
             # Convert Pydantic model to dict for storage
             decision_dict = decision.dict()
+            
+            # VALIDATION: Check decision quality for retry escalation
+            needs_retry = self._should_retry_decision(decision, state)
+            
+            if needs_retry:
+                # Increment retry counter for verbosity escalation
+                current_retry = state.get('decision_retry_count', 0)
+                new_retry_count = current_retry + 1
+                
+                # Max 3 attempts (brief, standard, full)
+                if new_retry_count >= 3:
+                    logger.error(
+                        f"Max decision retries reached ({new_retry_count}), "
+                        f"using fallback strategy"
+                    )
+                    # Reset counter and continue with low-confidence decision
+                    state['decision_retry_count'] = 0
+                else:
+                    logger.warning(
+                        f"Decision quality low (confidence: {decision.confidence:.2f}), "
+                        f"retrying with higher verbosity (attempt #{new_retry_count + 1})"
+                    )
+                    
+                    # Update retry count for next attempt
+                    state['decision_retry_count'] = new_retry_count
+                    self.state_manager.update_state_field(
+                        execution_id,
+                        'decision_retry_count',
+                        new_retry_count
+                    )
+                    
+                    # Return state to trigger re-planning with increased verbosity
+                    return state
+            
+            # SUCCESS: Reset retry counter on good decision
+            if state.get('decision_retry_count', 0) > 0:
+                logger.info("✓ Decision quality improved, resetting retry counter")
+                state['decision_retry_count'] = 0
+                self.state_manager.update_state_field(execution_id, 'decision_retry_count', 0)
             
             # Append to agent memory efficiently
             memory_entry = {
@@ -400,7 +453,7 @@ class AIAssistantGraph:
         
         # Checkpoint: execution step
         if self.state_manager.should_checkpoint(state['condition'], 'execution_step'):
-            # ✅ USE CONTEXT MANAGER
+            # USE CONTEXT MANAGER
             with get_db_context() as db:
                 self.state_manager.checkpoint_to_db(
                     db=db,
@@ -453,6 +506,60 @@ class AIAssistantGraph:
             state['warnings'].append("Task completed but no data produced")
         
         return state
+    
+    def _should_retry_decision(
+        self,
+        decision: 'AgentDecision',
+        state: SharedWorkflowState
+    ) -> bool:
+        """
+        Validate decision quality to determine if retry with higher verbosity is needed
+        
+        Retry triggers:
+        - Confidence below threshold (< 0.6)
+        - Invalid tool selection
+        - Tool cannot execute in current state
+        
+        Args:
+            decision: LLM decision to validate
+            state: Current workflow state
+            
+        Returns:
+            True if decision should be retried with higher verbosity
+        """
+        # Check confidence threshold
+        if decision.confidence < self.decision_maker.confidence_threshold:
+            logger.debug(
+                f"Low confidence: {decision.confidence:.2f} < "
+                f"{self.decision_maker.confidence_threshold}"
+            )
+            return True
+        
+        # If finishing, no need to validate tool
+        if decision.action == 'finish':
+            return False
+        
+        # Validate tool exists and can execute
+        if decision.tool_name:
+            tool_def = self.registry.get_tool_definition(ai_id=decision.tool_name)
+            
+            if not tool_def:
+                logger.debug(f"Unknown tool: {decision.tool_name}")
+                return True
+            
+            # Check if tool can execute in current state
+            can_execute, reason = self.registry.can_execute_tool(
+                tool_id=decision.tool_name,
+                state=state,
+                id_type='ai'
+            )
+            
+            if not can_execute:
+                logger.debug(f"Tool cannot execute: {reason}")
+                return True
+        
+        # Decision looks good
+        return False
     
     def _route_from_planner(self, state: SharedWorkflowState) -> str:
         """

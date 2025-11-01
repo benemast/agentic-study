@@ -409,16 +409,16 @@ export const en = {
         description: "Here you'll find your role, goal, and what output is expected. Click the arrow to collapse/expand this section.",
       },
       datasetViewer: {
-        title: '📊 Dataset Viewer',
+        title: 'Dataset Viewer',
         description: "This is your data source - customer reviews you'll analyze. You can scroll through all available reviews here.",
       },
       viewModes: {
-        title: '🔄 Switch View Modes',
+        title: 'Switch View Modes',
         description: 'Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you!',
       },
       filterReviews: {
         title: '🔍 Filter Reviews',
-        description: 'Filter reviews by sentiment: All, Positive (4-5 stars), Neutral (3 stars), or Negative (1-2 stars).',
+        description: 'Filter reviews by rating: All, Positive (4-5 stars), Neutral (3 stars), or Negative (1-2 stars).',
       },
       popOutViwer:{
         title: '🔲 Pop-Out Viewer',
@@ -542,7 +542,7 @@ export const en = {
         example: 'Example: "Find the top 3 negative themes" or "Analyze sentiment distribution"',
       },
       aiTakesAction: {
-        title: '🔄 AI Takes Action',
+        title: 'AI Takes Action',
         description: "The AI will automatically use the right tools and process data to answer your questions. You'll see what it's doing in the chat.",
       },
       reviewResults: {
@@ -899,6 +899,7 @@ export const en = {
           // General 
           // workflow.nodes.settings.notConfigured
           notConfigured: 'Not configured',
+          locked: 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.',
           
           // Sentiment Analysis Node
           sentiment: {

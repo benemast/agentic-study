@@ -139,7 +139,7 @@ export function useTutorial(taskNumber, condition) {
     });
   
     if (availableSteps.length === 0) {
-        console.error('❌ No tutorial targets available');
+        console.error('No tutorial targets available');
         track('TUTORIAL_FAILED_TO_START', {
             taskNumber,
             tutorialType: type,
@@ -153,7 +153,7 @@ export function useTutorial(taskNumber, condition) {
     const targetsReady = await waitForTargets(availableSteps);
     
     if (!targetsReady) {
-        console.error('❌ Tutorial cancelled - targets not available');
+        console.error('Tutorial cancelled - targets not available');
         track('TUTORIAL_FAILED_TO_START', {
             taskNumber,
             tutorialType: type,
@@ -198,7 +198,7 @@ export function useTutorial(taskNumber, condition) {
                       (type === 'step:after' && isLastStep && action === 'next');
     
     if (isFinished) {
-      console.log('✅ Tutorial completed!');
+      console.log('Tutorial completed!');
       setRun(false);
       
       track('TUTORIAL_COMPLETED', {
@@ -217,7 +217,7 @@ export function useTutorial(taskNumber, condition) {
         markTaskTutorialShown(taskNumber);
       }
     } else if (status === 'skipped') {
-      console.log('⏭️ Tutorial skipped');
+      console.log('Tutorial skipped');
       setRun(false);
       
       track('TUTORIAL_SKIPPED', {

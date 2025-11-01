@@ -155,7 +155,7 @@ const useWebSocketStore = create(
             
             // Check if max attempts reached
             if (reconnectAttempts >= maxReconnectAttempts) {
-              console.error('❌ Max reconnection attempts reached');
+              console.error('Max reconnection attempts reached');
               set((state) => {
                 state.connection.status = 'error';
                 state.connection.error = 'Max reconnection attempts reached';
@@ -275,7 +275,7 @@ const useWebSocketStore = create(
               }
               // Warning if pong is late (>45 seconds)
               else if (timeSinceLastPong > (WEBSOCKET_CONFIG.HEARTBEAT_INTERVAL * 1.5)) {
-                console.warn('⚠️ Pong delayed -', Math.round(timeSinceLastPong / 1000), 'seconds since last pong');
+                console.warn('Pong delayed -', Math.round(timeSinceLastPong / 1000), 'seconds since last pong');
                 
                 set((state) => {
                   state.health.missedPongs += 1;
@@ -283,7 +283,7 @@ const useWebSocketStore = create(
               }
               // Healthy
               else {
-                //console.info('✅ Connection healthy');
+                //console.info('Connection healthy');
                 
                 set((state) => {
                   state.health.isHealthy = true;
@@ -826,7 +826,7 @@ setTimeout(async () => {
       }
     );
     
-    console.log('✅ WebSocket visibility subscription initialized');
+    console.log('WebSocket visibility subscription initialized');
   } catch (err) {
     console.error('Failed to initialize WebSocket subscriptions:', err);
   }

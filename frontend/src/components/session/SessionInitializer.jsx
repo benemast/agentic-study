@@ -50,9 +50,9 @@ const SessionInitializer = ({ children }) => {
         console.log('🚀 SessionInitializer: Starting session initialization...');
         await initialize();
         setIsInitialized(true);
-        console.log('✅ SessionInitializer: Session initialized');
+        console.log('SessionInitializer: Session initialized');
       } catch (error) {
-        console.error('❌ SessionInitializer: Session initialization failed:', error);
+        console.error('SessionInitializer: Session initialization failed:', error);
         setInitError(error.message);
         setIsInitialized(true);
       }
@@ -81,7 +81,7 @@ const SessionInitializer = ({ children }) => {
     connectionMonitor.start();
     
     return () => {
-      console.log('🛑 ConnectionMonitor: Stopping...');
+      console.log('ConnectionMonitor: Stopping...');
       connectionMonitor.stop();
     };
   }, [isInitialized, sessionId, isWebSocketConnected]); //listen for changes in session and WebSocket connections

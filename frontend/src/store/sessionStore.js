@@ -206,7 +206,7 @@ const useSessionStore = create(
                 await sessionAPI.validate(urlSessionId);
                 sessionIdToUse = urlSessionId;
                 sessionSource = 'url';
-                console.log('✅ Restored session from URL:', urlSessionId);
+                console.log('Restored session from URL:', urlSessionId);
               } catch (error) {
                 console.warn('URL session invalid, creating new session');
                 removeSessionIdFromUrl();
@@ -218,7 +218,7 @@ const useSessionStore = create(
                 await sessionAPI.validate(existingSession);
                 sessionIdToUse = existingSession;
                 sessionSource = 'restored';
-                console.log('✅ Restored session from storage:', existingSession);
+                console.log('Restored session from storage:', existingSession);
               } catch (error) {
                 console.warn('Stored session invalid, creating new session');
               }
@@ -237,7 +237,7 @@ const useSessionStore = create(
                 metadata: getSessionMetadata()
               });
               
-              console.log('✅ Created new session:', response);
+              console.log('Created new session:', response);
               set({ participantId: response.participant_id });
             }
             
@@ -745,10 +745,10 @@ const useSessionStore = create(
               // Track completion
               get().trackInteraction(TRACKING_EVENTS.WELCOME_COMPLETED);
               
-              console.log('✅ Welcome completed successfully');
+              console.log('Welcome completed successfully');
             }catch (error) {
               // Log error
-              console.error('❌ Failed to complete welcome:', error);
+              console.error('Failed to complete welcome:', error);
               
               // Reset state to previous values
               set((state) => {
@@ -792,7 +792,7 @@ const useSessionStore = create(
               console.log('Demographics completed');
               
             } catch (error) {
-              console.error('❌ Failed to complete Task 1:', error);
+              console.error('Failed to complete Task 1:', error);
               
               set((state) => {
                 state.sessionData.demographicsData = previousState.demographicsData;
@@ -833,7 +833,7 @@ const useSessionStore = create(
               console.log(`Task 1 completed successfully`);
               
             } catch (error) {
-              console.error('❌ Failed to complete Task 1:', error);
+              console.error('Failed to complete Task 1:', error);
               
               set((state) => {
                 state.sessionData.task1CompletedAt = previousState.task1CompletedAt;
@@ -870,7 +870,7 @@ const useSessionStore = create(
               console.log('Survey 1 completed successfully');
               
             } catch (error) {
-              console.error('❌ Failed to complete Survey 1:', error);
+              console.error('Failed to complete Survey 1:', error);
               set((state) => {
                 state.sessionData.survey1Data = previousState.survey1Data;
                 state.sessionData.survey1CompletedAt = previousState.survey1CompletedAt;
@@ -907,7 +907,7 @@ const useSessionStore = create(
               console.log('Task 2 completed successfully');
               
             } catch (error) {
-              console.error('❌ Failed to complete Task 2:', error);
+              console.error('Failed to complete Task 2:', error);
               
               set((state) => {
                 state.sessionData.task2CompletedAt = previousState.task2CompletedAt;
@@ -945,7 +945,7 @@ const useSessionStore = create(
               console.log('Survey 2 completed successfully');
               
             } catch (error) {
-              console.error('❌ Failed to complete Survey 2:', error);
+              console.error('Failed to complete Survey 2:', error);
               
               set((state) => {
                 state.sessionData.survey2Data = previousState.survey2Data;
@@ -983,7 +983,7 @@ const useSessionStore = create(
               get()
               
             } catch (error) {
-              console.error('❌ Failed to complete study:', error);
+              console.error('Failed to complete study:', error);
               
               set((state) => {
                 state.sessionData.studyCompletedAt = previousState.studyCompletedAt;
@@ -1147,10 +1147,10 @@ const useSessionStore = create(
                 timestamp: new Date().toISOString()
               });
               
-              console.log('✅ Demographics completed successfully');
+              console.log('Demographics completed successfully');
               
             } catch (error) {
-              console.error('❌ Failed to complete demographics:', error);
+              console.error('Failed to complete demographics:', error);
                             
               // Rollback state
               set((state) => {

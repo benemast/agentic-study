@@ -284,6 +284,30 @@ const WorkflowBuilder = () => {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  
+  // helper to resolve configSchema functions
+  const resolveConfigSchema = useCallback((configSchema) => {
+    if (!configSchema) return [];
+    
+    return configSchema.map(field => {
+      // If options is a function, execute it and store the result
+      if (typeof field.options === 'function') {
+        const resolvedOptions = field.options();
+        
+        // Sort alphabetically by label
+        const sortedOptions = [...resolvedOptions].sort((a, b) => 
+          a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+        );
+        
+        return {
+          ...field,
+          options: sortedOptions
+        };
+      }
+      return field;
+    });
+  }, []);
+
   const onDrop = useCallback((event) => {
     event.preventDefault();
 
@@ -359,7 +383,7 @@ const WorkflowBuilder = () => {
           maxInputConnections: nodeTemplate.maxInputConnections ?? 1,
           maxOutputConnections: nodeTemplate.maxOutputConnections ?? 1,
           config: nodeConfig,
-          configSchema: nodeTemplate.configSchema || [],
+          configSchema: resolveConfigSchema(nodeTemplate.configSchema),
           studyDataset: studyDataset,
           onDelete: deleteNode,
           onEdit: editNode,
@@ -756,7 +780,7 @@ const WorkflowBuilder = () => {
       ...node,
       data: {
         ...node.data,
-        label: translatedLabel,  // Now correctly extracts just the label string
+        //label: translatedLabel,  // Now correctly extracts just the label string
         connectionState,
         currentEdges: edges,
         isValidConnection,

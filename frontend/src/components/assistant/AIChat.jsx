@@ -106,7 +106,7 @@ const AIChat = () => {
 
     // Listen for completion
     const unsubComplete = wsClient.on('chat_complete', (data) => {
-      console.log('✅ Chat complete received');
+      console.log('Chat complete received');
       
       // Track message received
       if (data.content) {
@@ -125,7 +125,7 @@ const AIChat = () => {
 
     // Listen for errors
     const unsubError = wsClient.on('chat_error', (data) => {
-      console.error('❌ Chat error:', data.error);
+      console.error('Chat error:', data.error);
       setError(data.error || ERROR_MESSAGES.API_ERROR);
       setIsLoading(false);
       setLocalIsStreaming(false);
@@ -141,7 +141,7 @@ const AIChat = () => {
     });
 
     const unsubInsightComplete = wsClient.on('insight_generation_complete', (data) => {
-      console.log('✅ Done!', data.insights_count, 'insights');
+      console.log('Done!', data.insights_count, 'insights');
     });
 
     // Cleanup subscriptions on unmount or disconnect
@@ -195,8 +195,8 @@ const AIChat = () => {
     if (shouldLoadHistory) {
       console.log('📜 Loading chat history...');
       loadHistory()
-        .then(() => console.log('✅ History loaded'))
-        .catch(err => console.error('❌ Failed to load history:', err));
+        .then(() => console.log('History loaded'))
+        .catch(err => console.error('Failed to load history:', err));
     }
     
   }, [sessionId, isWebSocketConnected, chatMessages.length, isLoadingHistory, loadHistory]);

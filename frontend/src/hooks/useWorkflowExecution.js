@@ -37,7 +37,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
    */
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
-      console.log('🛑 Stopping execution status polling');
+      console.log('Stopping execution status polling');
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
@@ -48,15 +48,15 @@ export const useWorkflowExecution = (sessionId, condition) => {
    */
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
-      console.log('⏭️ Polling already active, skipping');
+      console.log('Polling already active, skipping');
       return;
     }
 
-    console.log('🔄 Starting execution status polling');
+    console.log('Starting execution status polling');
 
     pollingIntervalRef.current = setInterval(async () => {
       if (!executionId) {
-        console.warn('⚠️ No execution ID, stopping polling');
+        console.warn('No execution ID, stopping polling');
         stopPolling();
         return;
       }
@@ -64,7 +64,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
       try {
         const statusData = await orchestratorAPI.getExecutionStatus(executionId);
       
-        console.log('📊 Poll status:', statusData.status, 
+        console.log('Poll status:', statusData.status, 
                     'Progress:', statusData.progress_percentage + '%');
         
         setStatus(statusData.status);
@@ -79,7 +79,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
 
         // Stop polling if execution is complete
         if (['completed', 'failed', 'cancelled'].includes(statusData.status)) {
-          console.log('✅ Execution finished:', statusData.status);
+          console.log('Execution finished:', statusData.status);
           stopPolling();
           
           // Fetch final result
@@ -89,10 +89,10 @@ export const useWorkflowExecution = (sessionId, condition) => {
           
             
             if (statusData.status === 'completed') {
-              console.log('✅ Final result:', detail.final_result);
+              console.log('Final result:', detail.final_result);
               setProgressPercentage(100);
             } else if (statusData.status === 'failed') {
-              console.error('❌ Execution failed:', detail.error_message);
+              console.error('Execution failed:', detail.error_message);
               setError(detail.error_message || statusData.error_message);
             }
           } catch (detailErr) {
@@ -108,7 +108,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
         
         // If execution not found, it might be deleted or never created
         if (err.response?.status === 404) {
-          console.error('❌ Execution not found:', executionId);
+          console.error('Execution not found:', executionId);
           setError('Execution not found');
           setStatus('failed');
           stopPolling();
@@ -119,7 +119,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
       }
     }, 2000); // Poll every 2 seconds
 
-    console.log('✅ Polling started (interval: 2s)');
+    console.log('Polling started (interval: 2s)');
   }, [executionId, stopPolling]);
 
 
@@ -230,12 +230,12 @@ export const useWorkflowExecution = (sessionId, condition) => {
     // Check execution status after reconnection
     // If we have a running execution and reconnect, check its current status
     if (executionId && status === 'running') {
-      console.log('✅ Reconnected - checking execution status:', executionId);
+      console.log('Reconnected - checking execution status:', executionId);
       
       // Check status immediately
       orchestratorAPI.getExecutionStatus(executionId)
         .then(statusData => {
-          console.log('📊 Current execution status:', statusData);
+          console.log('Current execution status:', statusData);
           
           setStatus(statusData.status);
           setProgressPercentage(statusData.progress_percentage || 0);
@@ -262,7 +262,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
           } else {
             // Still running - ensure polling is active
             if (!pollingIntervalRef.current) {
-              console.log('✅ Restarting polling after reconnect');
+              console.log('Restarting polling after reconnect');
               startPolling();
             }
           }
@@ -326,11 +326,12 @@ export const useWorkflowExecution = (sessionId, condition) => {
           node_count: workflow?.nodes?.length || 0,
           edge_count: workflow?.edges?.length || 0
         });
+        
 
         const response = await orchestratorAPI.executeWorkflow(
           sessionId,
-          workflow,
-          inputData
+          workflow,     // { nodes, edges }, 
+          inputData     // { session_id, category, language }
         );
 
         setExecutionId(response.execution_id);
@@ -426,7 +427,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
         // Still start polling after 5 seconds as safety fallback
         setTimeout(() => {
           if (status === 'running') {
-            console.log('🔄 Starting safety polling fallback');
+            console.log('Starting safety polling fallback');
             startPolling();
           }
         }, 5000);

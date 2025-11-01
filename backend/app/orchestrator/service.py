@@ -1,4 +1,13 @@
 # backend/app/orchestrator/service.py
+"""
+Main Orchestration Service
+
+Integrates with:
+- SharedWorkflowState (TypedDict)
+- Memory-optimized state with SQL references
+- Row operation tracking
+- HybridStateManager
+"""
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from openai import APIError, APITimeoutError, RateLimitError
@@ -13,6 +22,12 @@ from app.orchestrator.llm.circuit_breaker import CircuitBreakerOpen
 from app.orchestrator.state_manager import HybridStateManager
 from app.orchestrator.graphs.workflow_builder import WorkflowBuilderGraph
 from app.orchestrator.graphs.ai_assistant import AIAssistantGraph
+from app.orchestrator.graphs.shared_state import (
+    SharedWorkflowState,
+    initialize_state,
+    get_row_operation_summary,
+    get_data_source_info
+)
 
 from app.websocket.manager import ws_manager
 from app.orchestrator.degradation import graceful_degradation
@@ -29,7 +44,7 @@ class OrchestrationService:
         self.state_manager = HybridStateManager()
         self.ws_manager = ws_manager        
         self.degradation = graceful_degradation
-        logger.info("✅ Orchestration service initialized")
+        logger.info("Orchestration service initialized")
     
     async def execute_workflow(
         self,
@@ -127,17 +142,24 @@ class OrchestrationService:
             # Initialize state
             initial_state = self._initialize_state(execution, task_data)
             
+            logger.info(
+                f"Initial state created with new structure: "
+                f"execution_id={execution.id}, "
+                f"condition={condition}"
+            )
+
             # Save initial state to Redis
             self.state_manager.save_state_to_memory(execution.id, initial_state)
             
             # Checkpoint: execution start (with transaction)
-            self.state_manager.checkpoint_to_db(
+            await self.state_manager.checkpoint_to_db(
                 db=db,
                 execution_id=execution.id,
                 step_number=0,
                 checkpoint_type='execution_start',
                 state=initial_state,
-                metadata={'condition': condition}
+                metadata={'condition': condition},
+                buffered=True  # Use checkpoint batching
             )
             
             # Subscribe session to execution channel for real-time updates
@@ -176,13 +198,19 @@ class OrchestrationService:
             else:
                 langsmith_config = {"callbacks": [], "metadata": {"traced": False}}
 
-
-            final_state = await graph.ainvoke(initial_state, config=langsmith_config)
+            # Asynchronously invoke compiled graph
+            final_state: SharedWorkflowState = await graph.ainvoke(
+                initial_state, 
+                config=langsmith_config
+            )
+            
+            # Extract final results from new state structure
+            final_result = self._extract_final_result(final_state)
             
             # Update execution record with results
             execution.status = 'completed'
             execution.completed_at = datetime.utcnow()
-            execution.final_result = final_state.get('working_data')
+            execution.final_result = final_result
             execution.steps_completed = final_state.get('step_number', 0)
             execution.execution_time_ms = final_state.get('total_time_ms', 0)
             
@@ -200,6 +228,20 @@ class OrchestrationService:
             if final_state.get('errors'):
                 execution.error_message = f"{len(final_state['errors'])} errors occurred"
             
+            # Log row operation summary if available
+            row_summary = get_row_operation_summary(final_state)
+            if row_summary['total_operations'] > 0:
+                logger.info(
+                    f"✓ Row operations summary: "
+                    f"{row_summary['initial_rows']} → {row_summary['current_rows']} rows "
+                    f"({row_summary['reduction_pct']:.1f}% reduction)"
+                )
+            
+            # Log SQL reference if available
+            sql_ref = get_data_source_info(final_state)
+            if sql_ref:
+                logger.info(f"✓ SQL reference preserved: {sql_ref['row_count_at_load']} initial rows")
+            
             db.commit()
             
             # Send completion event
@@ -210,7 +252,8 @@ class OrchestrationService:
                 {
                     'steps_completed': execution.steps_completed,
                     'execution_time_ms': execution.execution_time_ms,
-                    'final_result': execution.final_result
+                    'final_result': final_result,
+                    'row_summary': row_summary if row_summary['total_operations'] > 0 else None
                 }
             )
             
@@ -261,13 +304,14 @@ class OrchestrationService:
                 if current_state:
                     from app.database import get_db_context
                     with get_db_context() as error_db:
-                        self.state_manager.checkpoint_to_db(
+                        await self.state_manager.checkpoint_to_db(
                             db=error_db,
                             execution_id=execution.id,
                             step_number=current_state.get('step_number', 0),
                             checkpoint_type='error',
                             state=current_state,
-                            metadata={'error': str(e)}
+                            metadata={'error': str(e)},
+                            buffered=False  # Direct write for errors
                         )
             except Exception as checkpoint_error:
                 logger.error(f"Failed to create error checkpoint: {checkpoint_error}")
@@ -275,6 +319,14 @@ class OrchestrationService:
             raise
         
         finally:
+            # Flush any buffered checkpoints for this execution
+            try:
+                flushed = await self.state_manager.flush_checkpoints(execution.id)
+                if flushed > 0:
+                    logger.info(f"✓ Flushed {flushed} buffered checkpoints")
+            except Exception as flush_error:
+                logger.error(f"Failed to flush checkpoints: {flush_error}")
+            
             # Cleanup Redis state
             self.state_manager.clear_memory_state(execution.id)
             
@@ -282,13 +334,14 @@ class OrchestrationService:
             try:
                 from app.database import get_db_context
                 with get_db_context() as final_db:
-                    self.state_manager.checkpoint_to_db(
+                    await self.state_manager.checkpoint_to_db(
                         db=final_db,
                         execution_id=execution.id,
                         step_number=execution.steps_completed,
                         checkpoint_type='execution_end',
                         state={'status': execution.status},
-                        metadata={'total_time_ms': execution.execution_time_ms}
+                        metadata={'total_time_ms': execution.execution_time_ms},
+                        buffered=False  # Direct write for finalization
                     )
             except Exception as checkpoint_error:
                 logger.error(f"Failed to create final checkpoint: {checkpoint_error}")
@@ -298,52 +351,90 @@ class OrchestrationService:
         
         return execution
     
+# Helper Methods for OrchestrationService    
+
     def _initialize_state(
         self, 
         execution: WorkflowExecution, 
         task_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    ) -> SharedWorkflowState:
         """
-        Initialize workflow state
+        Initialize workflow state with TypedDict structure        
+        Uses initialize_state() helper from shared_state.py
         
         Args:
             execution: WorkflowExecution record
             task_data: Task definition and input
             
         Returns:
-            Initial state dictionary
+            SharedWorkflowState (TypedDict)
         """
-        now = datetime.utcnow().isoformat()
+        state = initialize_state(
+            execution_id=execution.id,
+            session_id=execution.session_id,
+            condition=execution.condition
+        )
         
-        state = {
-            'execution_id': execution.id,
-            'session_id': execution.session_id,
-            'condition': execution.condition,
-            'step_number': 0,
-            'current_node': 'start',
-            'status': 'running',
-            'input_data': task_data.get('input_data', {}),
-            'working_data': task_data.get('input_data', {}),
-            'results': {},
-            'errors': [],
-            'warnings': [],
-            'started_at': now,
-            'last_step_at': now,
-            'total_time_ms': 0,
-            'user_interventions': 0,
-            'checkpoints_created': 0,
-            'metadata': task_data.get('metadata', {}),
-        }
+        # Add input data and metadata
+        state['input_data'] = task_data.get('input_data', {})
+        state['metadata'] = task_data.get('metadata', {})
         
         # Add condition-specific fields
         if execution.condition == 'workflow_builder':
             state['workflow_definition'] = task_data.get('workflow')
         else:  # ai_assistant
             state['task_description'] = task_data.get('task_description')
-            state['agent_plan'] = []
-            state['agent_memory'] = []
+
+        logger.debug(
+            f"State initialized with new structure: "
+            f"execution_id={execution.id}, "
+            f"has_data_source={state.get('data_source') is not None}, "
+            f"has_record_store={state.get('record_store') is not None}"
+        )
         
         return state
+    
+    def _extract_final_result(self, state: SharedWorkflowState) -> Optional[Dict[str, Any]]:
+        """
+        ✅ NEW: Extract final results from new state structure
+        
+        Handles both old 'working_data' and new 'record_store' + 'results_registry'
+        
+        Args:
+            state: Final SharedWorkflowState
+            
+        Returns:
+            Final result dictionary for execution record
+        """
+        # Check results_registry first (new structure)
+        results_registry = state.get('results_registry')
+        if results_registry and results_registry.get('results'):
+            # Extract tool results
+            tool_results = {}
+            for tool_id, result in results_registry['results'].items():
+                tool_results[tool_id] = {
+                    'tool_name': result.get('tool_name'),
+                    'summary': result.get('summary', {}),
+                    'execution_time_ms': result.get('execution_time_ms', 0)
+                }
+            
+            return {
+                'type': 'tool_results',
+                'results': tool_results,
+                'total_tools': len(tool_results),
+                'row_operations': get_row_operation_summary(state) if state.get('row_operation_history') else None
+            }
+        
+        # Fallback to working_data (backward compatibility)
+        if 'working_data' in state:
+            return state['working_data']
+        
+        # No specific results, return summary
+        return {
+            'type': 'execution_summary',
+            'steps_completed': state.get('step_number', 0),
+            'status': state.get('status', 'unknown')
+        }
     
     async def get_execution_status(
         self,
@@ -370,7 +461,7 @@ class OrchestrationService:
         # Try to get live state from Redis
         state = self.state_manager.get_state_from_memory(execution_id)
         
-        return {
+        status_dict = {
             'execution_id': execution_id,
             'status': execution.status,
             'progress_percentage': self._calculate_progress(execution, state),
@@ -380,11 +471,24 @@ class OrchestrationService:
             'started_at': execution.started_at.isoformat() if execution.started_at else None,
             'completed_at': execution.completed_at.isoformat() if execution.completed_at else None
         }
+        
+        # Add row operation summary if available
+        if state and state.get('row_operation_history'):
+            row_summary = get_row_operation_summary(state)
+            if row_summary['total_operations'] > 0:
+                status_dict['row_operations'] = {
+                    'total': row_summary['total_operations'],
+                    'initial_rows': row_summary['initial_rows'],
+                    'current_rows': row_summary['current_rows'],
+                    'reduction_pct': row_summary['reduction_pct']
+                }
+        
+        return status_dict
 
     def _calculate_progress(
         self,
         execution: WorkflowExecution,
-        state: Optional[Dict[str, Any]]
+        state: Optional[SharedWorkflowState]
     ) -> int:
         """Calculate execution progress percentage"""
         if execution.status == 'completed':
@@ -433,14 +537,15 @@ class OrchestrationService:
         # Checkpoint cancellation (user intervention)
         state = self.state_manager.get_state_from_memory(execution_id)
         if state:
-            self.state_manager.checkpoint_to_db(
+            await self.state_manager.checkpoint_to_db(
                 db=db,
                 execution_id=execution_id,
                 step_number=state.get('step_number', 0),
                 checkpoint_type='cancelled',
                 state=state,
                 user_interaction=True,
-                metadata={'cancelled_by': 'user'}
+                metadata={'cancelled_by': 'user'},
+                buffered=False  # Direct write for cancellation
             )
         
         # Clear Redis state

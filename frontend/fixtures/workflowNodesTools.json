@@ -1,0 +1,166 @@
+[
+    {
+        "node": {
+            "id": "load-reviews-7",
+            "data": {
+                "template_id": "load-reviews",
+                "config": {
+                    "category": "shoes",
+                    "limit": null
+                },
+                "label": "Load Shoe Reviews"
+            }
+        },
+        "tool": {
+            "LoadReviewsTool": {
+                "name": "Load Reviews",
+                "timeout": "300s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "filter-reviews-10",
+            "data": {
+                "template_id": "filter-reviews",
+                "config": {
+                    "field": "product_id",
+                    "operator": "equals",
+                    "value": "B0041FI6O2"
+                },
+                "label": "Filter Reviews"
+            }
+        },
+        "tool": {
+            "FilterReviewsTool": {
+                "name": "Filter Reviews",
+                "timeout": "300s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "sort-reviews-11",
+            "data": {
+                "template_id": "sort-reviews",
+                "config": {
+                    "sort_by": "helpful_votes",
+                    "descending": true
+                },
+                "label": "Sort Reviews"
+            }
+        },
+        "tool": {
+            "SortReviewsTool": {
+                "name": "Sort Reviews",
+                "timeout": "300s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "clean-data-12",
+            "data": {
+                "template_id": "clean-data",
+                "config": {
+                    "remove_nulls": true,
+                    "normalize_text": true,
+                    "remove_duplicates": true
+                },
+                "label": "Clean Reviews"
+            }
+        },
+        "tool": {
+            "DataCleanerTool": {
+                "name": "Data Cleaner",
+                "timeout": "300s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "review-sentiment-analysis-13",
+            "data": {
+                "template_id": "review-sentiment-analysis",
+                "config": {
+                    "extract_themes": true,
+                    "theme_separation": "by_sentiment",
+                    "max_themes_per_category": 5,
+                    "include_percentages": true
+                },
+                "label": "Sentiment Analysis"
+            }
+        },
+        "tool": {
+            "ReviewSentimentAnalysisTool": {
+                "name": "Review Sentiment Analysis",
+                "timeout": "600s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "generate-insights-14",
+            "data": {
+                "template_id": "generate-insights",
+                "config": {
+                    "focus_area": [
+                        "competitive_positioning",
+                        "customer_experience",
+                        "marketing_messages",
+                        "product_improvements"
+                    ],
+                    "max_recommendations": 5
+                },
+                "label": "Generate Insights"
+            }
+        },
+        "tool": {
+            "GenerateInsightsTool": {
+                "name": "Generate Insights",
+                "timeout": "600s",
+                "executions": 0
+            }
+        }
+    },
+    {
+        "node": {
+            "id": "show-results-9",
+            "data": {
+                "template_id": "show-results",
+                "config": {
+                    "include_sections": [
+                        "data_preview",
+                        "statistics",
+                        "recommendations",
+                        "themes",
+                        "executive_summary"
+                    ],
+                    "max_data_items": 200,
+                    "statistics_metrics": [
+                        "sentiment_distribution",
+                        "review_summary",
+                        "rating_distribution",
+                        "verified_rate",
+                        "theme_coverage",
+                        "sentiment_consistency"
+                    ],
+                    "show_visualizations": true
+                },
+                "label": "Show Results"
+            }
+        },
+        "tool": {
+            "ShowResultsTool": {
+                "name=": "Show Results",
+                "timeout": "60s",
+                "executions": 0
+            }
+        }
+    }
+]

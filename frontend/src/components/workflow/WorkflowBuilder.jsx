@@ -18,6 +18,7 @@ import 'reactflow/dist/style.css';
 import CustomEdge from './edges/CustomEdge';
 import CustomNode from './nodes/CustomNode';
 import NodeEditor from './nodes/NodeEditor';
+import NodeResultsModal from './nodes/NodeResultsModal';
 
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
@@ -47,6 +48,7 @@ import { ICONS } from '../../config/icons';
 
 // Utils
 import { getNodeTranslationKey } from '../../utils/translationHelpers';
+import { serializeWorkflowMinimal } from '../../utils/workflowSerializer';
 
 // ========================================
 // Notification Banner Component
@@ -164,6 +166,8 @@ const WorkflowBuilder = () => {
   const [nodeCounter, setNodeCounter] = useState(getInitialNodeCounter);
   const [editingNode, setEditingNode] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [selectedNodeResult, setSelectedNodeResult] = useState(null);
+  const [showResultsModal, setShowResultsModal] = useState(false); 
   const [connectionState, setConnectionState] = useState({
     isConnecting: false,
     sourceNodeId: null,
@@ -180,21 +184,45 @@ const WorkflowBuilder = () => {
   // ========================================
   // WORKFLOW VALIDATION
   // ========================================
-  const workflowValidation = useWorkflowValidation(nodes, edges);
+  const workflowValidation = useWorkflowValidation(nodes, edges, t);
 
   // ========================================
   // WORKFLOW EXECUTION
   // ========================================
   const {
+    executeWorkflow,
+    cancelExecution,
     status: executionStatus,
-    progress: executionProgress,
+    messages: executionMessages,
     progressPercentage,
     currentStep,
+    nodeStates,
+    toolStates,
+    nodeResults,
     result: executionResult,
-    error: executionError,
-    executeWorkflow,
-    cancelExecution
+    error: executionError   
   } = useWorkflowExecution(sessionId, 'workflow_builder');
+
+  const handleViewNodeResults = useCallback((nodeId) => {
+    console.log('🔍 === MODAL OPEN DEBUG ===');
+    console.log('📦 Requested node:', nodeId);
+    console.log('📦 All nodeResults:', nodeResults);
+    console.log('📦 Specific result:', nodeResults?.[nodeId]);
+    console.log('📦 Result status:', nodeResults?.[nodeId]?.status);
+    console.log('📦 Result has results?:', nodeResults?.[nodeId]?.results !== undefined);
+    console.log('📦 Result has result?:', nodeResults?.[nodeId]?.result !== undefined);
+    console.log('📦 Full result data:', JSON.stringify(nodeResults?.[nodeId], null, 2));
+    
+    const result = nodeResults?.[nodeId];
+    
+    if (result) {
+      setSelectedNodeResult(result);
+      setShowResultsModal(true);
+    } else {
+      console.error('❌ No result found!');
+    }
+    console.log('🔍 === MODAL OPEN DEBUG END ===');
+  }, [nodeResults]);
 
   // ========================================
   // NOTIFICATIONS
@@ -311,7 +339,6 @@ const WorkflowBuilder = () => {
   const onDrop = useCallback((event) => {
     event.preventDefault();
 
-    
     try {
       const droppedData = JSON.parse(
         event.dataTransfer.getData('application/reactflow')
@@ -331,12 +358,21 @@ const WorkflowBuilder = () => {
         return;
       }
 
-      if (nodes.length >= WORKFLOW_CONFIG.MAX_NODES) {
-        showNotification(
-          t('workflow.notifications.maxNodesReached', { max: WORKFLOW_CONFIG.MAX_NODES }),
-          'error'
-        );
-        return;
+      if (nodeTemplate.maxAllowed) {
+        const currentCount = nodes.filter(
+          n => n.data?.template_id === nodeTemplate.id
+        ).length;
+        
+        if (currentCount >= nodeTemplate.maxAllowed) {
+          showNotification(
+            t('workflow.notifications.maxAllowedReached', { 
+              name: t(getNodeTranslationKey(nodeTemplate.id)).label || nodeTemplate.label,
+              max: nodeTemplate.maxAllowed 
+            }),
+            'error'
+          );
+          return;  // Block the drop
+        }
       }
 
       const zoom = getViewport().zoom || 1;
@@ -619,7 +655,106 @@ const WorkflowBuilder = () => {
   // ========================================
   // WORKFLOW EXECUTION
   // ========================================
+// ADD THIS TO WorkflowBuilder.jsx (replace your handleRunWorkflow or similar)
+
   const handleExecuteWorkflow = async () => {
+    // Step 1: Check validation
+    if (!workflowValidation.canExecute) {
+      showNotification(
+        workflowValidation.details || t('workflow.notifications.validationFailed'),
+        'error'
+      );
+      if (workflowValidation.configErrors.length > 0) {
+        console.error('Node configuration errors:', workflowValidation.configErrors);
+      }
+      return;
+    }
+
+    try {
+      // Step 2: Debug - Check nodes before serialization
+      console.group('🚀 Workflow Execution Debug');
+      console.log('📦 Nodes on canvas:', nodes.length);
+      console.log('🔗 Edges on canvas:', edges.length);
+      console.log('📋 Node templates:', nodes.map(n => ({
+        id: n.id,
+        template: n.data?.template_id,
+        label: n.data?.label
+      })));
+
+      // Step 3: Serialize with filtering
+      const serializedWorkflow = serializeWorkflowMinimal(nodes, edges);
+      
+      console.log('📤 Serialized nodes:', serializedWorkflow.nodes.length);
+      console.log('📤 Serialized edges:', serializedWorkflow.edges.length);
+      console.groupEnd();
+
+      // Step 4: Check if we have nodes after serialization
+      if (serializedWorkflow.nodes.length === 0) {
+        console.error('❌ No nodes after serialization! Check the debug logs above.');
+        showNotification(
+          'Workflow has no valid connected nodes. Make sure you have load-reviews and show-results nodes connected.',
+          'error'
+        );
+        return;
+      }
+
+      // Step 5: Execute
+      const result = await executeWorkflow(serializedWorkflow, {
+        session_id: sessionId,
+        category: studyDataset,
+        language: currentLanguage
+      });
+      
+      /*
+      const result = await executeWorkflow({ nodes, edges }, {
+        session_id: sessionId,
+        category: studyDataset,
+        language: currentLanguage
+      });      
+      */
+
+      console.log('✅ Execution started:', result);
+      
+      trackWorkflowExecuted({ 
+        nodeCount: serializedWorkflow.nodes.length,
+        edgeCount: serializedWorkflow.edges.length,
+        hasConfig: serializedWorkflow.nodes.some(n => n.data?.config && Object.keys(n.data.config).length > 0),
+        filteredNodes: nodes.length - serializedWorkflow.nodes.length
+      });
+      
+      showNotification(
+        t('workflow.notifications.executionStarted') || 'Workflow execution started',
+        'success'
+      );
+
+    } catch (error) {
+      console.error('❌ Failed to start workflow:', error);
+      
+      captureException(error, {
+        tags: {
+          error_type: error.response?.status === 500 ? 'server_error' : 'client_error',
+          condition: 'workflow_builder'
+        },
+        extra: {
+          nodeCount: nodes.length,
+          edgeCount: edges.length
+        }
+      });
+
+      showNotification(
+        error.response?.data?.detail || error.message || t('workflow.notifications.executionFailed'),
+        'error'
+      );
+
+      trackError('WORKFLOW_EXECUTION_FAILED', {
+        error: error.message,
+        nodeCount: nodes.length,
+        edgeCount: edges.length
+      });
+    }
+  };
+
+  const exclude_handleExecuteWorkflow = async () => {
     if (!sessionId || nodes.length === 0) {
       showNotification('Cannot execute empty workflow', 'error');
       return;
@@ -775,6 +910,13 @@ const WorkflowBuilder = () => {
     const translatedLabel = typeof nodeTranslations === 'object' 
       ? (nodeTranslations.label || node.data.label)
       : nodeTranslations;
+
+    let nodeExecutionState = nodeStates[node.id] || {};
+
+    if (!nodeExecutionState) {
+      const altId = node.id.replace(/_/g, '-').replace(/-/g, '_');
+      nodeExecutionState = nodeStates[altId] || {};
+    }
     
     return {
       ...node,
@@ -786,12 +928,31 @@ const WorkflowBuilder = () => {
         isValidConnection,
         onDelete: deleteNode,
         onEdit: editNode,
+        onViewResults: handleViewNodeResults,
         isConnecting: connectionState.isConnecting,
         isValidTarget: connectionState.isConnecting && 
                       connectionState.sourceNodeId !== node.id,
+        executionState: {
+          status: nodeExecutionState.status,                    // 'running', 'completed', 'error'
+          progress: nodeExecutionState.progress,                // 0-100
+          message: nodeExecutionState.message,                  // Status message
+          executionTime: nodeExecutionState.execution_time_ms,  // Time in ms
+          error: nodeExecutionState.error,                      // Error message
+          hasExecuted: nodeExecutionState.hasExecuted
+        }
       }
     };
-  }), [nodes, t, deleteNode, editNode, connectionState, edges, isValidConnection] );
+  }), [
+    nodes, 
+    t, 
+    deleteNode, 
+    editNode, 
+    connectionState, 
+    edges,
+    isValidConnection,
+    nodeStates,
+    handleViewNodeResults
+  ]);
 
   // ========================================
   // MINIMAP NODE COLOR
@@ -823,6 +984,7 @@ const WorkflowBuilder = () => {
         setShowNodePanel={setShowNodePanel}
         onDragStart={onDragStart}
         currentWorkflow={currentWorkflow}
+        nodes={nodes}
       />
 
       {/* Main Canvas Area */}
@@ -939,9 +1101,11 @@ const WorkflowBuilder = () => {
           <div className="w-96 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 overflow-y-auto">
             <ExecutionProgress
               status={executionStatus}
-              progress={executionProgress}
+              messages={executionMessages}
               progressPercentage={progressPercentage}
               currentStep={currentStep}
+              nodeStates={nodeStates}
+              toolStates={toolStates}
               condition="workflow_builder"
               onCancel={cancelExecution}
             />
@@ -949,10 +1113,24 @@ const WorkflowBuilder = () => {
             {/* Show results */}
             {executionResult && (
               <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
-                <h4 className="font-semibold text-green-900 dark:text-green-300 mb-2">Results</h4>
+                <h4 className="font-semibold text-green-900 dark:text-green-300 mb-2">
+                  {t('workflow.execution.results') || 'Results'}
+                </h4>
                 <pre className="text-sm text-green-800 dark:text-green-200 overflow-x-auto">
                   {JSON.stringify(executionResult, null, 2)}
                 </pre>
+              </div>
+            )}
+            
+            {/* Show errors */}
+            {executionError && executionStatus === 'failed' && (
+              <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+                <h4 className="font-semibold text-red-900 dark:text-red-300 mb-2">
+                  {t('workflow.execution.error') || 'Error'}
+                </h4>
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  {executionError}
+                </p>
               </div>
             )}
           </div>
@@ -968,6 +1146,19 @@ const WorkflowBuilder = () => {
           onSave={handleNodeSave}
         />
       )}
+
+      {/* Node Results Modal */}
+      {showResultsModal && (
+        <NodeResultsModal
+          isOpen={showResultsModal}
+          onClose={() => {
+            setShowResultsModal(false);
+            setSelectedNodeResult(null);
+          }}
+          nodeResult={selectedNodeResult}
+        />
+      )}
+
     </div>
   );
 };

@@ -611,6 +611,7 @@ class WebSocketClient {
   
   // Workflow operations
   async executeWorkflow(workflow, inputData = {}, condition = null) {
+    console.log(workflow, inputData, condition)
     return this.send({
       type: 'workflow_execute',
       workflow,

@@ -62,6 +62,7 @@ export const NODE_TEMPLATES = [
     hasOutput: 1,
     maxInputConnections: 0,
     maxOutputConnections: 3,
+    maxAllowed: 1,
     description: 'workflow.builder.nodes.loadReviews.description',
     editable: true,
     configSchema: [
@@ -317,7 +318,7 @@ export const NODE_TEMPLATES = [
         label: 'workflow.builder.nodes.generateInsights.config.maxRecommendations.label',
         type: 'number',
         min: 1,
-        max: 10,
+        max: 5,
         required: true,
         locked: false,
         help: 'workflow.builder.nodes.generateInsights.config.maxRecommendations.help'
@@ -384,7 +385,7 @@ export const NODE_TEMPLATES = [
         key: 'include_percentages',
         label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.label',
         type: 'boolean',
-        required: false,
+        required: true,
         locked: false,
         help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.help',
         placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.placeholder'
@@ -412,6 +413,7 @@ export const NODE_TEMPLATES = [
     hasOutput: 0,
     maxInputConnections: 1,
     maxOutputConnections: 0,
+    maxAllowed: 1,
     description: 'workflow.builder.nodes.showResults.description',
     note: 'workflow.builder.nodes.showResults.note',
     editable: true,
@@ -516,7 +518,7 @@ export const NODE_TEMPLATES = [
     ],
     defaultConfig: {
       include_sections: ['data_preview'],
-      max_items: 50
+      max_data_items: 50
     }
   },
   

@@ -25,7 +25,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Lock
 } from 'lucide-react';
 import React from 'react';
 
@@ -55,6 +56,7 @@ export const ICONS = {
   ChevronRight:         { component: ChevronRight },
   ChevronDown:          { component: ChevronDown },
   ChevronUp:            { component: ChevronUp },
+  Lock:                 { component: Lock },
 };
 
 // Helper function to get icon configuration

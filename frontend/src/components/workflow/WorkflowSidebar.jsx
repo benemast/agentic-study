@@ -1,5 +1,5 @@
 // frontend/src/components/workflow/WorkflowSidebar.jsx
-import React, { memo, useMemo, useState, useRef, useEffect } from 'react';
+import React, { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { NODE_TEMPLATES } from '../../config/nodeTemplates';
 import { renderIcon, ICONS } from '../../config/icons';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -9,12 +9,31 @@ import {
   getCategoryTranslationKey 
 } from '../../utils/translationHelpers';
 
-const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd }) => {
+const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd, nodes = [] }) => {
   const { t } = useTranslation();
   const [hoveredNode, setHoveredNode] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
   const sidebarRef = useRef(null);
   const hoverTimeoutRef = useRef(null);
+  
+  // Calculate node usage counts
+  const nodeUsageCounts = useMemo(() => {
+    const counts = {};
+    nodes.forEach(node => {
+      const templateId = node.data?.template_id;
+      if (templateId) {
+        counts[templateId] = (counts[templateId] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [nodes]);
+  
+  // Check if a node is at max capacity
+  const isNodeLocked = useCallback((nodeTemplate) => {
+    if (!nodeTemplate.maxAllowed) return false;
+    const currentCount = nodeUsageCounts[nodeTemplate.id] || 0;
+    return currentCount >= nodeTemplate.maxAllowed;
+  }, [nodeUsageCounts]);
   
   const categorizedNodes = useMemo(() => {
     const categories = {};
@@ -30,6 +49,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
   // Icons
   const ChevronLeftIcon = ICONS.ChevronLeft.component;
   const ChevronRightIcon = ICONS.ChevronRight.component;
+  const LockIcon = ICONS.Lock?.component; // Add Lock icon if not present
   
   const handleMouseEnter = (nodeId, event) => {
     // Clear any existing timeout
@@ -99,7 +119,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
             className="flex items-center justify-center w-full text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
             title={t('workflow.builder.addNodes')}
           >
-            <ChevronRightIcon size={20} />
+            <ChevronRightIcon size={20} className="text-gray-600 dark:text-gray-400" />
           </button>
         </div>
       </div>
@@ -129,13 +149,13 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-6">
-            {Object.entries(categorizedNodes).map(([category, nodes]) => (
+            {Object.entries(categorizedNodes).map(([category, categoryNodes]) => (
               <div key={category}>
                 <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
                   {t(getCategoryTranslationKey(category))}
                 </h3>
                 <div className="space-y-2">
-                  {nodes.map((node) => {
+                  {categoryNodes.map((node) => {
                     const nodeIcon = renderIcon(node.icon, { size: 16, className: "text-white" });
                     
                     // Get translations for this node
@@ -144,11 +164,20 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
                     const translatedNodeType = nodeTranslations?.type || node.type;
                     const translatedDescription = nodeTranslations?.description || '';
                     
+                    // Check if node is locked
+                    const locked = isNodeLocked(node);
+                    const currentCount = nodeUsageCounts[node.id] || 0;
+                    
                     return (
                       <div
                         key={node.id}
-                        draggable
+                        draggable={!locked}
                         onDragStart={(e) => {
+                          if (locked) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return false;
+                          }
                           // Clear timeout and hide tooltip when dragging starts
                           if (hoverTimeoutRef.current) {
                             clearTimeout(hoverTimeoutRef.current);
@@ -159,20 +188,50 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
                             onDragStart(e, node);
                           }
                         }}
+                        onMouseDown={(e) => {
+                          // Prevent mouse down if locked
+                          if (locked) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }
+                        }}
                         onMouseEnter={(e) => handleMouseEnter(node.id, e)}
                         onMouseLeave={handleMouseLeave}
-                        className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg cursor-grab hover:bg-gray-100 dark:hover:bg-gray-700 active:cursor-grabbing transition-colors"
+                        className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
+                          locked
+                            ? 'bg-gray-100 dark:bg-gray-700/30 cursor-not-allowed opacity-60'
+                            : 'bg-gray-50 dark:bg-gray-700/50 cursor-grab hover:bg-gray-100 dark:hover:bg-gray-700 active:cursor-grabbing'
+                        }`}
                       >
-                        <div className={`p-2 rounded ${node.color}`}>
+                        <div className={`p-2 rounded ${node.color} relative`}>
                           {nodeIcon}
+                          {locked && (
+                            <div className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                              </svg>
+                            </div>
+                          )}
                         </div>
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                          <p className={`text-sm font-medium ${
+                            locked ? 'text-gray-500 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'
+                          }`}>
                             {translatedNodeName}
                           </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                          <p className={`text-xs ${
+                            locked ? 'text-gray-400 dark:text-gray-600' : 'text-gray-500 dark:text-gray-400'
+                          }`}>
                             {translatedNodeType}
                           </p>
+                          {node.maxAllowed && (
+                            <p className={`text-xs mt-1 ${
+                              locked ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-400 dark:text-gray-500'
+                            }`}>
+                              {currentCount}/{node.maxAllowed} {t('workflow.builder.sidebar.used')}
+                            </p>
+                          )}
                         </div>
                       </div>
                     );
@@ -203,13 +262,19 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
             const nodeTranslations = t(getNodeTranslationKey(node.id));
             const translatedNodeName = nodeTranslations?.label || node.label;
             const translatedDescription = nodeTranslations?.description || '';
+            const locked = isNodeLocked(node);
+            const currentCount = nodeUsageCounts[node.id] || 0;
             
             return (
               <>
                 {/* Header with icon badge */}
                 <div className="flex items-start gap-3 mb-3">
                   <div className={`p-2 rounded-lg ${node.color} shadow-md flex-shrink-0`}>
-                    {renderIcon(node.icon, { size: 18, className: "text-white" })}
+                    {renderIcon(node.icon, { 
+                      size: 20, 
+                      className: "text-white",
+                      strokeWidth: 2.5
+                    })}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-base text-gray-900 dark:text-white leading-tight">
@@ -240,6 +305,45 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd 
                 
                 {/* Decorative glow - dark mode only */}
                 <div className="hidden dark:block absolute -inset-1 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 rounded-xl blur -z-10"></div>
+
+
+                {/* MaxAllowed warning */}
+                {node.maxAllowed && (
+                  <div className={`mt-3 pt-3 border-t ${
+                    locked 
+                      ? 'border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20' 
+                      : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+                  } rounded-lg p-2`}>
+                    <div className="flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" 
+                           stroke="currentColor" 
+                           className={locked ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}
+                           strokeWidth="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      </svg>
+                      <p className={`text-xs font-medium ${
+                        locked 
+                          ? 'text-red-700 dark:text-red-300' 
+                          : 'text-gray-700 dark:text-gray-300'
+                      }`}>
+                        {locked 
+                          ? t('workflow.builder.sidebar.maxReached', { max: node.maxAllowed })
+                          : t('workflow.builder.sidebar.maxAllowed', { current: currentCount, max: node.maxAllowed })
+                        }
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Note if exists */}
+                {nodeTranslations?.note && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                      {nodeTranslations.note}
+                    </p>
+                  </div>
+                )}
               </>
             );
           })()}

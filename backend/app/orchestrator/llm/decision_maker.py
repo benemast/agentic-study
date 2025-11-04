@@ -6,7 +6,7 @@ Uses LLM to make intelligent decisions about next actions
 from typing import Dict, Any, List, Optional
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -210,7 +210,7 @@ class DecisionMaker:
                                 'execution_id': execution_id,
                                 'chunk': chunk,
                                 'chunks_received': chunk_counter[0],
-                                'timestamp': datetime.utcnow().isoformat()
+                                'timestamp': datetime.now(timezone.utc).isoformat()
                             }
                         )
                     except Exception as e:

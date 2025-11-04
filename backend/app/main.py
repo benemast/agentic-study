@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     # Register WebSocket handlers ONCE at startup
     register_handlers()
 
-    # 🆕 Initialize LangSmith tracing
+    # Initialize LangSmith tracing
     langsmith_enabled = init_langsmith(settings)
     if langsmith_enabled:
         logger.info("LangSmith tracing initialized successfully")

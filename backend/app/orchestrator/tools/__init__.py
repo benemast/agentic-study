@@ -30,7 +30,10 @@ from .data_tools import (
 
 from .analysis_tools import (
     ReviewSentimentAnalysisTool,
-    GenerateInsightsTool,
+    GenerateInsightsTool
+)
+
+from .show_results_tool import (
     ShowResultsTool
 )
 

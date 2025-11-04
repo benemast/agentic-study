@@ -262,14 +262,14 @@ class GenerateInsightsParams(BaseModel):
         'marketing_messages',
         'product_improvements'
     ]] = Field(
-        ...,  # ✅ Required in frontend schema
+        ...,  # Required in frontend schema
         description="Areas to focus recommendations on (can select multiple)"
     )
     max_recommendations: int = Field(
-        ...,  # ✅ Required in frontend schema
+        ...,  # Required in frontend schema
         ge=1,
         le=10,
-        description="Number of recommendations to generate"
+        description="Number of recommendations to generate per category"
     )
     
     @field_validator('focus_area')

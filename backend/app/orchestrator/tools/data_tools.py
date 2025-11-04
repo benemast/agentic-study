@@ -3,7 +3,6 @@
 from typing import Dict, Any, List, Set
 import logging
 import time
-import asyncio
 from datetime import datetime, timezone
 
 from app.orchestrator.tools.base_tool import BaseTool
@@ -12,6 +11,25 @@ from app.orchestrator.graphs.shared_state import DataSource
 from app.database import get_db_context
 from app.models.reviews import get_review_model
 from app.schemas.reviews import to_work_format, ReviewFilterParams
+
+# Import Pydantic output schemas
+from app.orchestrator.tools.output_schemas.data_tools_schemas import (
+    LoadReviewsOutput,
+    LoadReviewsFiltersApplied,
+    LoadReviewsSummary,
+    FilterReviewsOutput,
+    FilterReviewsCriteria,
+    FilterCondition,
+    FilterReviewsSummary,
+    SortReviewsOutput,
+    SortReviewsCriteria,
+    SortReviewsSummary,
+    DataCleanerOutput,
+    DataCleanerCriteria,
+    DataCleanerOperations,
+    CleaningOperationResult,
+    DataCleanerSummary
+)
 
 logger = logging.getLogger(__name__)
 class LoadReviewsTool(BaseTool):
@@ -93,19 +111,28 @@ class LoadReviewsTool(BaseTool):
                 offset = input_data.get('offset', 0)
             
             if not category:
-                return {
-                    'success': False,
-                    'error': 'Missing required parameter: category (must be "shoes" or "wireless")',
-                    'error_type': 'missing_parameter'
-                }
+                error_output = LoadReviewsOutput(
+                    success=False,
+                    error='Missing required parameter: category (must be "shoes" or "wireless")',
+                    error_type='missing_parameter'
+                )
+                return error_output.model_dump(exclude_none=True)
             
             category = category.lower()
             if category not in ['shoes', 'wireless']:
-                return {
-                    'success': False,
-                    'error': f'Invalid category: {category}. Must be "shoes" or "wireless"',
-                    'error_type': 'invalid_parameter'
-                }
+                error_output = LoadReviewsOutput(
+                    success=False,
+                    error=f'Invalid category: {category}. Must be "shoes" or "wireless"',
+                    error_type='invalid_parameter'
+                )
+                return error_output.model_dump(exclude_none=True)
+
+            # State info
+            state:dict = input_data.get('state', {})
+            condition = state.get('condition')
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+
             
             # Build filter params
             filters = ReviewFilterParams(
@@ -116,7 +143,18 @@ class LoadReviewsTool(BaseTool):
                 limit=limit,
                 offset=offset
             )
-            
+            await self._send_tool_start(
+                session_id, 
+                execution_id=execution_id,
+                condition=condition,
+                message=f"Start loading {category} reviews ...",
+                details={
+                    'progress': 10,
+                    'step_num': 0,
+                    'total_steps': 1,
+                }
+            )
+
             logger.info(f"Loading {category} reviews with filters: {filters.model_dump()}")
             
             # Query database
@@ -147,16 +185,30 @@ class LoadReviewsTool(BaseTool):
                 study_reviews = [to_work_format(review) for review in reviews]
                 study_reviews_dicts = [r.model_dump() for r in study_reviews]
             
-            execution_time = int((time.time() - start_time) * 1000)
             
-            logger.info(f"Loaded {len(study_reviews)} {category} reviews (total: {total})")
-
             filters_applied_dict = {
                 'product_id': filters.product_id,
                 'min_rating': filters.min_rating,
                 'max_rating': filters.max_rating,
                 'verified_only': filters.verified_only
             }
+
+            await self._send_tool_update(
+                session_id=session_id, 
+                execution_id=execution_id,
+                condition=condition,
+                progress=80,
+                message=f"Successfully loaded {len(study_reviews)} {category} reviews.",
+                details={
+                    'records_loaded': len(study_reviews),
+                    'category': category,
+                    'total_available': total,
+                    'filters_applied': filters_applied_dict
+                }
+            )
+
+            logger.info(f"Loaded {len(study_reviews)} {category} reviews (total: {total})")
+
             
             # Build proper DataSource with SQL query
             # This is the SOURCE OF TRUTH for lazy reloading
@@ -199,6 +251,9 @@ class LoadReviewsTool(BaseTool):
                 can_reload=True
             )
             
+
+            execution_time = int((time.time() - start_time) * 1000)
+
             # Direct keys, no nesting
             results = {
                 'success': True,
@@ -219,6 +274,20 @@ class LoadReviewsTool(BaseTool):
                     'load_time_ms': execution_time
                 }
             }
+
+            await self._send_tool_complete(
+                session_id=session_id, 
+                execution_id=execution_id,
+                condition=condition,
+                message=f"Completed loading {category} reviews.",
+                details={
+                    'records_loaded': len(reviews),
+                    'category': category,
+                    'total_available': total,
+                    'filters_applied': filters_applied_dict,
+                    'load_time_ms': execution_time
+                }
+            )
 
             self._log_results_to_file(results)
             return results
@@ -402,14 +471,13 @@ class FilterReviewsTool(BaseTool):
         """
         start_time = time.time()
 
-        try:
-        
+        try:        
             self._log_input_to_file(input_data)
 
             records = input_data.get('records', [])
             total = input_data.get('total', len(records))
             category = input_data.get('category', '')
-            
+
             if not records:
                 return {
                     'success': False,
@@ -461,10 +529,28 @@ class FilterReviewsTool(BaseTool):
                     'error_type': 'invalid_parameter'
                 }
             
-            logger.info(f"Filtering {len(records)} reviews with {len(filters)} condition(s)")
+            # State info
+            state:dict = input_data.get('state', {})
+            condition = state.get('condition')
+            session_id = state.get('session_id')
+            execution_id = state.get('execution_id')
+
+            await self._send_tool_start(
+                session_id=session_id, 
+                execution_id=execution_id,
+                condition=condition,
+                message=f"Start filtering t{total}otal {category} reviews with {len(filters)} condition(s)",
+                details={
+                    'progress': 10,
+                    'total_steps':len(filters)
+                }
+            )
+
+            logger.info(f"Filtering {total} reviews with {len(filters)} condition(s)")
             
             # Apply all filter conditions (AND logic)
             filtered_records = records
+            filter_strings = []
             for filter_condition in filters:
                 field = filter_condition.get('field')
                 operator = filter_condition.get('operator')
@@ -479,9 +565,11 @@ class FilterReviewsTool(BaseTool):
                     if self._apply_filter_condition(record, field, operator, value)
                 ]
                 
-                logger.debug(f"After filtering by {field} {operator} {value}: {len(filtered_records)} records remain")
+                value_str = f"'{value}'" if isinstance(value, str) else value
+                filter_string = f"{field} {operator} {value_str}"
+                filter_strings.append(filter_string)
+                logger.debug(f"After filtering by {filter_string}: {len(filtered_records)} records remain")
             
-            execution_time = int((time.time() - start_time) * 1000)
             records_before = len(records)
             records_after = len(filtered_records)
             reduction_pct = round((1 - records_after / records_before) * 100, 1) if records_before > 0 else 0
@@ -491,6 +579,8 @@ class FilterReviewsTool(BaseTool):
                 f"({records_before - records_after} removed, {reduction_pct}% reduction)"
             )
             
+            execution_time = int((time.time() - start_time) * 1000)
+
             results = {
                 'success': True,
                 'filtered_records': filtered_records,   # Key name for row modification tracking
@@ -515,6 +605,20 @@ class FilterReviewsTool(BaseTool):
                 }
             }
 
+            await self._send_tool_complete(
+                session_id,
+                execution_id=execution_id,
+                condition=state.get("condition"),
+                message=f"Completed filtering reviews by {" AND ".join(filter_strings)}.",
+                details={
+                    'filters_applied': " AND ".join(filter_strings),
+                    'records_before': records_before,
+                    'records_after': records_after,
+                    'records_removed': records_before - records_after,
+                    'reduction_pct': reduction_pct,
+                    'filter_time_ms': execution_time
+                }
+            )
             self._log_results_to_file(results)
 
             return results
@@ -788,6 +892,8 @@ class DataCleanerTool(BaseTool):
             category = input_data.get('category', '')
             
             # Extract session info for WebSocket updates
+            state = input_data.get('category', '')
+            condition = input_data.get('condition')
             session_id = input_data.get('session_id')
             execution_id = input_data.get('execution_id')
             
@@ -856,13 +962,17 @@ class DataCleanerTool(BaseTool):
             # ========================================
             
             # Step 1: Initialization (10%)
-            await self._send_progress(
-                session_id, execution_id,
-                progress=10,
+            await self._send_tool_start(
+                session_id=session_id, 
+                execution_id=execution_id,
+                condition=condition,
                 message="Loading data quality assessment...",
-                step="initializing"
+                details={
+                    'progress': 10,
+                    'total_steps': 5,
+                },
+                status="initializing"
             )
-            await asyncio.sleep(0.15)
             
             # Start with all records
             working_records = records.copy()
@@ -873,13 +983,18 @@ class DataCleanerTool(BaseTool):
             # ========================================
             if remove_nulls:
                 try:
-                    await self._send_progress(
-                        session_id, execution_id,
+                    await self._send_tool_update(
+                        session_id=session_id,
+                        execution_id= execution_id,
+                        condition=condition,
                         progress=current_progress + 10,
                         message="Scanning for incomplete records...",
-                        step="scanning_missing_data"
+                        details={
+                            "step_num": 1,
+                            "total_steps": 5
+                        },
+                        status="scanning_missing_data"
                     )
-                    await asyncio.sleep(0.2)
                     
                     # Filter out records with missing_data
                     records_before = len(working_records)
@@ -911,25 +1026,28 @@ class DataCleanerTool(BaseTool):
                     # Send detailed result
                     if removed_count > 0:
                         fields_str = ', '.join(fields_with_missing) if fields_with_missing else 'various fields'
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 25,
-                            message=f"Removed {removed_count} records with missing data in: {fields_str}",
-                            step="missing_data_complete",
-                            details={'removed': removed_count, 'fields': fields_str}
-                        )
+                        message=f"Removed {removed_count} records with missing data in: {fields_str}"
                         logger.info(f"  ➜ Removed {removed_count} records with missing data (fields: {fields_str})")
                     else:
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 25,
-                            message="No records with missing data found - all records complete ✓",
-                            step="missing_data_complete",
-                            details={'removed': 0}
-                        )
+                        fields_str = None
+                        message="No records with missing data found - all records complete"
                         logger.info(f"  ➜ No missing data found")
-                    
-                    await asyncio.sleep(0.15)
+
+                    await self._send_tool_update(
+                        session_id=session_id,
+                        execution_id= execution_id,
+                        condition=condition,
+                        progress=current_progress + 25,
+                        message=f"Removed {removed_count} records with missing data in: {fields_str}",
+                        details={
+                            "step_num": 4,
+                            "total_steps": 5,
+                            'removed': removed_count, 
+                            **({'fields': fields_str} if fields_str else {})
+                        },
+                        status="missing_data_complete"
+                    )
+
                     current_progress += 25
                     
                 except Exception as e:
@@ -945,13 +1063,18 @@ class DataCleanerTool(BaseTool):
             # ========================================
             if normalize_text:
                 try:
-                    await self._send_progress(
-                        session_id, execution_id,
+                    await self._send_tool_update(
+                        session_id=session_id,
+                        execution_id=execution_id,
+                        condition=condition,
                         progress=current_progress + 10,
                         message="Analyzing text patterns for spam and malformed content...",
-                        step="scanning_spam"
+                        details={
+                            "step_num": 4,
+                            "total_steps": 5
+                        },
+                        status="scanning_spam"
                     )
-                    await asyncio.sleep(0.2)
                     
                     # Filter out spam records
                     records_before = len(working_records)
@@ -976,25 +1099,25 @@ class DataCleanerTool(BaseTool):
                     
                     # Send detailed result
                     if removed_count > 0:
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 25,
-                            message=f"Removed {removed_count} spam/malformed reviews",
-                            step="spam_complete",
-                            details={'removed': removed_count}
-                        )
+                        message = f"Removed {removed_count} spam/malformed reviews"
                         logger.info(f"  ➜ Removed {removed_count} spam/malformed reviews")
                     else:
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 25,
-                            message="No spam or malformed content detected - all reviews valid ✓",
-                            step="spam_complete",
-                            details={'removed': 0}
-                        )
+                        message="No spam or malformed content detected - all reviews valid"
                         logger.info(f"  ➜ No spam found")
                     
-                    await asyncio.sleep(0.15)
+                    await self._send_tool_update(
+                            session_id=session_id,
+                            execution_id=execution_id,
+                            condition=condition,
+                            progress=current_progress + 25,
+                            message=message,
+                            details={
+                                "step_num": 4,
+                                "total_steps": 5,
+                                'removed': removed_count
+                            },
+                            status="spam_complete"
+                        )
                     current_progress += 25
                     
                 except Exception as e:
@@ -1010,13 +1133,18 @@ class DataCleanerTool(BaseTool):
             # ========================================
             if remove_duplicates:
                 try:
-                    await self._send_progress(
-                        session_id, execution_id,
+                    await self._send_tool_update(
+                        session_id=session_id,
+                        execution_id=execution_id,
+                        condition=condition,
                         progress=current_progress + 10,
                         message="Checking for duplicate reviews by ID...",
-                        step="scanning_duplicates"
+                        details={
+                            "step_num": 4,
+                            "total_steps": 5
+                        },
+                        status="scanning_duplicates"
                     )
-                    await asyncio.sleep(0.2)
                     
                     # Deduplicate by review_id
                     records_before = len(working_records)
@@ -1046,25 +1174,26 @@ class DataCleanerTool(BaseTool):
                     
                     # Send detailed result
                     if removed_count > 0:
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 20,
-                            message=f"Removed {removed_count} duplicate reviews",
-                            step="duplicates_complete",
-                            details={'removed': removed_count}
-                        )
+                        message=f"Removed {removed_count} duplicate reviews"
                         logger.info(f"  ➜ Removed {removed_count} duplicates")
                     else:
-                        await self._send_progress(
-                            session_id, execution_id,
-                            progress=current_progress + 20,
-                            message="No duplicate reviews detected - all reviews unique ✓",
-                            step="duplicates_complete",
-                            details={'removed': 0}
-                        )
-                        logger.info(f"  ➜ No duplicates found")
-                    
-                    await asyncio.sleep(0.15)
+                        message="No duplicate reviews detected - all reviews unique"
+                        logger.info(f"  ➜ No duplicates found")                    
+
+                    await self._send_tool_update(
+                        session_id=session_id,
+                        execution_id=execution_id,
+                        condition=condition,
+                        progress=current_progress + 20,
+                        message=f"Removed {removed_count} duplicate reviews",
+                        details={
+                            "step_num": 4,
+                            "total_steps": 5,
+                            'removed': removed_count
+                        },
+                        step="duplicates_complete",
+                    )
+
                     current_progress += 20
                     
                 except Exception as e:
@@ -1097,10 +1226,12 @@ class DataCleanerTool(BaseTool):
             
             summary_str = ", ".join(summary_parts) if summary_parts else "0 issues"
             
-            await self._send_progress_complete(
-                session_id, execution_id,
+            await self._send_tool_complete(
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,
                 message=f"Cleaned {original_count} → {len(cleaned_records)} reviews (removed: {summary_str})",
-                summary={
+                details={
                     'records_before': original_count,
                     'records_after': len(cleaned_records),
                     'total_removed': total_removed,
@@ -1150,7 +1281,7 @@ class DataCleanerTool(BaseTool):
             return results
         
         except Exception as e:
-            # Catch-all for any unexpected errors
+                        # Catch-all for any unexpected errors
             execution_time = int((time.time() - start_time) * 1000)
             error_msg = f"Unexpected error during data cleaning: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -1159,11 +1290,18 @@ class DataCleanerTool(BaseTool):
             # Try to send error notification via WebSocket
             session_id = input_data.get('session_id')
             execution_id = input_data.get('execution_id')
-            await self._send_progress(
-                session_id, execution_id,
-                progress=100,
-                message=f"Error: {str(e)}",
-                step="error"
+            await self._send_tool_error(
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,
+                error_message=str(e),
+                error_type= type(e).__name__,
+                details={
+                    "step_num": 5,
+                    "total_steps": 5,
+                    'progress': 100,
+                    'removed': removed_count
+                }
             )
         except:
             pass  # Ignore WebSocket errors during error handling

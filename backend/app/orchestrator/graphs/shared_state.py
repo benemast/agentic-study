@@ -291,6 +291,11 @@ class SharedWorkflowState(TypedDict, total=False):
     # Used for final result extraction and analysis
     results_registry: Dict[str, Any]                # ResultsRegistry.model_dump()
     
+    # Analysis outputs (NEW)
+    sentiment_statistics: Optional[Dict[str, Any]]  # Sentiment distribution stats
+    theme_analysis: Optional[Dict[str, Any]]        # Theme aggregation results
+    insights: Optional[Dict[str, Any]]              # Generated business insights
+
     # Immutable snapshot of base dataset (review IDs only)
     # Used to validate that enrichments/filters don't violate base set
     base_record_ids: List[str]
@@ -420,6 +425,10 @@ def initialize_state(
         'enrichment_registry': EnrichmentRegistry().model_dump(),
         'results_registry': ResultsRegistry().model_dump(),
         
+        'sentiment_statistics': None,
+        'theme_analysis': None,
+        'insights': None,
+
         'base_record_ids': list(),
         'base_record_count': 0,
         'base_columns': list(),

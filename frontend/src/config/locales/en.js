@@ -640,6 +640,42 @@ export const en = {
   },
   // ========== WORKFLOW ==========
   workflow: {
+    validation: {
+      // Status Titles
+      emptyWorkflow: 'Empty workflow',
+      missingInput: 'Missing input node',
+      missingOutput: 'Missing output node',
+      noConnections: 'No connections',
+      incompletePath: 'Incomplete workflow',
+      configurationIncomplete: 'Configuration incomplete',
+      floatingNodesDetected: 'Floating nodes detected',
+      readyToExecute: 'Ready to execute',
+      
+      // Status Details
+      statusDetails: {
+        addNodes: 'Add nodes to start building your workflow',
+        addInput: 'Add a data input node to start your workflow',
+        addOutput: 'Add an output node to complete your workflow',
+        connectNodes: 'Connect your nodes to create a workflow path',
+        createPath: 'Create a path from input to output nodes',
+        nodesConnected: '{{count}} nodes connected properly',
+        configureNodes: 'Configure all required fields in nodes'
+      },
+      
+      // Configuration Errors
+      configErrors: {
+        fieldRequired: '"{{field}}" is required',
+        multiselectRequired: '"{{field}}" must have at least one selection',
+        singleNode: '"{{node}}" needs configuration',
+        multipleNodes: '{{count}} nodes need configuration'
+      },
+      
+      // Floating Nodes
+      floatingNodes: {
+        singleNode: '1 node not connected: {{nodes}}',
+        multipleNodes: '{{count}} nodes not connected: {{nodes}}'
+      }
+    },
     builder: {
       title: 'Research Workflow',
       addNode: 'Add Node',
@@ -768,7 +804,7 @@ export const en = {
             },
             includePercentages: {
               label: 'Include Theme Percentages',
-              help: 'Calculate frequency percentage for each theme',
+              help: 'Calculate sentiment ditribution and frequency percentage for each theme',
               placeholder: 'Enable to show percentages'
             }
           }
@@ -803,7 +839,7 @@ export const en = {
             },
             maxRecommendations: {
               label: 'Number of Recommendations',
-              help: 'Maximum number of recommendations to generate'
+              help: 'Maximum number of recommendations to generate per type'
             }
           }
         },
@@ -1002,6 +1038,11 @@ export const en = {
         settings: 'Settings',
         execute: 'Execute'
       },
+      sidebar: {
+        used: "used",
+        maxAllowed: "Limited: {{current}}/{{max}} used",
+        maxReached: "Limit reached ({{max}} max)"
+      },
       status: {
         ready: 'Ready to execute',
         emptyWorkflow: 'Empty workflow',
@@ -1070,6 +1111,8 @@ export const en = {
       executionCompleted: 'Workflow execution completed',
       executionCancelled: 'Workflow execution cancelled',
       validationFailed: 'Workflow validation failed',
+      maxAllowedReached: "Cannot add '{{name}}': Maximum of {{max}} allowed",
+      floatingNodesFiltered: '{{count}} floating node(s) were automatically removed from execution',
       
       // More detailed versions (optional)
       executionFailedWithError: 'Workflow execution failed: {{error}}',

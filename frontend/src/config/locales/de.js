@@ -640,6 +640,42 @@ export const de = {
   },
   // ========== WORKFLOW ==========
   workflow: {
+    validation: {
+      // Status Titles
+      emptyWorkflow: 'Leerer Workflow',
+      missingInput: 'Eingabe-Node fehlt',
+      missingOutput: 'Ausgabe-Node fehlt',
+      noConnections: 'Keine Verbindungen',
+      incompletePath: 'Unvollständiger Workflow',
+      configurationIncomplete: 'Konfiguration unvollständig',
+      floatingNodesDetected: 'Unverbundene Nodes erkannt',
+      readyToExecute: 'Bereit zur Ausführung',
+      
+      // Status Details
+      statusDetails: {
+        addNodes: 'Fügen Sie Nodes hinzu, um Ihren Workflow zu erstellen',
+        addInput: 'Fügen Sie einen Daten-Eingabe-Node hinzu, um zu beginnen',
+        addOutput: 'Fügen Sie einen Ausgabe-Node hinzu, um den Workflow abzuschließen',
+        connectNodes: 'Verbinden Sie Ihre Nodes, um einen Workflow-Pfad zu erstellen',
+        createPath: 'Erstellen Sie einen Pfad von Eingabe- zu Ausgabe-Nodes',
+        nodesConnected: '{{count}} Nodes korrekt verbunden',
+        configureNodes: 'Konfigurieren Sie alle erforderlichen Felder in den Nodes'
+      },
+      
+      // Configuration Errors
+      configErrors: {
+        fieldRequired: '"{{field}}" ist erforderlich',
+        multiselectRequired: '"{{field}}" muss mindestens eine Auswahl enthalten',
+        singleNode: '"{{node}}" benötigt Konfiguration',
+        multipleNodes: '{{count}} Nodes benötigen Konfiguration'
+      },
+      
+      // Floating Nodes
+      floatingNodes: {
+        singleNode: '1 Node nicht verbunden: {{nodes}}',
+        multipleNodes: '{{count}} Nodes nicht verbunden: {{nodes}}'
+      }
+    },
     builder: {
       title: 'Forschungs-Workflow',
       addNode: 'Knoten hinzufügen',
@@ -1001,6 +1037,11 @@ export const de = {
         settings: 'Einstellungen',
         execute: 'Ausführen'
       },
+      sidebar: {
+        used: "verwendet",
+        maxAllowed: "Begrenzt: {{current}}/{{max}} verwendet",
+        maxReached: "Limit erreicht ({{max}} max)"
+      },
       status: {
         ready: 'Bereit zur Ausführung',
         emptyWorkflow: 'Leerer Workflow',
@@ -1069,6 +1110,8 @@ export const de = {
       executionCompleted: 'Workflow-Ausführung abgeschlossen',
       executionCancelled: 'Workflow-Ausführung abgebrochen',
       validationFailed: 'Workflow-Validierung fehlgeschlagen',
+      maxAllowedReached: "'{{name}}' kann nicht hinzugefügt werden: Maximum von {{max}} erlaubt",
+      floatingNodesFiltered: "{{count}} unverbundene Node(s) wurden automatisch von der Ausführung entfernt",
       
       // More detailed versions (optional)
       executionFailedWithError: 'Workflow-Ausführung fehlgeschlagen: {{error}}',

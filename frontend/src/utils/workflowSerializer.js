@@ -160,6 +160,17 @@ const cleanConfigSchema = (configSchema) => {
  * @returns {Object} Minimal serialized workflow
  */
 export const serializeWorkflowMinimal = (nodes, edges) => {
+  // Safety checks
+  if (!nodes || !Array.isArray(nodes)) {
+    console.error('serializeWorkflowMinimal: nodes is not an array', nodes);
+    throw new TypeError('nodes must be an array');
+  }
+  
+  if (!edges || !Array.isArray(edges)) {
+    console.error('serializeWorkflowMinimal: edges is not an array', edges);
+    throw new TypeError('edges must be an array');
+  }
+
   // Minimal node data - only what backend needs
   const cleanNodes = nodes.map(node => ({
     id: node.id,
@@ -193,6 +204,22 @@ export const serializeWorkflowMinimal = (nodes, edges) => {
  * @returns {Object} Serialized workflow with resolved translations
  */
 export const serializeWorkflowWithTranslations = (nodes, edges, t) => {
+  // Safety checks
+  if (!nodes || !Array.isArray(nodes)) {
+    console.error('serializeWorkflowWithTranslations: nodes is not an array', nodes);
+    throw new TypeError('nodes must be an array');
+  }
+  
+  if (!edges || !Array.isArray(edges)) {
+    console.error('serializeWorkflowWithTranslations: edges is not an array', edges);
+    throw new TypeError('edges must be an array');
+  }
+  
+  if (!t || typeof t !== 'function') {
+    console.warn('serializeWorkflowWithTranslations: t is not a function, using identity');
+    t = (key) => key; // Fallback to identity function
+  }
+
   // Clean nodes with translation resolution
   const cleanNodes = nodes.map(node => {
     const cleanedSchema = cleanConfigSchema(node.data?.configSchema || []);
@@ -253,6 +280,17 @@ export const serializeWorkflowWithTranslations = (nodes, edges, t) => {
  * Use this for storage/persistence where you want to keep translation keys
  */
 export const serializeWorkflowSafe = (nodes, edges) => {
+  // Safety checks
+  if (!nodes || !Array.isArray(nodes)) {
+    console.error('serializeWorkflowSafe: nodes is not an array', nodes);
+    throw new TypeError('nodes must be an array');
+  }
+  
+  if (!edges || !Array.isArray(edges)) {
+    console.error('serializeWorkflowSafe: edges is not an array', edges);
+    throw new TypeError('edges must be an array');
+  }
+  
   const cleanNodes = nodes.map(node => ({
     id: node.id,
     type: node.type,

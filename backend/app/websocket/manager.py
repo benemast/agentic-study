@@ -3,12 +3,12 @@
 WebSocket Manager with Batch Support + Connection Pooling
 """
 from fastapi import WebSocket
-from typing import Dict, List, Set, Optional, Any, Callable
+from typing import Dict, List, Set, Optional, Any, Callable, Literal
 import logging
 import json
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 
 from app.configs import settings
@@ -68,6 +68,10 @@ class ConnectionPool:
         """Get total number of connections"""
         return sum(len(conns) for conns in self.connections.values())
     
+    def get_session_connection_count(self, session_id: str) -> int:
+        """Get total number of connections"""
+        return len(self.get_connections(session_id))
+    
     def get_session_count(self) -> int:
         """Get number of active sessions"""
         return len(self.connections)
@@ -85,6 +89,59 @@ class WebSocketManager:
     - Request-response pattern support
     """
     
+    # Define once, reuse everywhere (O(1) lookup)
+    MESSAGE_TYPES = frozenset({
+        # AI Chat replies
+        'chat_stream', 'chat_complete', 'chat_error'
+        # Regular messages
+        'response', 'error', 'stream',
+        # Bathc handler
+        'batch_response', 'batch_error'
+        # Orchestrator level
+        'execution',
+        # Graph level
+        'node',
+        # Tool level
+        'tool'
+    })
+
+    MESSAGE_SUBTYPES = frozenset({
+        'start','progress','end', 'error'
+    })
+
+    MESSAGE_STATUS = frozenset({
+        'start', 'running', 'completed', 'failed', 'exception'
+    })
+
+    STREAMING_TYPES = frozenset({
+        'stream',
+        'chat_stream',
+        'chat_complete',
+        'chat_error'
+    })
+    
+    ERROR_TYPES= frozenset({
+        'error',
+        'batch_error'
+        'execution_error',
+        'graph_error',
+        'tool_error'
+    })
+
+    SEND_IMMEDIATE_TYPES = frozenset({
+        'response',
+        'batch_response',
+        'error',
+        'batch_error'
+        'execution_error',
+        'graph_error',
+        'tool_error'
+    })
+    
+    SEND_IMMEDIATE_SUBTYPES = frozenset({
+        'error'
+    })
+
     def __init__(self, enable_batching: bool = True):
         # Connection pool
         self.pool = ConnectionPool()
@@ -102,7 +159,7 @@ class WebSocketManager:
         self.rate_limits: Dict[str, dict] = defaultdict(
             lambda: {'count': 0, 'reset_at': time.time() + 60}
         )
-        self.rate_limit_max = 100  # messages per minute
+        self.rate_limit_max = settings.websocket_rate_limit  # messages per minute
         
         # Channel subscriptions
         self.subscriptions: Dict[str, Set[str]] = defaultdict(set)
@@ -166,7 +223,7 @@ class WebSocketManager:
             'type': 'connected',
             'session_id': session_id,
             'connection_id': connection_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'batching_enabled': self.enable_batching
         })
         
@@ -246,50 +303,36 @@ class WebSocketManager:
         
         With batching support for performance
         """
-        # Disable batching for streaming events
+        # Early exit: Check connections first (avoid processing if no destination)
+        connections = self.pool.get_connections(session_id)
+        if not connections:
+            logger.debug(f"No connections for {session_id}, queueing message")
+            self.queue_message(session_id, message)
+            return
+        
+        # Extract once, reuse
         message_type = message.get('type', '')
+        subtype = message.get('subtype', None)
+        status = message.get('staus', None)
+        tool_step = message.get('step', None) 
+    
+        # Determine immediacy with optimized logic
+        immediate = immediate or self._should_send_immediate(message, message_type, subtype, status)
 
-        # Only rate limit non-streaming messages
-        is_streaming = message_type in ['chat_stream', 'chat_complete', 'chat_error']
-               
-        if is_streaming:
-            immediate = True
-
-        has_request_id = 'request_id' in message
-        
-        is_response = (
-            message_type == 'response' or 
-            message_type == 'batch_response' or
-            message_type == 'error' or
-            message_type == 'batch_error' or
-            has_request_id
-        )
-        
-        if is_response:
-            # Force immediate for responses
-            immediate = True
-            logger.debug(f"Response message detected, bypassing batch: {message_type}")
-
-
-        # Only rate limit non immediate (non-streaming, non-response) messages
+        # Rate limiting (only if applicable)
         if not immediate and self.rate_limit_enabled:
             if not self._check_rate_limit(session_id):
                 logger.warning(f"Rate limit exceeded for session: {session_id}")
                 self.metrics['rate_limit_hits'] += 1
                 return
         
-        connections = self.pool.get_connections(session_id)
-        
-        if not connections:
-            # Queue message if no connections
-            logger.debug(f"No connections for {session_id}, queueing message")
-            self.queue_message(session_id, message)
-            return
-        
-        
+        # Flush if needed
+        if self.batch_manager and self._should_flush(message_type, subtype, status):
+            if self.batch_manager.get_pending_count(session_id) > 0:
+                await self.flush_session_batches(session_id)        
 
-        # Use batching if enabled and not immediate
-        if self.enable_batching and self.batch_manager and not immediate:
+        # Send message
+        if not immediate and self.enable_batching and self.batch_manager:
             await self.batch_manager.add_message(
                 session_id=session_id,
                 message=message,
@@ -297,22 +340,74 @@ class WebSocketManager:
                 immediate=immediate
             )
         else:
-            # Send immediately to first connection
-            connections = self.pool.get_connections(session_id)
-            
-            if not connections:
-                logger.warning(f"No connections for {session_id} when sending immediate")
-                return
-            
-            # Send to first connection
-            websocket = connections[0]
-            success = await self._send_direct(websocket, message)
-                        
-            if not success:
-                # Try other connections
-                for ws in connections[1:]:
-                    if await self._send_direct(ws, message):
-                        break
+            await self._send_to_connections(connections, message)
+
+
+
+    def _should_send_immediate(
+        self,
+        message: Dict[str, Any], 
+        message_type: str, 
+        subtype: str | None = None, 
+        status: str | None = None
+    ) -> bool:
+        """
+        Determine if message should be sent immediately
+        
+        Optimized with early returns and sets for O(1) lookup
+        """
+        # Streaming messages (most common case first)
+        if message_type in self.STREAMING_TYPES:  # Use class constant
+            return True
+        
+        # Error identifiers
+        if subtype in self.ERROR_TYPES or message_type in self.ERROR_TYPES:
+            logger.warn(f"Error message detected, bypassing batch! type: {message_type}, subtype: {subtype}, status: {status}")
+            return True
+
+        # Handle message types that require immediate send (e.g. errors, resposnses, etc.)
+        if 'request_id' in message or message_type in self.SEND_IMMEDIATE_TYPES: 
+            logger.debug(f"Response message detected, bypassing batch! type: {message_type}, subtype: {subtype}, status: {status}")
+            return True
+         
+        # Tool progress special cases
+        if (message_type == 'node' or message_type == "execution") and subtype == 'end':
+            logger.info(f"Node completion detected, bypassing batch! type: {message_type}, subtype: {subtype}, status: {status}")
+            return True
+        
+        return False
+
+    def _should_flush(
+        self,
+        message_type: str, 
+        subtype: str | None = None, 
+        status: str | None = None
+    ) -> bool:
+        """Check if message type should trigger batch flush"""
+
+        if (message_type == 'node' or message_type == "execution") and subtype == 'end':
+            return True 
+                
+        return False
+
+    async def _send_to_connections(self, connections: list, message: Dict[str, Any]) -> bool:
+        """
+        Send message to connections with fallback
+        
+        Returns True if sent successfully
+        """
+        # Try first connection
+        if await self._send_direct(connections[0], message):
+            return True
+        
+        # Fallback to other connections
+        for ws in connections[1:]:
+            if await self._send_direct(ws, message):
+                return True
+        
+        logger.warning(f"Failed to send to any connection")
+        return False
+
     
     async def _send_batch_to_session(
         self, 
@@ -550,60 +645,72 @@ class WebSocketManager:
         return {
             'healthy_connections': healthy,
             'unhealthy_connections': unhealthy,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
     
     # ==================== ORCHESTRATOR INTEGRATION ====================
     
+    # Used by Orchestrator service
     async def send_execution_progress(
         self,
         session_id: str,
         execution_id: int,
-        event_type: str,
-        data: Dict[str, Any],
-        priority: str = 'normal'
-    ):
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        progress_type: Literal['start','progress','end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
+        data: Optional[Dict[str, Any]] = None,
+        priority: Literal['low', 'normla','high'] = 'normal'
+    )-> None: 
         """Send execution progress update"""
+        
         message = {
-            'type': 'execution_progress',
-            'event_type': event_type,
+            'type': 'execution',
+            'subtype': progress_type,
             'execution_id': execution_id,
-            'timestamp': datetime.utcnow().isoformat(),
-            'data': data
+            'condition': condition,
+            'status': status,
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
-        
-        # High priority for critical events
-        if event_type in ['execution_failed', 'execution_cancelled', 'error']:
-            priority = 'high'
-            immediate = True
-        else:
-            immediate = False
-        
-        await self.send_to_session(session_id, message, priority, immediate)
-    
+
+        if data:
+            message['data'] = data
+                
+        await self.send_to_session(
+            session_id=session_id,
+            message=message,
+            priority=priority
+        )
+
+    # Used by Graph handlers
     async def send_node_progress(
         self,
         session_id: str,
         execution_id: int,
-        node_id: str,
-        step_number: int,
-        status: str,
-        result: Optional[Dict[str, Any]] = None,
-        node_label: Optional[str] = None
-    ):
-        """Send node execution progress"""
-        message = {
-            'type': 'node_progress',
-            'execution_id': execution_id,
-            'node_id': node_id,
-            'node_label': node_label,
-            'step_number': step_number,
-            'status': status,
-            'timestamp': datetime.utcnow().isoformat(),
-            'result': result
-        }
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        progress_type: Literal['start','progress','end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
+        data: Optional[Dict[str, Any]] = None,
+        priority: Literal['low', 'normla', 'high'] = 'normal'
+    )-> None: 
+        """Send execution progress update"""
         
-        await self.send_to_session(session_id, message, priority='normal')
+        message = {
+            'type': 'node',
+            'subtype': progress_type,
+            'status': status,
+            'execution_id': execution_id,
+            'condition': condition,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+
+        if data:
+            message['data'] = data
+                
+        await self.send_to_session(
+            session_id, 
+            message, 
+            priority
+        )
     
     async def send_agent_decision(
         self,
@@ -617,7 +724,7 @@ class WebSocketManager:
             'type': 'agent_decision',
             'execution_id': execution_id,
             'step_number': step_number,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'decision': decision
         }
         
@@ -633,58 +740,12 @@ class WebSocketManager:
         message = {
             'type': 'agent_thinking',
             'execution_id': execution_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'thinking': thinking
         }
         
         await self.send_to_session(session_id, message, priority='normal')
     
-    async def send_insight_generation_start(
-        self,
-        session_id: str,
-        execution_id: int,
-        record_count: int
-    ):
-        """Send insight generation started event"""
-        message = {
-            'type': 'insight_generation_start',
-            'execution_id': execution_id,
-            'record_count': record_count,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        await self.send_to_session(session_id, message, priority='normal')
-
-    async def send_insight_thinking(
-        self,
-        session_id: str,
-        execution_id: int,
-        chunks_received: int
-    ):
-        """Send insight generation thinking progress"""
-        message = {
-            'type': 'insight_thinking',
-            'execution_id': execution_id,
-            'chunks_received': chunks_received,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        await self.send_to_session(session_id, message, priority='normal')
-
-    async def send_insight_generation_complete(
-        self,
-        session_id: str,
-        execution_id: int,
-        insights_count: int,
-        execution_time_ms: int
-    ):
-        """Send insight generation completed event"""
-        message = {
-            'type': 'insight_generation_complete',
-            'execution_id': execution_id,
-            'insights_count': insights_count,
-            'execution_time_ms': execution_time_ms,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        await self.send_to_session(session_id, message, priority='normal')
 
     # ==================== BATCH CONTROL ====================
     
@@ -706,6 +767,10 @@ class WebSocketManager:
         """Get number of active connections"""
         return self.pool.get_connection_count()
     
+    def get_session_connection_count(self, session_id: str) -> int:
+        """Get number of active connections"""
+        return self.pool.get_session_connection_count(session_id)
+
     def get_session_count(self) -> int:
         """Get number of active sessions"""
         return self.pool.get_session_count()
@@ -748,4 +813,12 @@ class WebSocketManager:
 
 
 # Global instance
-ws_manager = WebSocketManager(enable_batching=True)
+#ws_manager = WebSocketManager(enable_batching=True)
+
+ws_manager: WebSocketManager = None
+def get_ws_manager() -> WebSocketManager:
+    """Lazy initialization of WebSocketManager"""
+    global ws_manager
+    if ws_manager is None:
+        ws_manager = WebSocketManager(enable_batching=True)
+    return ws_manager

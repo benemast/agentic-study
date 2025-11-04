@@ -11,11 +11,19 @@ All tools should inherit from BaseTool to get:
 import asyncio
 import time
 import logging
-from typing import Dict, Any, Optional
+import re
+import json
+from html import unescape
+from typing import overload, Dict, Any, Optional, List, Union, Literal
 from abc import ABC, abstractmethod
 
-logger = logging.getLogger(__name__)
+from app.websocket.manager import WebSocketManager
+from app.orchestrator.llm.client_langchain import LangChainLLMClient
+from app.orchestrator.llm.streaming_callbacks import get_callback_factory
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+
+logger = logging.getLogger(__name__)
 
 class ToolTimeoutError(Exception):
     """Raised when tool execution exceeds timeout"""
@@ -67,7 +75,7 @@ class BaseTool(ABC):
         self.default_timeout = timeout
         self.allow_timeout_override = allow_timeout_override
         self.websocket_manager = None   # Injected by orchestrator
-        self.llm_client = None          # Injected by orchestrator
+        self.llm_client:Optional[LangChainLLMClient] = None          # Injected by orchestrator
         
         # Metrics
         self.total_executions = 0
@@ -83,14 +91,480 @@ class BaseTool(ABC):
     
     def set_websocket_manager(self, ws_manager):
         """Inject WebSocket manager for tool"""
-        self.websocket_manager = ws_manager
+        self.websocket_manager:WebSocketManager = ws_manager
         logger.debug(f"WebSocket manager injected into {self.name}")
     
     def set_llm_client(self, client):
         """Inject LLM client for AI-powered operations"""
-        self.llm_client = client
+        self.llm_client: LangChainLLMClient = client
         logger.info(f"LLM client injected into {self.name}")
 
+
+# Convienience helpers
+    # ========== OVERLOAD SIGNATURES ========== ↓
+
+    @overload
+    async def _call_llm_with_streaming(
+        self,
+        session_id: str,
+        execution_id: int,
+        condition: str,
+        tool_name: str,
+        *,
+        messages: Union[List[BaseMessage], List[Dict[str, str]]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        step_number: Optional[int] = None,
+        parsed: bool = False,
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        **kwargs
+    ) -> dict:
+        """Call LLM with pre-formatted messages"""
+        ...
+
+    @overload
+    async def _call_llm_with_streaming(
+        self,
+        session_id: str,
+        execution_id: int,
+        condition: str,
+        tool_name: str,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        step_number: Optional[int] = None,
+        parsed: bool = False,
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        **kwargs
+    ) -> dict:
+        """Call LLM with system and user prompts"""
+        ...
+
+    @overload
+    async def _call_llm_with_streaming(
+        self,
+        session_id: str,
+        execution_id: int,
+        condition: str,
+        tool_name: str,
+        *,
+        user_prompt: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        step_number: Optional[int] = None,
+        parsed: bool = False,
+        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        **kwargs
+    ) -> dict:
+        """Call LLM with only user prompt (no system prompt)"""
+        ...
+
+    # ========== ACTUAL IMPLEMENTATION ========== ↓
+
+    async def _call_llm_with_streaming(
+        self,
+        session_id: str,
+        execution_id: int,
+    condition: str,
+        tool_name: str,
+        messages: List[BaseMessage] | List[Dict[str, str]] | None = None,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        step_number: int | None = None,
+        parsed: bool = False,
+        verbosity: Literal["low", "medium", "high"] | None = None,
+        **kwargs
+    ) -> dict:
+        """
+        Helper to call LLM with streaming callback
+        
+        Supports two calling patterns:
+        1. Pre-formatted messages: _call_llm_with_streaming(..., messages=[...])
+        2. Individual prompts: _call_llm_with_streaming(..., system_prompt="...", user_prompt="...")
+        
+        Args:
+            session_id: Session ID
+            execution_id: Execution ID
+            tool_name: Name of the tool making the call
+            step_number: Current step number
+            messages: Pre-formatted messages (LangChain BaseMessage or dict format)
+            system_prompt: System prompt (used if messages not provided)
+            user_prompt: User prompt (required if messages not provided)
+            temperature: Temperature setting
+            max_tokens: Max tokens
+            verbosity: Verbosity level ('low', 'medium', 'high')
+            **kwargs: Additional arguments passed to llm_client.chat_completion
+            
+        Returns:
+            LLM response dict
+            
+        Raises:
+            ValueError: If neither messages nor user_prompt provided, or if both approaches mixed
+            
+        Examples:
+            # Using messages
+            response = await self._call_llm_with_streaming(
+                session_id=session_id,
+                execution_id=execution_id,
+                tool_name='sentiment_analysis',
+                step_number=1,
+                messages=[
+                    SystemMessage(content="You are a sentiment analyzer"),
+                    HumanMessage(content="Analyze this review...")
+                ]
+            )
+            
+            # Using prompts
+            response = await self._call_llm_with_streaming(
+                session_id=session_id,
+                execution_id=execution_id,
+                tool_name='sentiment_analysis',
+                step_number=1,
+                system_prompt="You are a sentiment analyzer",
+                user_prompt="Analyze this review..."
+            )
+            
+            # User prompt only
+            response = await self._call_llm_with_streaming(
+                session_id=session_id,
+                execution_id=execution_id,
+                tool_name='quick_task',
+                step_number=1,
+                user_prompt="Summarize this text..."
+            )
+        """
+    
+        # ========== VALIDATION ========== ↓
+        # Must have either messages OR user_prompt (minimum)
+        if messages is None and user_prompt is None:
+            raise ValueError(
+                "Must provide either 'messages' or at minimum 'user_prompt'. "
+                f"Got: messages={messages is not None}, user_prompt={user_prompt is not None}"
+            )
+        
+        # Can't mix both approaches
+        if messages is not None and (system_prompt is not None or user_prompt is not None):
+            raise ValueError(
+                "Cannot provide both 'messages' and individual prompts. "
+                "Use either 'messages' OR 'system_prompt'/'user_prompt'."
+            )
+        # ========== END VALIDATION ========== ↑
+        
+        # Build messages if using prompt approach
+        if messages is None:
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            messages.append(HumanMessage(content=user_prompt))
+
+        # Create streaming callback
+        callback_factory = get_callback_factory()
+        callback = callback_factory.create_callback(
+            session_id=session_id,
+            execution_id=execution_id,
+            condition=condition,
+            tool_name=tool_name,
+            step_number=step_number
+        )
+        
+        # Call LLM with streaming
+        response = await self.llm_client.chat_completion(
+            tool_name=tool_name,
+            messages=messages,
+            callbacks=[callback],
+            stream=True,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            verbosity=verbosity,
+            **kwargs
+        )
+
+        if parsed:
+            # Extract and parse JSON
+            try:
+                content = response['content']
+                
+                # Extract JSON from markdown code blocks
+                if '```json' in content:
+                    content = content.split('```json')[1].split('```')[0].strip()
+                elif '```' in content:
+                    content = content.split('```')[1].split('```')[0].strip()
+                
+                response = json.loads(content)
+                
+            except KeyError as e:
+                logger.error(f"Missing 'content' key in response: {e}")
+                return {"error": "Invalid response structure"}
+            except IndexError as e:
+                logger.error(f"Failed to extract JSON from markdown: {e}")
+                return {"error": "Malformed JSON markdown block"}
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parsing failed: {e}\nContent: {content[:200]}")
+                return {"error": "Invalid JSON format"}
+            except Exception as e:
+                logger.error(f"Unexpected error parsing response: {e}")
+                return {"error": "Parsing failed"}
+
+        
+        return response
+
+
+    def _log_to_file(self, data: dict, filename: str = None):
+        """
+        Log to a JSON file
+        
+        Args:
+            data: Dictionary of data to log
+            filename: Optional custom filename (without .json extension)
+        
+        Returns:
+            Path: Filepath where data was logged
+        """
+        import json
+        from pathlib import Path
+        from datetime import datetime
+
+        try:
+            # Create logs directory if it doesn't exist
+            log_dir = Path("logs/tools_data")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename with timestamp if not provided
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"data_{timestamp}"
+                
+            if not filename.endswith('.json'):
+                filename = f"{filename}.json"
+            
+            filepath = log_dir / filename
+            
+            # Write results to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Data logged to: {filepath}")
+            return filepath
+        
+        except Exception as e:
+            logger.info(f"Failed to log data to file: {e}")
+            return None
+
+    def _log_results_to_file(self, data: dict, add_timestamp: bool = False):
+        """
+        Log results data to a JSON file with class name prefix
+        
+        Args:
+            data: Dictionary of results to log
+        
+        Returns:
+            Path: Filepath where data was logged
+        """
+        from datetime import datetime
+        
+        class_name = self.__class__.__name__
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if add_timestamp else ""
+        filename = f"{class_name}_results_{timestamp}" if add_timestamp else f"{class_name}_results"
+        
+        return self._log_to_file(data, filename)
+
+    def _log_input_to_file(self, data: dict, add_timestamp: bool = False):
+        """
+        Log input data to a JSON file with class name prefix
+        
+        Args:
+            data: Dictionary of input data to log
+        
+        Returns:
+            Path: Filepath where data was logged
+        """
+        from datetime import datetime
+        
+        class_name = self.__class__.__name__
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if add_timestamp else ""
+        filename = f"{class_name}_input_{timestamp}"
+        
+        return self._log_to_file(data, filename)
+
+
+    def _sample_reviews_strategically(
+        self, 
+        reviews: List[Dict[str, Any]], 
+        target_count: int
+    ) -> List[Dict[str, Any]]:
+        """Sample reviews maintaining rating distribution"""
+        # Group by rating
+        by_rating = {}
+        for review in reviews:
+            rating = review.get('star_rating', 3)
+            if rating not in by_rating:
+                by_rating[rating] = []
+            by_rating[rating].append(review)
+        
+        # Calculate sampling proportions
+        sampled = []
+        for rating in sorted(by_rating.keys()):
+            rating_reviews = by_rating[rating]
+            proportion = len(rating_reviews) / len(reviews)
+            sample_size = max(1, int(target_count * proportion))
+            
+            # Sample this rating group
+            if len(rating_reviews) <= sample_size:
+                sampled.extend(rating_reviews)
+            else:
+                import random
+                sampled.extend(random.sample(rating_reviews, sample_size))
+        
+        return sampled[:target_count]
+    
+    def _sample_reviews_mulit_strategically(
+        self, 
+        reviews: List[Dict[str, Any]], 
+        target_count: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Sample reviews maintaining rating and length distributions.
+        Stratification: Rating × Length (2 dimensions)
+        Prioritizes longer reviews (avoids "Works." type reviews)
+        """
+        import random
+        import math
+        
+        # Calculate length threshold
+        avg_length = sum(len(r.get('review_body', '')) for r in reviews) / len(reviews)
+        
+        # Group by: rating and length (prioritize long reviews)
+        long_groups = {}  # rating -> [long reviews]
+        short_groups = {}  # rating -> [short reviews]
+        
+        for review in reviews:
+            rating = review.get('star_rating', 3)
+            is_long = len(review.get('review_body', '')) >= avg_length
+            
+            if is_long:
+                if rating not in long_groups:
+                    long_groups[rating] = []
+                long_groups[rating].append(review)
+            else:
+                if rating not in short_groups:
+                    short_groups[rating] = []
+                short_groups[rating].append(review)
+        
+        # Calculate allocation per rating
+        all_ratings = set(long_groups.keys()) | set(short_groups.keys())
+        rating_counts = {
+            rating: len(long_groups.get(rating, [])) + len(short_groups.get(rating, []))
+            for rating in all_ratings
+        }
+        
+        allocations = []
+        total_allocated = 0
+        
+        for rating in all_ratings:
+            proportion = rating_counts[rating] / len(reviews)
+            ideal_size = target_count * proportion
+            allocated = math.floor(ideal_size)
+            
+            allocations.append({
+                'rating': rating,
+                'long_reviews': long_groups.get(rating, []),
+                'short_reviews': short_groups.get(rating, []),
+                'allocated': allocated,
+                'remainder': ideal_size - allocated
+            })
+            total_allocated += allocated
+        
+        # Distribute remaining slots
+        remaining = target_count - total_allocated
+        allocations.sort(key=lambda x: x['remainder'], reverse=True)
+        
+        for i in range(remaining):
+            if i < len(allocations):
+                total_available = len(allocations[i]['long_reviews']) + len(allocations[i]['short_reviews'])
+                if allocations[i]['allocated'] < total_available:
+                    allocations[i]['allocated'] += 1
+        
+        # Sample from each rating group (prioritize long reviews)
+        sampled = []
+        for allocation in allocations:
+            long_reviews = allocation['long_reviews']
+            short_reviews = allocation['short_reviews']
+            needed = allocation['allocated']
+            
+            if needed == 0:
+                continue
+            
+            # First: sample from long reviews
+            if len(long_reviews) >= needed:
+                sampled.extend(random.sample(long_reviews, needed))
+            else:
+                # Take all long reviews
+                sampled.extend(long_reviews)
+                remaining_needed = needed - len(long_reviews)
+                
+                # Then: fill with short reviews only if necessary
+                if remaining_needed > 0 and short_reviews:
+                    sampled.extend(random.sample(short_reviews, min(remaining_needed, len(short_reviews))))
+        
+        # Final shuffle and exact truncation
+        random.shuffle(sampled)
+        return sampled[:target_count]
+    
+    def _calculate_batches(self, total_reviews: int, batch_size: int, batch_padding: float = 0.0) -> List[tuple[int, int]]:
+        """
+        Calculate batch ranges with intelligent sizing
+        
+        If remaining reviews are ≤ (batch_size * (1 + batch_padding)), include them in last batch
+        to avoid tiny final batches
+        
+        Args:
+            total_reviews: Total number of reviews to batch
+            batch_size: Target reviews per batch
+            batch_padding: Tolerance ratio for final batch (0.1 = 10% padding)
+        
+        Returns: 
+            List of (start_idx, end_idx) tuples
+            
+        Examples:
+            batch_size=50, padding=0.1:
+            - 100 reviews → [(0,50), (50,100)]
+            - 110 reviews → [(0,50), (50,110)] ✓ (avoids 10-review batch)
+            - 54 reviews → [(0,54)] ✓ (single batch)
+        """
+        batches = []
+        idx = 0
+        
+        while idx < total_reviews:
+            remaining = total_reviews - idx
+            
+            # If remaining is small enough, take it all in one batch
+            if remaining <= batch_size * (1 + batch_padding):
+                batches.append((idx, total_reviews))
+                break
+            else:
+                batches.append((idx, idx + batch_size))
+                idx += batch_size
+        
+        return batches
+
+    def _strip_html(self, text: str) -> str:
+        """Remove HTML tags and unescape HTML entities, preserving line breaks"""
+        # Unescape HTML entities (&amp; → &, &lt; → <, etc.)
+        text = unescape(text)
+        # Convert <br>, <br/>, <br /> to newlines
+        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+        # Convert block elements to newlines
+        text = re.sub(r'</(p|div|h[1-6])>', '\n', text, flags=re.IGNORECASE)
+        # Remove remaining HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Clean up excessive whitespace (but preserve single newlines)
+        text = re.sub(r' +', ' ', text)  # Multiple spaces → single space
+        text = re.sub(r'\n{3,}', '\n\n', text)  # 3+ newlines → 2 newlines
+        return text.strip()
 
 # START: Websocket Notification helpers
     
@@ -104,7 +578,7 @@ class BaseTool(ABC):
         message: Dict[str, Any],
         priority: str = 'normal',
         immediate: bool = False,
-        broadcast: bool = False
+        broadcast: Optional[bool] = None,
     ) -> bool:
         """
         Send WebSocket message (LOWEST LEVEL - Direct Access to WS Manager)
@@ -148,7 +622,7 @@ class BaseTool(ABC):
             return False
         
         try:
-            if broadcast:
+            if broadcast or (not broadcast and self.websocket_manager.get_session_connection_count(session_id) > 1):
                 # Send to ALL connections for this session
                 await self.websocket_manager.broadcast_to_session(session_id, message)
             else:
@@ -180,11 +654,14 @@ class BaseTool(ABC):
     async def _send_tool_message(
         self,
         session_id: str,
-        message_type: str,
-        execution_id: Optional[int] = None,
+        execution_id: int,
+        condition: Literal['ai_assistant', 'workflow_builder'] | None,
+        message_type:  Literal['start','progress','end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str | None,
+        data: Optional[Dict[str, Any]] = {},
         priority: str = 'normal',
         immediate: bool = False,
-        broadcast: bool = False,
+        broadcast: Optional[bool] = None,
         add_tool_name: bool = True,
         add_timestamp: bool = True,
         **kwargs
@@ -241,22 +718,31 @@ class BaseTool(ABC):
             )
         """
         # Build message payload
-        payload = {'type': message_type}
+        payload = {
+            'type': 'tool',
+            'subtype': message_type,
+            }
         
         # Add optional standard fields
+        if execution_id:
+            payload['execution_id'] = execution_id
+        if condition:
+            payload['condition'] = condition
+        if status:
+            payload['status'] = status
         if add_tool_name:
             payload['tool_name'] = self.name
         if add_timestamp:
-            payload['timestamp'] = time.time()
-        if execution_id is not None:
-            payload['execution_id'] = execution_id
+            payload['timestamp'] = time.time()        
+        if data:
+            payload['data'] = data
         
         # Add all custom fields
         payload.update(kwargs)
         
         # Send using base function
         return await self._send_websocket(
-            session_id=session_id,
+            session_id=session_id,            
             message=payload,
             priority=priority,
             immediate=immediate,
@@ -267,14 +753,17 @@ class BaseTool(ABC):
     # LEVEL 3: Progress Tracking Helpers (High-Level Convenience)
     # =====================================
     
-    async def _send_progress(
+    async def _send_tool_status(
         self,
         session_id: str,
         execution_id: int,
+        condition: Literal['ai_assistant', 'workflow_builder'],
         progress: int,
-        message: str = None,
+        message_type:  Literal['start','progress','end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str | None,
         step: str = None,
-        details: Dict[str, Any] = None,
+        message: str = None,
+        data: Optional[Dict[str, Any]] = None,
         priority: str = 'normal',
         immediate: bool = False
     ) -> bool:
@@ -299,27 +788,30 @@ class BaseTool(ABC):
         kwargs = {'progress': progress}
         
         if message:
-            kwargs['message'] = message
+            data['message'] = message
         if step:
-            kwargs['step'] = step
-        if details:
-            kwargs['details'] = details
+            kwargs['step_num'] = step
         
         return await self._send_tool_message(
             session_id=session_id,
-            message_type='tool_progress',
             execution_id=execution_id,
+            condition=condition,
+            message_type=message_type,
+            status=status,
+            data=data,
             priority=priority,
             immediate=immediate,
             **kwargs
         )
     
-    async def _send_progress_start(
+    async def _send_tool_start(
         self,
         session_id: str,
         execution_id: int,
-        message: str = None,
-        total_steps: int = None,
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        message: str | None = None,
+        details: Dict[str, Any] = None,
+        status: str | None = 'start',
         immediate: bool = False
     ) -> bool:
         """
@@ -332,54 +824,62 @@ class BaseTool(ABC):
             total_steps: Total number of steps (optional)
             immediate: Bypass batching (default: False)
         """
-        details = {}
-        if total_steps:
-            details['total_steps'] = total_steps
         
-        return await self._send_progress(
+        return await self._send_tool_status(
             session_id=session_id,
             execution_id=execution_id,
+            condition=condition,
             progress=0,
+            message_type='start',
+            status=status,
             message=message or f"{self.name} starting...",
-            step="start",
-            details=details if details else None,
+            data=details,
             immediate=immediate
         )
     
-    async def _send_progress_update(
+    async def _send_tool_update(
         self,
         session_id: str,
         execution_id: int,
-        progress: int,
-        message: str,
-        step: str = None,
-        details: Dict[str, Any] = None
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        progress: int | None = None,
+        message: str | None = None,
+        details: Dict[str, Any] = None,
+        status: str | None = 'running',
+        immediate: bool = False
     ) -> bool:
         """
         Send progress update (convenience wrapper)
         
         Always uses normal priority and batching for efficiency.
         """
-        return await self._send_progress(
+        
+        return await self._send_tool_status(
             session_id=session_id,
             execution_id=execution_id,
+            condition=condition,
+            message_type='progress',
+            status=status,
             progress=progress,
             message=message,
-            step=step,
-            details=details,
+            data=details,
             priority='normal',
-            immediate=False
+            immediate=immediate
         )
     
-    async def _send_progress_complete(
+    async def _send_tool_complete(
         self,
         session_id: str,
         execution_id: int,
-        message: str = None,
-        summary: Dict[str, Any] = None,
-        immediate: bool = True
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        message: str | None = None,
+        details: Dict[str, Any] = {},
+        status: str | None = 'completed',
+        immediate: bool = False
     ) -> bool:
         """
+
+
         Send progress completion notification
         
         Args:
@@ -389,23 +889,34 @@ class BaseTool(ABC):
             summary: Summary statistics
             immediate: Send immediately (default: True for completion)
         """
-        return await self._send_progress(
+
+        data = {
+            'success': details.pop('success', True),
+            'results': details
+        }
+
+        return await self._send_tool_status(
             session_id=session_id,
             execution_id=execution_id,
+            condition=condition,
+            message_type='end',
+            status=status,
             progress=100,
             message=message or f"{self.name} complete",
-            step="complete",
-            details=summary,
+            data=data,
             immediate=immediate
         )
     
-    async def _send_progress_error(
+    async def _send_tool_error(
         self,
         session_id: str,
         execution_id: int,
+        condition: Literal['ai_assistant', 'workflow_builder'],
         error_message: str,
         error_type: str = None,
-        details: Dict[str, Any] = None
+        details: Dict[str, Any] = {},
+        status: str | None = 'failed',
+        immediate: bool = True
     ) -> bool:
         """
         Send progress error notification
@@ -419,20 +930,26 @@ class BaseTool(ABC):
             error_type: Error type classification
             details: Additional error details
         """
-        error_details = details or {}
+        error_details = details
+        error_details["success"] = details.pop('success', False)
+        if error_message:
+            error_details['error'] = error_message
         if error_type:
             error_details['error_type'] = error_type
         
-        return await self._send_progress(
+        return await self._send_tool_status(
             session_id=session_id,
             execution_id=execution_id,
+            condition=condition,
+            message_type='error',
+            status=status,
             progress=-1,
             message=f"Error: {error_message}",
-            step="error",
-            details=error_details,
+            data=error_details,
             priority='high',
-            immediate=True
+            immediate=immediate
         )
+    
     
     # =====================================
     # LEVEL 4: Broadcast Helpers (Multi-Tab Sync)
@@ -458,7 +975,7 @@ class BaseTool(ABC):
             session_id=session_id,
             message_type='state_sync',
             execution_id=execution_id,
-            broadcast=True,  # ✅ Send to all tabs
+            broadcast=True,
             immediate=immediate,
             state=state_update
         )
@@ -482,12 +999,14 @@ class BaseTool(ABC):
         # Try new format first (top-level) - PREFERRED
         session_id = input_data.get('session_id')
         execution_id = input_data.get('execution_id')
+        condition = input_data.get('condition')
         
         # Fallback to legacy format (nested in 'state')
         if not session_id:
             state = input_data.get('state', {})
             session_id = state.get('session_id')
             execution_id = state.get('execution_id')
+            condition = state.get('condition')
             
             if session_id:
                 logger.debug(
@@ -495,7 +1014,7 @@ class BaseTool(ABC):
                     "Consider passing session_id/execution_id at top level for better compatibility."
                 )
         
-        return session_id, execution_id
+        return session_id, execution_id, condition
     
     async def run(
         self,
@@ -522,14 +1041,17 @@ class BaseTool(ABC):
         self.total_executions += 1
         
         # Extract session info for progress updates
-        session_id, execution_id = self._extract_session_info(input_data)
+        session_id, execution_id, condition = self._extract_session_info(input_data)
         
         # Send tool start notification
-        await self._send_tool_message(
+        await self._send_tool_start(
             session_id=session_id,
-            message_type='tool_execution_start',
             execution_id=execution_id,
-            timeout_seconds = effective_timeout
+            condition=condition,
+            details={
+                'timeout_seconds': effective_timeout                
+            },
+            status='tool_execution_start'
         )
         
         # Execute with timeout
@@ -557,12 +1079,15 @@ class BaseTool(ABC):
                 result['execution_time_ms'] = execution_time_ms
             
             # Send tool complete notification
-            await self._send_tool_message(
+            await self._send_tool_complete(
                 session_id=session_id,
-                message_type='tool_execution_complete',
                 execution_id=execution_id,
-                success= result.get('success'),
-                execution_time_ms=execution_time_ms
+                condition=condition,
+                details={
+                    'success': result.get('success'),
+                    'execution_time_ms': execution_time_ms
+                },
+                status='tool_execution_complete'
             )
             
             logger.info(
@@ -730,85 +1255,6 @@ class BaseTool(ABC):
             f"executions={self.total_executions})"
         )
 
-
-    def _log_to_file(self, data: dict, filename: str = None):
-        """
-        Log to a JSON file
-        
-        Args:
-            data: Dictionary of data to log
-            filename: Optional custom filename (without .json extension)
-        
-        Returns:
-            Path: Filepath where data was logged
-        """
-        import json
-        from pathlib import Path
-        from datetime import datetime
-
-        try:
-            # Create logs directory if it doesn't exist
-            log_dir = Path("logs/tools_data")
-            log_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate filename with timestamp if not provided
-            if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"data_{timestamp}"
-                
-            if not filename.endswith('.json'):
-                filename = f"{filename}.json"
-            
-            filepath = log_dir / filename
-            
-            # Write results to file
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Data logged to: {filepath}")
-            return filepath
-        
-        except Exception as e:
-            logger.info(f"Failed to log data to file: {e}")
-            return None
-
-
-    def _log_results_to_file(self, data: dict, add_timestamp: bool = False):
-        """
-        Log results data to a JSON file with class name prefix
-        
-        Args:
-            data: Dictionary of results to log
-        
-        Returns:
-            Path: Filepath where data was logged
-        """
-        from datetime import datetime
-        
-        class_name = self.__class__.__name__
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if add_timestamp else ""
-        filename = f"{class_name}_results_{timestamp}" if add_timestamp else f"{class_name}_results"
-        
-        return self._log_to_file(data, filename)
-
-
-    def _log_input_to_file(self, data: dict, add_timestamp: bool = False):
-        """
-        Log input data to a JSON file with class name prefix
-        
-        Args:
-            data: Dictionary of input data to log
-        
-        Returns:
-            Path: Filepath where data was logged
-        """
-        from datetime import datetime
-        
-        class_name = self.__class__.__name__
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if add_timestamp else ""
-        filename = f"{class_name}_input_{timestamp}"
-        
-        return self._log_to_file(data, filename)
 
 class ToolExecutionContext:
     """

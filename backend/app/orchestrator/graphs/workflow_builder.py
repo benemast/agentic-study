@@ -17,8 +17,16 @@ from .shared_state import (
     ResultsRegistry,
     ToolResult
 )
-from ..tools.registry import tool_registry
 from app.database import get_db_context
+
+from ..tools.registry import ToolRegistry, tool_registry
+from app.websocket.manager import WebSocketManager
+
+from app.orchestrator.llm.client_langchain import get_llm_client
+
+
+
+# Potentially Outdated
 from app.orchestrator.llm import llm_client
 
 logger = logging.getLogger(__name__)
@@ -33,10 +41,10 @@ class WorkflowBuilderGraph:
     High visibility and control for the user
     """
     
-    def __init__(self, state_manager, websocket_manager=None):
+    def __init__(self, state_manager, websocket_manager:WebSocketManager=None):
         self.state_manager = state_manager
-        self.websocket_manager = websocket_manager
-        self.registry = tool_registry
+        self.websocket_manager:WebSocketManager = websocket_manager
+        self.registry:ToolRegistry = tool_registry
 
         if self.websocket_manager:        
             # Inject WebSocket into tools that need it
@@ -134,7 +142,9 @@ class WorkflowBuilderGraph:
                     # Check if tool supports WebSocket injection
                     if hasattr(tool_instance, 'set_llm_client'):
                         # Inject WebSocket manager
-                        tool_instance.set_llm_client(llm_client)
+                        tool_instance.llm_client = get_llm_client()
+                        # Potentially Outdated
+                        # tool_instance.set_llm_client(llm_client)
                         injected_count += 1
                         logger.info(f"LLM client injected into {tool_def.display_name} (Workflow Builder)")
                     else:
@@ -199,10 +209,14 @@ class WorkflowBuilderGraph:
                 await self.websocket_manager.send_node_progress(
                     session_id=state['session_id'],
                     execution_id=execution_id,
-                    node_id=node_id,
-                    step_number=new_step,
-                    status='running',
-                    node_label=node_label
+                    condition='workflow_builder',
+                    progress_type='start',
+                    status='start',
+                    data={
+                        'node_id': node_id,
+                        'node_label': node_label,
+                        'step_number': new_step
+                    }
                 )
             
             # Prepare input data with full state context
@@ -226,7 +240,12 @@ class WorkflowBuilderGraph:
                         'session_id': state['session_id'],
                         'execution_id': execution_id,
                         'condition': state['condition']
+                        
                     },
+
+                    'sentiment_statistics': state.get('sentiment_statistics', None),
+                    'theme_analysis': state.get('theme_analysis', None),
+                    'insights': state.get('insights', None),
                     
                     # Data source tracking
                     'data_source': state.get('data_source', []),
@@ -259,8 +278,28 @@ class WorkflowBuilderGraph:
             
             # Execute tool
             try:
+                await self.websocket_manager.send_node_progress(
+                    session_id=state['session_id'],
+                    execution_id=execution_id,
+                    condition='workflow_builder',
+                    progress_type='progress',
+                    status='running',
+                    data={
+                        'node_id': node_id,
+                        'node_label': node_label,
+                        'step_number': new_step
+                    }
+                )
+
                 # Execute tool with prepared input
                 result = await tool.run(input_data)
+
+                if result.get('state_updates'):
+                    for key, value in result['state_updates'].items():
+                        state[key] = value
+                        logger.info(f"Added {key} to state!")
+                        # Update Redis
+                        self.state_manager.update_state_field(execution_id, key, value)
 
                 # Handle result based on tool category
                 if result.get('success'):
@@ -314,6 +353,9 @@ class WorkflowBuilderGraph:
                     
                     elif tool_def and tool_def.category == 'analysis':
                         # ANALYSIS TOOL (sentiment/insights) - Add enrichment
+                        #state['sentiment_statistics'] = result.get('sentiment_statistics', None)
+                        #state['theme_analysis'] = result.get('theme_analysis', None)
+
                         if result.get('column_data'):
                             apply_enrichment(
                                 state,
@@ -391,14 +433,20 @@ class WorkflowBuilderGraph:
                     # Send success event
                     if self.websocket_manager:
                         await self.websocket_manager.send_node_progress(
-                            session_id=state['session_id'],
-                            execution_id=state['execution_id'],
-                            node_id=node_id,
-                            step_number=state['step_number'],
+                            session_id = state['session_id'],
+                            execution_id = execution_id,
+                            condition = 'workflow_builder',
+                            progress_type='end',
                             status='completed',
-                            result=result
+                            data={
+                                'success': result.pop('success', False),
+                                'node_id': node_id,
+                                'node_label': node_label,
+                                'step_number': state['step_number'],
+                                'results': result
+                            }
                         )
-                        
+
                     logger.info(f"Node {node_id} completed successfully")
                 else:
                     # Tool execution failed
@@ -427,14 +475,21 @@ class WorkflowBuilderGraph:
                     # Send error event
                     if self.websocket_manager:
                         await self.websocket_manager.send_node_progress(
-                            session_id=state['session_id'],
-                            execution_id=state['execution_id'],
-                            node_id=node_id,
-                            step_number=state['step_number'],
-                            status='failed',
-                            result={'error': error_msg, 'error_type': error_type}
+                            session_id = state['session_id'],
+                            execution_id = execution_id,
+                            condition = 'workflow_builder',
+                            progress_type = 'error',
+                            status = 'failed',
+                            data = {
+                                'success': result.pop('success', False),
+                                'node_id': node_id,
+                                'node_label': node_label,
+                                'step_number': state['step_number'],
+                                'error': error_msg, 
+                                'error_type': error_type
+                            }
                         )
-                    
+
                     # Check if node is critical
                     if self._is_critical_node(node_id, template_id):
                         logger.error(f"Critical node {node_id} failed - stopping execution")
@@ -442,6 +497,7 @@ class WorkflowBuilderGraph:
                 
             except Exception as e:
                 error_msg = str(e) 
+                error_type= type(e).__name__
                 logger.exception(f"Node {node_id} execution exception: {e}")
                 
                 # Append error
@@ -450,7 +506,7 @@ class WorkflowBuilderGraph:
                     'node': node_id,
                     'node_label': node_label,
                     'error': error_msg,
-                    'error_type': 'exception',
+                    'error_type': error_type,
                     'timestamp': datetime.now(timezone.utc).isoformat()
                 }
                 
@@ -463,13 +519,19 @@ class WorkflowBuilderGraph:
                 
                 # Send error event via WebSocket
                 if self.websocket_manager:
-                    await self.websocket_manager.send_node_progress(
-                        session_id=state['session_id'],
-                        execution_id=state['execution_id'],
-                        node_id=node_id,
-                        step_number=state['step_number'],
-                        status='failed',
-                        result={'error': error_msg, 'error_type': 'exception'}
+                     await self.websocket_manager.send_node_progress(
+                        session_id = state['session_id'],
+                        execution_id = execution_id,
+                        condition = 'workflow_builder',
+                        progress_type = 'error',
+                        status = 'exception',
+                        data = {
+                            'node_id': node_id,
+                            'node_label': node_label,
+                            'step_number': state['step_number'],
+                            'error': error_msg, 
+                            'error_type': error_type
+                        }
                     )
                 
                 # Check if critical
@@ -699,8 +761,8 @@ class WorkflowBuilderGraph:
         async def execute_node(state: SharedWorkflowState) -> SharedWorkflowState:
             """Execute a single workflow node"""
             step_start_time = time.time()
-            last_step_time = datetime.fromisoformat(state.get('last_step_at', datetime.utcnow().isoformat()))
-            time_since_last = int((datetime.utcnow() - last_step_time).total_seconds() * 1000)
+            last_step_time = datetime.fromisoformat(state.get('last_step_at', datetime.now(timezone.utc).isoformat()))
+            time_since_last = int((datetime.now(timezone.utc) - last_step_time).total_seconds() * 1000)
             
             state['step_number'] = state.get('step_number', 0) + 1
             state['current_node'] = node_id
@@ -722,14 +784,19 @@ class WorkflowBuilderGraph:
                     )
             
             # Send WebSocket progress update
-            if self.websocket_manager:
-                await self.websocket_manager.send_progress(state['session_id'], {
-                    'type': 'node_start',
-                    'execution_id': state['execution_id'],
-                    'node_id': node_id,
-                    'node_label': node_data.get('label', node_id),
-                    'step': state['step_number']
-                })
+            if self.websocket_manager:                
+                await self.websocket_manager.send_node_progress(
+                    session_id = state['session_id'],
+                    execution_id = state['execution_id'],
+                    condition ='workflow_builder',
+                    progress_type ='progress',
+                    status = 'running',
+                    data = {
+                        'node_id': node_id,
+                        'node_label': node_data.get('label', node_id),
+                        'step_number': state['step_number']
+                    }
+                )
             
             try:
                 # Execute tool
@@ -745,12 +812,12 @@ class WorkflowBuilderGraph:
                     state['errors'].append({
                         'node_id': node_id,
                         'error': error_msg,
-                        'timestamp': datetime.utcnow().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     })
                     logger.error(f"Node {node_id} failed: {error_msg}")
                 
                 # Update timing
-                state['last_step_at'] = datetime.utcnow().isoformat()
+                state['last_step_at'] = datetime.now(timezone.utc).isoformat()
                 step_time = int((time.time() - step_start_time) * 1000)
                 state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
                 
@@ -776,13 +843,18 @@ class WorkflowBuilderGraph:
                 
                 # Send WebSocket progress update
                 if self.websocket_manager:
-                    await self.websocket_manager.send_progress(state['session_id'], {
-                        'type': 'node_complete',
-                        'execution_id': state['execution_id'],
-                        'node_id': node_id,
-                        'success': result['success'],
-                        'step': state['step_number']
-                    })
+                    await self.websocket_manager.send_node_progress(
+                        session_id=state['session_id'],
+                        execution_id=state['execution_id'],
+                        condition='workflow_builder',
+                        progress_type='end',
+                        status='completed',
+                        data= {
+                            'success': result.pop('success',False),
+                            'node_id': node_id,
+                            'step': state['step_number']
+                        }
+                    )
                 
                 return state
                 
@@ -791,7 +863,7 @@ class WorkflowBuilderGraph:
                 state['errors'].append({
                     'node_id': node_id,
                     'error': str(e),
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 })
                 state['status'] = 'error'
                 return state

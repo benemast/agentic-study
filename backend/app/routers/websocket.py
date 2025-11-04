@@ -7,7 +7,7 @@ import json
 import asyncio
 
 from app.database import get_db
-from app.websocket.manager import ws_manager
+from app.websocket.manager import get_ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,11 @@ async def websocket_endpoint(
         
     Note: Handlers are registered at application startup in main.py
     """
-
     connection_id = f"{session_id}_{id(websocket)}"
 
     try:
         # Connect
+        ws_manager = get_ws_manager()
         await ws_manager.connect(websocket, session_id, connection_id)
         
         logger.info(f"WebSocket connected: session={session_id}, connection={connection_id}")

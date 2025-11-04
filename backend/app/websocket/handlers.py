@@ -20,7 +20,7 @@ from app.schemas.orchestrator import (
     ExecutionDetailResponse, CheckpointResponse
 )
 from app.schemas.reviews import batch_to_study_format
-from app.websocket.manager import ws_manager
+from app.websocket.manager import get_ws_manager, WebSocketManager
 from app.configs import settings
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,7 @@ async def handle_session_get(session_id: str, message: dict):
     request_id = message.get('request_id')
 
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             session = db.query(SessionModel).filter(
                 SessionModel.session_id == session_id
@@ -132,7 +133,7 @@ async def handle_session_get(session_id: str, message: dict):
             })
         
     except Exception as e:
-        logger.error(f"Error getting session: {e}")
+        logger.error(f"Error getting session: {e}")        
         await ws_manager.send_to_session(session_id, {
             'type': 'response',
             'request_id': request_id,
@@ -155,6 +156,7 @@ async def handle_session_update(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             session = db.query(SessionModel).filter(
                 SessionModel.session_id == session_id
@@ -236,6 +238,7 @@ async def handle_session_quicksave(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             session = db.query(SessionModel).filter(
                 SessionModel.session_id == session_id
@@ -313,6 +316,7 @@ async def handle_session_sync(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         session_data = message.get('session_data')
         sync_timestamp = message.get('sync_timestamp')
         
@@ -396,6 +400,7 @@ async def handle_session_sync(session_id: str, message: dict):
 async def handle_session_end(session_id: str, message: dict):
     """End session via WebSocket"""
     request_id = message.get('request_id')
+    ws_manager:WebSocketManager = get_ws_manager()
     
     try:
         with get_db_context() as db:
@@ -472,6 +477,7 @@ async def handle_session_end(session_id: str, message: dict):
 async def handle_session_heartbeat(session_id: str, message: dict):
     """Handle heartbeat to keep session alive"""
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         request_id = message.get('request_id')
         
         with get_db_context() as db:
@@ -511,6 +517,7 @@ async def handle_chat_message(session_id: str, message: dict):
     user_timestamp = None
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         # ============================================================
         # STEP 1: Save user message to database
         # ============================================================
@@ -812,6 +819,7 @@ async def handle_chat_message_update(session_id: str, message: dict):
     new_content = message.get('content')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             chat_message = db.query(ChatMessage).filter(
                 ChatMessage.id == message_id,
@@ -877,6 +885,7 @@ async def handle_chat_history_request(session_id: str, message: dict):
     offset = message.get('offset', 0)
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             # Get messages with pagination
             messages = db.query(ChatMessage).filter(
@@ -932,6 +941,7 @@ async def handle_chat_clear(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             # Delete all messages for session
             deleted_count = db.query(ChatMessage).filter(
@@ -981,6 +991,7 @@ async def handle_chat_clear(session_id: str, message: dict):
 async def handle_tracking_event(session_id: str, message: dict):
     """Handle analytics tracking event"""
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             session = db.query(SessionModel).filter(
                 SessionModel.session_id == session_id
@@ -1024,6 +1035,7 @@ async def handle_track_batch(session_id: str, message: dict):
     events = message.get('events', [])
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             session = db.query(SessionModel).filter(
                 SessionModel.session_id == session_id
@@ -1082,6 +1094,7 @@ async def handle_get_interactions(session_id: str, message: dict):
     event_type = message.get('event_type')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         with get_db_context() as db:
             query = db.query(Interaction).filter(
                 Interaction.session_id == session_id
@@ -1132,6 +1145,7 @@ async def handle_batch_request(session_id: str, message: dict):
     """Handle batched requests for efficiency"""
     batch_id = message.get('batch_id')
     requests = message.get('requests', [])
+    ws_manager:WebSocketManager = get_ws_manager()
     
     results = []
     
@@ -1186,6 +1200,7 @@ async def handle_workflow_execute(session_id: str, message: dict):
     from app.database import get_db_context
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         # Extract workflow-specific data
         workflow = message.get('workflow')
         input_data = message.get('input_data', {})
@@ -1280,12 +1295,18 @@ async def handle_workflow_execute(session_id: str, message: dict):
         # ============================================================
         # STEP 3: Send immediate response (like REST does)
         # ============================================================
-        await ws_manager.send_to_session(session_id, {
-            'type': 'execution_started',
-            'execution_id': execution_id,
-            'status': 'pending',
-            'timestamp': datetime.now(timezone.utc).isoformat()
-        })
+        await ws_manager.send_to_session(
+            session_id=session_id,
+            message= {
+                'type': 'execution',
+                'subtype': 'start',
+                'status': 'initializing',
+                'execution_id': execution_id,
+                'timestamp': datetime.now(timezone.utc).isoformat()
+                },
+            priority='high',
+            immediate=True
+        )
         
         logger.info(f"Workflow execution started: {execution_id}")
     
@@ -1314,6 +1335,7 @@ async def handle_agent_execute(session_id: str, message: dict):
     from app.database import get_db_context
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         # Extract agent-specific data
         task_description = message.get('task_description')
         input_data = message.get('input_data', {})
@@ -1401,12 +1423,18 @@ async def handle_agent_execute(session_id: str, message: dict):
         # ============================================================
         # STEP 3: Send immediate response (like REST does)
         # ============================================================
-        await ws_manager.send_to_session(session_id, {
-            'type': 'execution_started',
-            'execution_id': execution_id,
-            'status': 'pending',
-            'timestamp': datetime.now(timezone.utc).isoformat()
-        })
+        await ws_manager.send_to_session(
+            session_id=session_id,
+            message= {
+                'type': 'execution',
+                'subtype': 'start',
+                'status': 'initializing',
+                'execution_id': execution_id,
+                'timestamp': datetime.now(timezone.utc).isoformat()
+                },
+            priority='high',
+            immediate=True
+        )
         
         logger.info(f"Agent execution started: {execution_id}")
     
@@ -1426,6 +1454,7 @@ async def handle_execution_cancel(session_id: str, message: dict):
     from app.orchestrator.service import orchestrator
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         execution_id = message.get('execution_id')
         
         
@@ -1466,6 +1495,7 @@ async def handle_get_reviews(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         category = message.get('category')
         product_id = message.get('product_id')
         
@@ -1590,6 +1620,7 @@ async def handle_get_review_stats(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         category = message.get('category')
         product_id = message.get('product_id')
         
@@ -1662,6 +1693,7 @@ async def handle_get_review_by_id(session_id: str, message: dict):
     request_id = message.get('request_id')
     
     try:
+        ws_manager:WebSocketManager = get_ws_manager()
         category = message.get('category')
         review_id = message.get('review_id')
         
@@ -1735,6 +1767,7 @@ def register_handlers():
     This is called ONCE at application startup in main.py
     """
     logger.info("Registering WebSocket handlers...")
+    ws_manager:WebSocketManager = get_ws_manager()
 
     # Session Operations
     ws_manager.register_handler('session_get', handle_session_get)
@@ -1774,7 +1807,7 @@ def register_handlers():
     ws_manager.register_handler('batch', handle_batch_request)
     
     handler_count = len(ws_manager.handlers)
-    logger.info(f"✅ Registered {handler_count} WebSocket handlers")
+    logger.info(f"Registered {handler_count} WebSocket handlers")
     
     # Log all registered handlers for debugging
     logger.debug(f"Registered handlers: {list(ws_manager.handlers.keys())}")

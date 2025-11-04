@@ -12,8 +12,12 @@ import logging
 import time
 from datetime import datetime
 
+from app.websocket.manager import WebSocketManager
+from app.orchestrator.llm.decision_maker import DecisionMaker
+from app.orchestrator.llm.client_langchain import get_llm_client
+
 from .shared_state import SharedWorkflowState, AgentDecision
-from ..tools.registry import tool_registry
+from ..tools.registry import ToolRegistry, tool_registry
 from ..llm.decision_maker import decision_maker
 
 from ..llm.tool_schemas import (
@@ -42,21 +46,23 @@ class AIAssistantGraph:
     - Fallback strategies
     - Full transparency through checkpoints
     """
-    def __init__(self, state_manager, websocket_manager=None):
+    def __init__(self, state_manager, websocket_manager:WebSocketManager=None):
         self.state_manager = state_manager
-        self.websocket_manager = websocket_manager
+        self.websocket_manager:WebSocketManager = websocket_manager
         self.max_steps = 10
-        self.decision_maker = decision_maker
-        self.registry = tool_registry
+        self.decision_maker:DecisionMaker = decision_maker
+        self.registry:ToolRegistry = tool_registry
 
         if self.websocket_manager:
         # Give decision maker access to WebSocket for streaming decisions
             if hasattr(self.decision_maker, 'set_websocket_manager'):
                 self.decision_maker.set_websocket_manager(self.websocket_manager)
-                logger.info("✅ WebSocket manager injected into DecisionMaker")
+                logger.info("WebSocket manager injected into DecisionMaker")
         
             # Inject WebSocket into tools that need it
             self._inject_websocket_into_tools()
+
+        self._inject_llm_client_into_tools()
     
     def _inject_websocket_into_tools(self):
         """
@@ -104,6 +110,58 @@ class AIAssistantGraph:
                 logger.error(f"❌ Failed to inject WebSocket into tool {ai_id}: {e}", exc_info=True)
         
         logger.info(f"Workflow Builder: WebSocket manager injected into {injected_count} tool(s)")
+
+    def _inject_llm_client_into_tools(self):
+        """
+        Inject LLM client into tools that need LLM support
+        
+        CRITICAL: Workflow Builder uses the same tools as AI Assistant.
+        Tools like sentiment analysis and insight generation need LLM
+        access for to generate output.
+        
+        Implementation notes:
+        - Tools in registry are singletons (one instance per tool type)
+        - Injecting once makes LLM client available to both graphs
+        - Uses registry to access shared tool instances
+        """
+        logger.info("Injecting LLM Client into Workflow Builder tools")
+        
+        # Tool AI IDs that need WebSocket (match your TOOL_DEFINITIONS in registry.py)
+        llm_tool_ids = [
+            'review_sentiment_analysis',
+            'generate_insights',
+            'show_results',           
+        ]
+        
+        injected_count = 0
+        for tool_id in llm_tool_ids:
+            try:
+                # Get tool definition from registry
+                tool_def = self.registry.get_tool_definition(ai_id=tool_id)
+                
+                if tool_def:
+                    # Get singleton instance
+                    tool_instance = tool_def.instance
+                    
+                    # Check if tool supports WebSocket injection
+                    if hasattr(tool_instance, 'set_llm_client'):
+                        # Inject WebSocket manager
+                        tool_instance.llm_client = get_llm_client()
+                        # Potentially Outdated
+                        # tool_instance.set_llm_client(llm_client)
+                        injected_count += 1
+                        logger.info(f"LLM client injected into {tool_def.display_name} (Workflow Builder)")
+                    else:
+                        logger.debug(f"Tool {tool_def.display_name} doesn't support LLM client")
+                else:
+                    logger.warning(f"Tool not found in registry: {tool_id}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to inject LLM client into tool {tool_id}: {e}", exc_info=True)
+        
+        logger.info(f"Workflow Builder: LLM client injected into {injected_count} tool(s)")
+    
+
 
     def build_graph(self) -> StateGraph:
         """
@@ -212,7 +270,7 @@ class AIAssistantGraph:
             
             # Append to agent memory efficiently
             memory_entry = {
-                'step': new_step,
+                'step_number': new_step,
                 'decision': decision_dict,
                 'timestamp': datetime.utcnow().isoformat()
             }
@@ -280,11 +338,11 @@ class AIAssistantGraph:
             self.state_manager.append_to_list_field(
                 execution_id,
                 'errors',
-                {'step': new_step, 'node': 'planner', 'error': str(e)}
+                {'step_number': new_step, 'node': 'planner', 'error': str(e)}
             )
             
             state['errors'].append({
-                'step': new_step,
+                'step_number': new_step,
                 'node': 'planner',
                 'error': str(e)
             })
@@ -364,21 +422,23 @@ class AIAssistantGraph:
         if not tool:
             logger.error(f"Invalid tool AI ID: {tool_ai_id}")
             state['errors'].append({
-                'step': state['step_number'],
+                'step_number': state['step_number'],
                 'error': f"Invalid tool: {tool_ai_id}"
             })
             return state
         
         # Send execution start event
         if self.websocket_manager:
-            await self.websocket_manager.send_execution_progress(
+            await self.websocket_manager.send_node_progress(
                 session_id=state['session_id'],
                 execution_id=state['execution_id'],
-                event_type='tool_execution_start',
+                condition='ai_assistant',
+                progress_type='start',
+                status='start',
                 data={
-                    'tool_name': tool_ai_id,
+                    'node_id': tool_ai_id,
+                    'step_number': state['step_number'],
                     'action': action,
-                    'step': state['step_number'],
                     'parameters': tool_params
                 }
             )
@@ -397,53 +457,75 @@ class AIAssistantGraph:
             # Update state with result
             if result.get('success'):                
                 state['working_data'] = result.get('data', state['working_data'])
-                logger.info(f"✓ Tool executed successfully: {tool_ai_id}")
+                logger.info(f"Tool executed successfully: {tool_ai_id}")
                 
                 # Send success event
                 if self.websocket_manager:
-                    await self.websocket_manager.send_execution_progress(
+                    await self.websocket_manager.send_node_progress(
                         session_id=state['session_id'],
                         execution_id=state['execution_id'],
-                        event_type='tool_execution_completed',
+                        condition='ai_assistant',
+                        progress_type='end',
+                        status='completed',
                         data={
-                            'tool_name': tool_ai_id,
-                            'step': state['step_number'],
-                            'result_summary': result.get('metadata', {})
+                            'success': result.pop('success', False),
+                            'node_id': tool_ai_id,
+                            'step_number': state['step_number'],
+                            'results': result.get('metadata', {})
                         }
                     )
             else:
                 error_msg = result.get('error', 'Unknown error')
                 logger.error(f"Tool execution failed: {error_msg}")
                 state['errors'].append({
-                    'step': state['step_number'],
+                    'step_number': state['step_number'],
                     'tool': tool_ai_id,
                     'error': error_msg
                 })
                 
                 # Send error event
                 if self.websocket_manager:
-                    await self.websocket_manager.send_execution_error(
+                    await self.websocket_manager.send_node_progress(
                         session_id=state['session_id'],
                         execution_id=state['execution_id'],
-                        error=error_msg,
-                        step_number=state['step_number']
+                        condition='ai_assistant',
+                        progress_type='error',
+                        status='failed',
+                        data={
+                            'success': result.pop('success', False),
+                            'node_id': tool_ai_id,
+                            'step_number': state['step_number'],
+                            'error': error_msg,
+                            'error_type': error_type
+                        }
                     )
                 
         except Exception as e:
+            error_msg = str(e)
+            error_type = type(e).__name__
+
             logger.exception(f"Tool execution error: {e}")
             state['errors'].append({
-                'step': state['step_number'],
+                'step_number': state['step_number'],
                 'tool': tool_ai_id,
-                'error': str(e)
+                'error': error_msg,
+                'error_type': error_type
             })
             
             # Send error event
             if self.websocket_manager:
-                await self.websocket_manager.send_execution_error(
+                await self.websocket_manager.send_node_progress(
                     session_id=state['session_id'],
                     execution_id=state['execution_id'],
-                    error=str(e),
-                    step_number=state['step_number']
+                    condition='ai_assistant',
+                    progress_type='error',
+                    status='exception',
+                    data={
+                        'node_id': tool_ai_id,
+                        'step_number': state['step_number'],
+                        'error': error_msg,
+                        'error_type': error_type
+                    }
                 )
         
         # Update timing
@@ -473,14 +555,16 @@ class AIAssistantGraph:
         
         # Send completion event
         if self.websocket_manager:
-            await self.websocket_manager.send_execution_progress(
+            await self.websocket_manager.send_node_progress(
                 session_id=state['session_id'],
                 execution_id=state['execution_id'],
-                event_type='tool_execution_complete',
+                condition='ai_assistant',
+                progress_type='end',
+                status='completed',            
                 data={
-                    'tool_name': tool_ai_id,
-                    'step': state['step_number'],
-                    'success': result.get('success', False)
+                    'success': result.pop('success', False),
+                    'node_id': tool_ai_id,
+                    'step_number': state['step_number']
                 }
             )
         

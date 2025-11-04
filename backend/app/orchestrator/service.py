@@ -12,27 +12,32 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from openai import APIError, APITimeoutError, RateLimitError
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import traceback
 
+from app.configs.config import settings
+from app.configs.langsmith_config import create_run_config, should_trace_execution
 
-from app.models.execution import ExecutionCheckpoint, WorkflowExecution
-from app.orchestrator.llm.circuit_breaker import CircuitBreakerOpen
-from app.orchestrator.state_manager import HybridStateManager
-from app.orchestrator.graphs.workflow_builder import WorkflowBuilderGraph
-from app.orchestrator.graphs.ai_assistant import AIAssistantGraph
-from app.orchestrator.graphs.shared_state import (
+from .state_manager import HybridStateManager
+from app.websocket.manager import WebSocketManager, get_ws_manager
+from .degradation import DegradationConfig, graceful_degradation
+
+from app.orchestrator.llm.streaming_callbacks import initialize_callback_factory, get_callback_factory
+from .llm.circuit_breaker import CircuitBreakerOpen
+from .llm.client_langchain import get_llm_client
+
+from .graphs.workflow_builder import WorkflowBuilderGraph
+from .graphs.ai_assistant import AIAssistantGraph
+from .graphs.shared_state import (
     SharedWorkflowState,
     initialize_state,
     get_row_operation_summary,
     get_data_source_info
 )
 
-from app.websocket.manager import ws_manager
-from app.orchestrator.degradation import graceful_degradation
-from app.configs.langsmith_config import create_run_config, should_trace_execution
-from app.configs.config import settings
+from app.models.execution import ExecutionCheckpoint, WorkflowExecution
+
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +46,14 @@ class OrchestrationService:
     """Main orchestration service for executing workflows and agent tasks"""
     
     def __init__(self):
-        self.state_manager = HybridStateManager()
-        self.ws_manager = ws_manager        
-        self.degradation = graceful_degradation
+        ws_manager = get_ws_manager()
+        self.state_manager:HybridStateManager = HybridStateManager()
+        self.ws_manager:WebSocketManager = ws_manager        
+        self.degradation:DegradationConfig = graceful_degradation
+
+        # establish streaming for LangChain based LLM calls
+        initialize_callback_factory(self.ws_manager) 
+
         logger.info("Orchestration service initialized")
     
     async def execute_workflow(
@@ -163,15 +173,17 @@ class OrchestrationService:
             )
             
             # Subscribe session to execution channel for real-time updates
+            # Would allow broadcast to all channel subscribers - currently not used
             self.ws_manager.subscribe(session_id, 'execution')
             
             # Send execution started event
             await self.ws_manager.send_execution_progress(
-                session_id,
-                execution.id,
-                'execution_started',
-                {
-                    'condition': condition,
+                session_id=session_id,                
+                execution_id=execution_id,
+                condition=condition,
+                progress_type='start',
+                status='start',
+                data={
                     'step': 0,
                     'total_steps': len(task_data.get('workflow', {}).get('nodes', [])) if condition == 'workflow_builder' else None
                 }
@@ -179,7 +191,7 @@ class OrchestrationService:
             
             # Update execution status
             execution.status = 'running'
-            execution.started_at = datetime.utcnow()
+            execution.started_at = datetime.now(timezone.utc)
             db.commit()
             
             # Execute graph
@@ -187,16 +199,33 @@ class OrchestrationService:
 
             should_trace = should_trace_execution(settings.langsmith_sample_rate)
 
-            # Create LangSmith config
-            if should_trace:
-                langsmith_config = create_run_config(
-                    execution_id=execution.id,
+            streaming_callback = None
+            if self.ws_manager:
+                callback_factory = get_callback_factory()
+                streaming_callback = callback_factory.create_callback(
                     session_id=session_id,
+                    execution_id=execution.id,
                     condition=condition,
-                    task_data=task_data
+                    tool_name='graph_execution'
                 )
-            else:
-                langsmith_config = {"callbacks": [], "metadata": {"traced": False}}
+
+            # Create LangSmith config
+            langsmith_config = create_run_config(
+                execution_id=execution.id,
+                session_id=session_id,
+                condition=condition,
+                task_data=task_data,
+                streaming_callback=streaming_callback,
+                include_tracer=should_trace
+            )
+
+            await self.ws_manager.send_execution_progress(
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,
+                progress_type='progress',
+                status='running'
+            )
 
             # Asynchronously invoke compiled graph
             final_state: SharedWorkflowState = await graph.ainvoke(
@@ -209,7 +238,7 @@ class OrchestrationService:
             
             # Update execution record with results
             execution.status = 'completed'
-            execution.completed_at = datetime.utcnow()
+            execution.completed_at = datetime.now(timezone.utc)
             execution.final_result = final_result
             execution.steps_completed = final_state.get('step_number', 0)
             execution.execution_time_ms = final_state.get('total_time_ms', 0)
@@ -232,7 +261,7 @@ class OrchestrationService:
             row_summary = get_row_operation_summary(final_state)
             if row_summary['total_operations'] > 0:
                 logger.info(
-                    f"✓ Row operations summary: "
+                    f"Row operations summary: "
                     f"{row_summary['initial_rows']} → {row_summary['current_rows']} rows "
                     f"({row_summary['reduction_pct']:.1f}% reduction)"
                 )
@@ -240,23 +269,25 @@ class OrchestrationService:
             # Log SQL reference if available
             sql_ref = get_data_source_info(final_state)
             if sql_ref:
-                logger.info(f"✓ SQL reference preserved: {sql_ref['row_count_at_load']} initial rows")
+                logger.info(f"SQL reference preserved: {sql_ref['row_count_at_load']} initial rows")
             
             db.commit()
             
             # Send completion event
             await self.ws_manager.send_execution_progress(
-                session_id,
-                execution.id,
-                'execution_completed',
-                {
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,
+                progress_type='end',
+                status='completed',
+                data={
                     'steps_completed': execution.steps_completed,
                     'execution_time_ms': execution.execution_time_ms,
-                    'final_result': final_result,
-                    'row_summary': row_summary if row_summary['total_operations'] > 0 else None
+                    'results': final_result,
+                    'row_summary': row_summary if row_summary['total_operations'] > 0 else None,
                 }
             )
-            
+
             logger.info(f"Execution {execution.id} completed successfully")
             
         except Exception as e:
@@ -276,11 +307,14 @@ class OrchestrationService:
                 return 'normal'
             """
 
+            error_msg = str(e)
+            error_type = type(e).__name__
+
             # Update execution with error (rollback-safe)
             try:
                 execution.status = 'failed'
-                execution.completed_at = datetime.utcnow()
-                execution.error_message = str(e)
+                execution.completed_at = datetime.now(timezone.utc)
+                execution.error_message = error_msg
                 execution.error_traceback = traceback.format_exc()
                 db.commit()
             except Exception as commit_error:
@@ -289,11 +323,14 @@ class OrchestrationService:
             
             # Send error event
             await self.ws_manager.send_execution_progress(
-                session_id,
-                execution.id,
-                'execution_failed',
-                {
-                    'error': str(e),
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,
+                progress_type='error',
+                status='failed',
+                data={
+                    'error': error_msg,
+                    'error_type': error_type,
                     'step': execution.steps_completed
                 }
             )
@@ -323,7 +360,7 @@ class OrchestrationService:
             try:
                 flushed = await self.state_manager.flush_checkpoints(execution.id)
                 if flushed > 0:
-                    logger.info(f"✓ Flushed {flushed} buffered checkpoints")
+                    logger.info(f"Flushed {flushed} buffered checkpoints")
             except Exception as flush_error:
                 logger.error(f"Failed to flush checkpoints: {flush_error}")
             
@@ -396,7 +433,7 @@ class OrchestrationService:
     
     def _extract_final_result(self, state: SharedWorkflowState) -> Optional[Dict[str, Any]]:
         """
-        ✅ NEW: Extract final results from new state structure
+        Extract final results from new state structure
         
         Handles both old 'working_data' and new 'record_store' + 'results_registry'
         
@@ -532,7 +569,7 @@ class OrchestrationService:
         
         # Update status
         execution.status = 'cancelled'
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = datetime.now(timezone.utc)
         
         # Checkpoint cancellation (user intervention)
         state = self.state_manager.get_state_from_memory(execution_id)
@@ -553,10 +590,15 @@ class OrchestrationService:
         
         # Send cancellation event
         await self.ws_manager.send_execution_progress(
-            execution.session_id,
-            execution_id,
-            'execution_cancelled',
-            {'step': execution.steps_completed}
+            session_id=execution.session_id,
+            execution_id=execution_id,
+            condition=execution.condition,
+            progress_type='end',
+            status='cancelled',
+            data={
+                'step': execution.steps_completed,
+                'cancelled_by': 'user'
+            }
         )
         
         db.commit()

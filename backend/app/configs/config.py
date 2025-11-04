@@ -89,6 +89,11 @@ class Settings(BaseSettings):
         description="Enable rate limiting"
     )
     
+    websocket_rate_limit: int= Field(
+        default=200, # messages pro minute
+        description="Rate limit for WebSocket downstream"
+    )
+
     chat_rate_limit: str = Field(
         default="20/minute",
         pattern=r"^\d+/(second|minute|hour|day)$",
@@ -206,6 +211,14 @@ class Settings(BaseSettings):
     langsmith_api_key: Optional[str] = Field(
         default=None,
         description="API key used with LangSmith"
+    )
+    langsmith_org_id: Optional[str] = Field(
+        default=None,
+        description="LangSmith Organization ID"
+    )
+    langsmith_org_name: str = Field(
+        default="Personal",
+        description="LangSmith Organization Name"
     )
     langsmith_project: str = Field(
         default="agentic-study",

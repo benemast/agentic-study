@@ -4,14 +4,24 @@ LangSmith configuration for LangGraph debugging and tracing
 
 This module initializes LangSmith tracing when enabled via environment variables.
 All LangGraph executions will be automatically traced to your LangSmith project.
+
+Features:
+- GDPR-compliant PII scrubbing
+- Sampling for cost control
+- Hierarchical trace structure
+- Callback integration (LangSmith + streaming)
+- Trace URL generation
 """
 import os
 import logging
 import hashlib
 import random
+import re
 from typing import Optional, Dict, Any
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
 
 # ============================================================
 # PII SCRUBBING (GDPR Compliance)
@@ -37,7 +47,11 @@ def scrub_pii_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
         'email',
         'ip_address',
         'user_id',
-        'participant_id'
+        'participant_id',
+        'phone',
+        'address',
+        'ssn',
+        'credit_card'
     ]
     
     for field in pii_fields:
@@ -58,6 +72,179 @@ def scrub_pii_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
         scrubbed['input_data'] = scrub_pii_from_state(scrubbed['input_data'])
     
     return scrubbed
+
+
+def scrub_pii_from_text(text: str) -> str:
+    """
+    Scrub PII patterns from text content
+    
+    NEW: Added from new version for text scrubbing
+    
+    Args:
+        text: Text potentially containing PII
+        
+    Returns:
+        Scrubbed text
+    """
+    if not text:
+        return text
+    
+    # Email patterns
+    text = re.sub(
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        '[EMAIL]',
+        text
+    )
+    
+    # Phone patterns (US format)
+    text = re.sub(
+        r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+        '[PHONE]',
+        text
+    )
+    
+    # SSN patterns
+    text = re.sub(
+        r'\b\d{3}-\d{2}-\d{4}\b',
+        '[SSN]',
+        text
+    )
+    
+    # Credit card patterns (simple)
+    text = re.sub(
+        r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+        '[CARD]',
+        text
+    )
+    
+    return text
+
+
+# ============================================================
+# TRACE NAMING (NEW - from new version)
+# ============================================================
+
+def generate_trace_name(
+    condition: str,
+    execution_id: int,
+    step_number: Optional[int] = None,
+    tool_name: Optional[str] = None,
+    operation: Optional[str] = None
+) -> str:
+    """
+    Generate hierarchical trace name
+    
+    NEW: More detailed naming structure for better LangSmith organization
+    
+    Args:
+        condition: 'workflow_builder' or 'ai_assistant'
+        execution_id: Workflow execution ID
+        step_number: Optional step number
+        tool_name: Optional tool name
+        operation: Optional operation type (e.g., 'decision', 'tool_execution')
+        
+    Returns:
+        Formatted trace name
+        
+    Examples:
+        'ai_assistant_456'
+        'ai_assistant_456_step-3'
+        'ai_assistant_456_step-3_sentiment_analysis'
+        'workflow_builder_789_step-1_decision'
+    """
+    parts = [condition, str(execution_id)]
+    
+    if step_number is not None:
+        parts.append(f"step-{step_number}")
+    
+    if operation:
+        parts.append(operation)
+    
+    if tool_name:
+        parts.append(tool_name)
+    
+    return "_".join(parts)
+
+
+# ============================================================
+# METADATA BUILDING (Enhanced)
+# ============================================================
+
+def build_trace_metadata(
+    execution_id: int,
+    session_id: str,
+    condition: str,
+    task_data: Optional[Dict[str, Any]] = None,
+    step_number: Optional[int] = None,
+    tool_name: Optional[str] = None,
+    additional_metadata: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Build rich metadata for trace with PII scrubbing
+    
+    Enhanced with more fields and better organization
+    
+    Args:
+        execution_id: Execution ID
+        session_id: Session ID (will be hashed)
+        condition: Study condition
+        task_data: Task information
+        step_number: Optional step number
+        tool_name: Optional tool name
+        additional_metadata: Additional metadata to include
+        
+    Returns:
+        Metadata dict (PII-scrubbed)
+    """
+    # Start with base data
+    base_data = {
+        "execution_id": execution_id,
+        "session_id": session_id,
+        "condition": condition,
+    }
+    
+    # Scrub PII from base
+    metadata = scrub_pii_from_state(base_data)
+    
+    # Add timing
+    metadata['started_at'] = datetime.now(timezone.utc).isoformat()
+    
+    # Add task-specific metadata
+    if task_data:
+        if condition == 'workflow_builder':
+            workflow = task_data.get('workflow', {})
+            nodes = workflow.get('nodes', [])
+            metadata["node_count"] = len(nodes)
+            metadata["edge_count"] = len(workflow.get('edges', []))
+            metadata["task_type"] = "workflow_builder"
+        elif condition == 'ai_assistant':
+            metadata["task_type"] = "ai_assistant"
+            
+            # Add task description (truncated and scrubbed)
+            task_desc = task_data.get('task_description', '')
+            if task_desc:
+                truncated = str(task_desc)[:200]
+                metadata["task_description_preview"] = scrub_pii_from_text(truncated)
+            
+            # Add task category if available
+            if 'category' in task_data:
+                metadata['task_category'] = task_data['category']
+    
+    # Add step info
+    if step_number is not None:
+        metadata['step_number'] = step_number
+    
+    if tool_name:
+        metadata['tool_name'] = tool_name
+    
+    # Merge additional metadata (scrubbed)
+    if additional_metadata:
+        metadata.update(scrub_pii_from_state(additional_metadata))
+    
+    # Add tracing flag
+    metadata['traced'] = True
+    
+    return metadata
 
 
 # ============================================================
@@ -144,7 +331,11 @@ def create_run_config(
     session_id: str,
     condition: str,
     task_data: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    step_number: Optional[int] = None,
+    tool_name: Optional[str] = None,
+    streaming_callback = None,
+    include_tracer: bool = True
 ) -> Dict[str, Any]:
     """
     Create standardized and sanitized LangSmith run configuration
@@ -158,51 +349,99 @@ def create_run_config(
         condition: 'workflow_builder' or 'ai_assistant'
         task_data: Optional task data for additional context
         metadata: Optional additional metadata
+        step_number: Optional step number for nested traces
+        tool_name: Optional tool name for nested traces
+        streaming_callback: Optional WebSocket streaming callback
+        include_tracer: If True, include LangSmith tracer callback
         
     Returns:
         Config dict for graph.ainvoke(state, config=...)
         
     Example:
+        # Basic usage (backward compatible)
         config = create_run_config(42, "abc123", "workflow_builder")
+        
+        # With streaming
+        config = create_run_config(
+            42, "abc123", "ai_assistant",
+            streaming_callback=callback
+        )
+        
+        # Nested trace for tool
+        config = create_run_config(
+            42, "abc123", "ai_assistant",
+            step_number=3,
+            tool_name="sentiment_analysis"
+        )
+        
         final_state = await graph.ainvoke(initial_state, config=config)
     """
-    # Start with base data
-    base_data = {
-        "execution_id": execution_id,
-        "session_id": session_id,
-        "condition": condition,
-    }
+     # Import here to avoid circular dependency
+    from app.configs.config import settings
+
+    # Generate hierarchical trace name
+    trace_name = generate_trace_name(
+        condition=condition,
+        execution_id=execution_id,
+        step_number=step_number,
+        tool_name=tool_name
+    )
+
+    # Build rich metadata
+    trace_metadata = build_trace_metadata(
+        execution_id=execution_id,
+        session_id=session_id,
+        condition=condition,
+        task_data=task_data,
+        step_number=step_number,
+        tool_name=tool_name,
+        additional_metadata=metadata
+    )
     
-    # Scrub PII
-    safe_metadata = scrub_pii_from_state(base_data)
-    
-    # Add task-specific metadata
-    if task_data:
-        if condition == 'workflow_builder':
-            workflow = task_data.get('workflow', {})
-            nodes = workflow.get('nodes', [])
-            safe_metadata["node_count"] = len(nodes)
-            safe_metadata["edge_count"] = len(workflow.get('edges', []))
-            safe_metadata["task_type"] = "workflow_builder"
-        elif condition == 'ai_assistant':
-            safe_metadata["task_type"] = "ai_assistant"
-            task_desc = task_data.get('task_description', '')
-            # Truncate description to avoid huge metadata
-            safe_metadata["task_description_preview"] = task_desc[:100] if task_desc else ""
-    
-    # Merge additional metadata (also scrubbed)
-    if metadata:
-        safe_metadata.update(scrub_pii_from_state(metadata))
-    
-    return {
-        "run_name": f"{condition}_{execution_id}",
+    # Build config
+    config = {
+        "run_name": trace_name,
         "tags": [
             condition,
             f"exec_{execution_id}",
-            safe_metadata.get("task_type", "unknown")
+            trace_metadata.get("task_type", "unknown"),
+            getattr(settings, 'sentry_environment', 'development')
         ],
-        "metadata": safe_metadata
+        "metadata": trace_metadata,
+        "callbacks": []
     }
+    
+    # Add tool tag if present
+    if tool_name:
+        config['tags'].append(f"tool-{tool_name}")
+    
+    # Add LangSmith tracer callback if requested
+    if include_tracer and settings.langsmith_enabled:
+        try:
+            from langchain_core.tracers import LangChainTracer
+            from langsmith import Client
+            
+            tracer = LangChainTracer(
+                project_name=settings.langsmith_project,
+                client=Client(
+                    api_key=settings.langsmith_api_key,
+                    api_url=settings.langsmith_endpoint
+                )
+            )
+            
+            config["callbacks"].append(tracer)
+            logger.debug(f"LangSmith tracer added: {trace_name}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to create LangSmith tracer: {e}")
+            # Continue without tracer - don't fail execution
+    
+    # Add streaming callback if provided
+    if streaming_callback is not None:
+        config["callbacks"].append(streaming_callback)
+        logger.debug(f"Streaming callback added: {trace_name}")
+    
+    return config
 
 
 # ============================================================
@@ -248,6 +487,7 @@ def init_langsmith(settings) -> bool:
         logger.info(f"   Environment: {env}")
         logger.info(f"   Sample Rate: {sample_rate * 100:.0f}%")
         logger.info(f"   PII Scrubbing: Enabled")
+        logger.info(f"   Callback Support: Enabled")
         logger.info(f"   All LangGraph executions will be traced")
         logger.info("=" * 60)
         
@@ -273,13 +513,40 @@ def get_langsmith_url(run_id: Optional[str] = None) -> Optional[str]:
     Returns:
         str: URL to view the trace, or None if LangSmith is not configured
     """
-    project = os.environ.get("LANGSMITH_PROJECT") or os.environ.get("LANGCHAIN_PROJECT")
+    from .config import settings
+
+    project = settings.langsmith_project
     
     if not project or not run_id:
         return None
     
     # Note: Update 'your-org' with your actual LangSmith organization
-    return f"https://smith.langchain.com/o/your-org/projects/p/{project}/r/{run_id}"
+    org = settings.langsmith_org_id
+    
+    return f"https://smith.langchain.com/o/{org}/projects/p/{project}/r/{run_id}"
+
+
+def check_langsmith_status() -> Dict[str, Any]:
+    """
+    Check LangSmith configuration status
+    
+    NEW: Added from new version for diagnostics
+    
+    Returns:
+        Status dict with configuration info
+    """
+    from app.configs.config import settings
+    
+    return {
+        'enabled': settings.langsmith_enabled,
+        'project': settings.langsmith_project,
+        'endpoint': settings.langsmith_endpoint,
+        'environment': getattr(settings, 'sentry_environment', 'development'),
+        'sample_rate': getattr(settings, 'langsmith_sample_rate', 1.0),
+        'scrub_pii': True,  # Always enabled
+        'callback_support': True,  # Now available
+        'api_configured': bool(settings.langsmith_api_key)
+    }
 
 
 # ============================================================
@@ -348,13 +615,19 @@ __all__ = [
     
     # PII & Formatting
     'scrub_pii_from_state',
+    'scrub_pii_from_text',
     'format_input_for_langsmith',
     'format_output_for_langsmith',
+    
+    # Trace Naming
+    'generate_trace_name',
+    'build_trace_metadata',
     
     # Sampling
     'should_trace_execution',
     
     # Utilities
     'get_langsmith_url',
+    'check_langsmith_status',
     'LangSmithContext',
 ]

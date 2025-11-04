@@ -8,6 +8,7 @@ import WorkflowBuilder from './components/workflow/WorkflowBuilder';
 import AIChat from './components/assistant/AIChat';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ThemeSwitcher from './components/ThemeSwitcher';
+import { NotificationPermission } from './components/NotificationPermission';
 
 // Hooks
 import { useSession } from './hooks/useSession';
@@ -367,6 +368,8 @@ const AppContent = () => {
         <main className="flex-1 overflow-y-auto">
           {renderContent()}
         </main>
+
+        <NotificationPermission showBanner={true} />
       </div>
     </>
   );

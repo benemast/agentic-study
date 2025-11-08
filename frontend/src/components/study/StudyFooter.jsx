@@ -47,7 +47,7 @@ const StudyFooter = () => {
               EMAIL: (
                 <a 
                   href={`mailto:${contactEmail}`}
-                  className="text-blue-400 dark:text-blue-400 hover:text-blue-300 dark:hover:text-blue-300 underline"
+                  className="text-blue-400 dark:text-blue-400 hover:text-blue-300 dark:hover:text-blue-300 underline pl-[0.6ch]"
                 >
                   {contactEmail}
                 </a>

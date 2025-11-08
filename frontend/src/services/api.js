@@ -153,6 +153,7 @@ class HybridApiClient {
       'interactions',
       'execute',
       'workflow_execute',
+      'agent_execute',
       'execution_cancel',
       'get_reviews',
       'get_review_stats',
@@ -209,7 +210,9 @@ class HybridApiClient {
         throw error;
       }
     }
-    
+
+    console.log("Call: ", operation, wsMethod, httpMethod, options, "WebSocket available:", this.isWebSocketAvailable(), " WS Preferred:", this.wsPreferred.has(operation))
+
     // Try WebSocket first if available and preferred
     if (this.isWebSocketAvailable() && this.wsPreferred.has(operation)) {
       try {
@@ -277,6 +280,21 @@ export const API_ENDPOINTS = {
     get: (sessionId) => `/api/demographics/${sessionId}`,
     update: (sessionId) => `/api/demographics/${sessionId}`,
     validate: () => '/api/demographics/validate',
+  },
+  survey: {
+    submit: () => '/api/survey/submit',
+    get: (surveyId) => `/api/survey/${surveyId}`,
+    getByParticipant: (participantId) => `/api/survey/participant/${participantId}`,
+    getBySession: (sessionId) => `/api/survey/session/${sessionId}`,
+    list: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.condition) queryParams.append('condition', params.condition);
+      if (params.task_number) queryParams.append('task_number', params.task_number);
+      if (params.page) queryParams.append('page', params.page);
+      if (params.per_page) queryParams.append('per_page', params.per_page);
+      const query = queryParams.toString();
+      return `/api/survey/${query ? '?' + query : ''}`;
+    },
   },
   chat: {
     send: () => '/api/ai-chat/chat',
@@ -430,7 +448,7 @@ export const orchestratorAPI = {
   // Workflow execution uses WebSocket for real-time updates
   executeWorkflow: (sessionId, workflow, inputData = {}) => hybridClient.request(
     'workflow_execute',
-    () => wsClient.executeWorkflow(workflow, inputData),
+    () => wsClient.executeWorkflow(workflow, inputData, 'workflow_builder'),
     () => hybridClient.http.post(API_ENDPOINTS.orchestrator.execute(), {
       session_id: sessionId,
       condition: 'workflow_builder',
@@ -440,9 +458,9 @@ export const orchestratorAPI = {
   ),
   
   // Agent tasks use WebSocket
-  executeAgentTask: (sessionId, taskDescription, inputData = {}) => hybridClient.request(
+  executeAgent: (sessionId, taskDescription, inputData = {}) => hybridClient.request(
     'agent_execute',
-    () => wsClient.request('agent_execute', { task_description: taskDescription, input_data: inputData }),
+    () => wsClient.executeAgent(taskDescription, inputData, 'ai_assistant'),
     () => hybridClient.http.post(API_ENDPOINTS.orchestrator.execute(), {
       session_id: sessionId,
       condition: 'ai_assistant',
@@ -469,7 +487,186 @@ export const orchestratorAPI = {
     `${API_ENDPOINTS.orchestrator.sessionExecutions(sessionId)}?limit=${limit}`
   ),
 };
+/**
+ * Survey API - Handles post-task survey submission and retrieval
+ */
+export const surveyAPI = {
+  /**
+   * Submit a completed survey
+   * @param {Object} surveyData - Complete survey response data
+   * @returns {Promise<Object>} Submission confirmation with survey_id
+   */
+  submit: (surveyData) => {
+    console.log('[surveyAPI] Submitting survey:', {
+      participant_id: surveyData.participant_id,
+      task_number: surveyData.task_number,
+      condition: surveyData.condition
+    });
+    
+    return hybridClient.http.post(API_ENDPOINTS.survey.submit(), surveyData);
+  },
 
+  /**
+   * Get a specific survey by ID with computed scores
+   * @param {number} surveyId - Survey ID
+   * @returns {Promise<Object>} Complete survey data with hypothesis scores
+   */
+  get: (surveyId) => {
+    return hybridClient.http.get(API_ENDPOINTS.survey.get(surveyId));
+  },
+
+  /**
+   * Get all surveys for a participant
+   * @param {string} participantId - Participant identifier
+   * @returns {Promise<Object>} List of surveys with summaries
+   */
+  getByParticipant: (participantId) => {
+    return hybridClient.http.get(API_ENDPOINTS.survey.getByParticipant(participantId));
+  },
+
+  /**
+   * Get all surveys for a session
+   * @param {string} sessionId - Session UUID
+   * @returns {Promise<Object>} List of surveys for the session
+   */
+  getBySession: (sessionId) => {
+    return hybridClient.http.get(API_ENDPOINTS.survey.getBySession(sessionId));
+  },
+
+  /**
+   * List all surveys with optional filtering (admin)
+   * @param {Object} params - Filter parameters
+   * @param {string} params.condition - Filter by condition ('workflow_builder' or 'ai_assistant')
+   * @param {number} params.task_number - Filter by task (1 or 2)
+   * @param {number} params.page - Page number
+   * @param {number} params.per_page - Results per page
+   * @returns {Promise<Object>} Paginated list of surveys
+   */
+  list: (params = {}) => {
+    return hybridClient.http.get(API_ENDPOINTS.survey.list(params));
+  },
+
+  /**
+   * Format survey data for submission
+   * Transforms questionnaire component state to API schema
+   */
+  formatForSubmission: ({
+    participantId,
+    sessionId,
+    taskNumber,
+    condition,
+    startedAt,
+    completedAt,
+    responses,
+    openEnded,
+    language = 'en'
+  }) => {
+    // Map response IDs to database column names
+    const nasaTlxMapping = {
+      'mental_demand': 'nasa_tlx_mental_demand',
+      'temporal_demand': 'nasa_tlx_temporal_demand',
+      'performance': 'nasa_tlx_performance',
+      'effort': 'nasa_tlx_effort',
+      'frustration': 'nasa_tlx_frustration'
+    };
+
+    const likertMapping = {
+      // Section 2
+      'control_task': 'control_task',
+      'agency_decisions': 'agency_decisions',
+      'engagement': 'engagement',
+      'confidence_quality': 'confidence_quality',
+      'trust_results': 'trust_results',
+      // Section 3
+      'process_transparency': 'process_transparency',
+      'predictability': 'predictability',
+      'understood_choices': 'understood_choices',
+      'understood_reasoning': 'understood_reasoning',
+      'could_explain': 'could_explain',
+      // Section 4
+      'ease_of_use': 'ease_of_use',
+      'efficiency': 'efficiency',
+      'found_insights': 'found_insights',
+      'explored_thoroughly': 'explored_thoroughly',
+      'discovered_insights': 'discovered_insights',
+      'accurate_reliable': 'accurate_reliable',
+      'recommend': 'recommend'
+    };
+
+    const openEndedMapping = {
+      'positive': 'feedback_positive',
+      'negative': 'feedback_negative',
+      'improvements': 'feedback_improvements'
+    };
+
+    // Build formatted data
+    const formattedData = {
+      participant_id: participantId,
+      session_id: sessionId,
+      task_number: taskNumber,
+      condition: condition,
+      started_at: startedAt,
+      completed_at: completedAt,
+      language: language
+    };
+
+    // Map NASA-TLX responses
+    Object.entries(nasaTlxMapping).forEach(([questionId, dbColumn]) => {
+      if (responses[questionId] !== undefined) {
+        formattedData[dbColumn] = responses[questionId];
+      }
+    });
+
+    // Map Likert responses
+    Object.entries(likertMapping).forEach(([questionId, dbColumn]) => {
+      if (responses[questionId] !== undefined) {
+        formattedData[dbColumn] = responses[questionId];
+      }
+    });
+
+    // Map open-ended responses
+    Object.entries(openEndedMapping).forEach(([key, dbColumn]) => {
+      if (openEnded[key] && openEnded[key].trim()) {
+        formattedData[dbColumn] = openEnded[key].trim();
+      }
+    });
+
+    return formattedData;
+  },
+
+  /**
+   * Validate survey data before submission
+   */
+  validate: (responses, openEnded) => {
+    const errors = [];
+
+    // Check NASA-TLX (5 required)
+    const nasaTlxQuestions = ['mental_demand', 'temporal_demand', 'performance', 'effort', 'frustration'];
+    const missingNasaTlx = nasaTlxQuestions.filter(q => responses[q] === undefined);
+    
+    if (missingNasaTlx.length > 0) {
+      errors.push(`Missing NASA-TLX responses: ${missingNasaTlx.join(', ')}`);
+    }
+
+    // Check Likert (17 required)
+    const likertQuestions = [
+      'control_task', 'agency_decisions', 'engagement', 'confidence_quality', 'trust_results',
+      'process_transparency', 'predictability', 'understood_choices', 'understood_reasoning', 'could_explain',
+      'ease_of_use', 'efficiency', 'found_insights', 'explored_thoroughly', 'discovered_insights', 
+      'accurate_reliable', 'recommend'
+    ];
+    const missingLikert = likertQuestions.filter(q => responses[q] === undefined);
+    
+    if (missingLikert.length > 0) {
+      errors.push(`Missing Likert responses: ${missingLikert.join(', ')}`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+};
 /**
  * Reviews API - Handles fetching review datasets for study tasks
  * Supports both WebSocket (preferred) and REST (fallback) communication

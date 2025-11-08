@@ -110,24 +110,22 @@ export const checkDemographicsStatus = async () => {
             ...state.sessionData,
             demographics: {
               age: result.data.age,
-              gender: result.data.gender,
+              genderIdentity: result.data.gender_identity,  // Map from snake_case to camelCase
               education: result.data.education,
               field_of_study: result.data.field_of_study,
               occupation: result.data.occupation,
+              first_language: result.data.first_language,
+              industry: result.data.industry,
+              work_experience: result.data.work_experience,
               programming_experience: result.data.programming_experience,
               ai_ml_experience: result.data.ai_ml_experience,
+              ai_ml_expertise: result.data.ai_ml_expertise,
+              ai_tools_used: result.data.ai_tools_used,
               workflow_tools_used: result.data.workflow_tools_used,
               technical_role: result.data.technical_role,
-              participation_motivation: result.data.participation_motivation,
-              expectations: result.data.expectations,
-              time_availability: result.data.time_availability,
-              country: result.data.country,
-              first_language: result.data.first_language,
               comments: result.data.comments
             },
-            demographicsCompleted: true,
-            demographicsCompletedFor: sessionId,
-            demographicsCompletedAt: result.data.completed_at
+            demographicsCompleted: true
           }
         }));
         

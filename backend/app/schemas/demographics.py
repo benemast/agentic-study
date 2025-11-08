@@ -7,29 +7,32 @@ class DemographicsBase(BaseModel):
 
     # Basic Information
     age: Optional[str] = Field(None, max_length=50)
-    gender: Optional[str] = Field(None, max_length=50) 
+    gender_identity: Optional[str] = Field(None, max_length=50, alias='genderIdentity')
     education: Optional[str] = Field(None, max_length=100)
     field_of_study: Optional[str] = Field(None, max_length=200)
     occupation: Optional[str] = None
+    first_language: Optional[str] = Field(None, max_length=100)
+    
+    # Professional Background
+    industry: Optional[str] = Field(None, max_length=50)
+    work_experience: Optional[str] = Field(None, max_length=50)
     
     # Technical Background
     programming_experience: Optional[str] = Field(None, max_length=50)
     ai_ml_experience: Optional[str] = Field(None, max_length=50)
+    ai_ml_expertise: Optional[str] = Field(None, max_length=50)
+    ai_tools_used: Optional[List[str]] = Field(default_factory=list)
     workflow_tools_used: Optional[List[str]] = Field(default_factory=list)
     technical_role: Optional[str] = Field(None, max_length=100)
     
-    # Study Context
-    participation_motivation: Optional[str] = None
-    expectations: Optional[str] = None
-    time_availability: Optional[str] = Field(None, max_length=50)
-    
     # Optional Information
-    country: Optional[str] = Field(None, max_length=100)
-    first_language: Optional[str] = Field(None, max_length=100)
     comments: Optional[str] = None
     
     completed_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True  # Allow both 'gender_identity' and 'genderIdentity'
 
 
 class DemographicsCreate(DemographicsBase):
@@ -44,6 +47,7 @@ class DemographicsResponse(DemographicsBase):
     
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 class DemographicsUpdate(DemographicsBase):
     """For updating existing demographics data"""

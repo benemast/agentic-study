@@ -1,12 +1,11 @@
 # backend/app/routers/demographics.py
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional
+from datetime import datetime, timezone
 import logging
 import json
-import os
 
 from app.database import get_db
 from app.models.demographics import Demographics
@@ -69,22 +68,22 @@ async def create_demographics(
             
             # Update existing record
             existing.age = demographics_data.age
-            existing.gender = demographics_data.gender
+            existing.gender_identity = demographics_data.gender_identity
             existing.education = demographics_data.education
             existing.field_of_study = demographics_data.field_of_study
             existing.occupation = demographics_data.occupation
+            existing.first_language = demographics_data.first_language
+            existing.industry = demographics_data.industry
+            existing.work_experience = demographics_data.work_experience
             existing.programming_experience = demographics_data.programming_experience
             existing.ai_ml_experience = demographics_data.ai_ml_experience
+            existing.ai_ml_expertise = demographics_data.ai_ml_expertise
+            existing.ai_tools_used = process_workflow_tools(demographics_data.ai_tools_used)
             existing.workflow_tools_used = process_workflow_tools(demographics_data.workflow_tools_used)
             existing.technical_role = demographics_data.technical_role
-            existing.participation_motivation = demographics_data.participation_motivation
-            existing.expectations = demographics_data.expectations
-            existing.time_availability = demographics_data.time_availability
-            existing.country = demographics_data.country
-            existing.first_language = demographics_data.first_language
             existing.comments = demographics_data.comments
             existing.raw_response = demographics_data.raw_response
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(timezone.utc)
             
             db.commit()
             db.refresh(existing)
@@ -100,22 +99,22 @@ async def create_demographics(
         db_demographics = Demographics(
             session_id=demographics_data.session_id,
             age=demographics_data.age,
-            gender=demographics_data.gender,
+            gender_identity=demographics_data.gender_identity,
             education=demographics_data.education,
             field_of_study=demographics_data.field_of_study,
             occupation=demographics_data.occupation,
+            first_language=demographics_data.first_language,
+            industry=demographics_data.industry,
+            work_experience=demographics_data.work_experience,
             programming_experience=demographics_data.programming_experience,
             ai_ml_experience=demographics_data.ai_ml_experience,
-            workflow_tools_used=processed_tools,
+            ai_ml_expertise=demographics_data.ai_ml_expertise,
+            ai_tools_used=process_workflow_tools(demographics_data.ai_tools_used),
+            workflow_tools_used=process_workflow_tools(demographics_data.workflow_tools_used),
             technical_role=demographics_data.technical_role,
-            participation_motivation=demographics_data.participation_motivation,
-            expectations=demographics_data.expectations,
-            time_availability=demographics_data.time_availability,
-            country=demographics_data.country,
-            first_language=demographics_data.first_language,
             comments=demographics_data.comments,
             raw_response=demographics_data.raw_response,
-            completed_at=datetime.utcnow()
+            completed_at=datetime.now(timezone.utc)
         )
         
         logger.info(f"Creating demographics record with tools: {processed_tools}")

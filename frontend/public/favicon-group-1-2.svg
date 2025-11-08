@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="lavenderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c4b5fd;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a78bfa;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="peachGrad" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" style="stop-color:#fda4af;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fb7185;stop-opacity:1" />
+    </linearGradient>
+    <clipPath id="leftClip">
+      <rect x="4" y="4" width="12" height="24"/>
+    </clipPath>
+    <clipPath id="rightClip">
+      <rect x="16" y="4" width="12" height="24"/>
+    </clipPath>
+  </defs>
+  
+  <circle cx="16" cy="16" r="16" fill="none" stroke="#64748b" stroke-width="1.5"/>
+  
+  <circle cx="16" cy="16" r="16" fill="url(#lavenderGrad)" clip-path="url(#leftClip)"/>
+  <circle cx="16" cy="16" r="16" fill="url(#peachGrad)" clip-path="url(#rightClip)"/>
+  
+  <line x1="16" y1="0" x2="16" y2="32" stroke="#64748b" stroke-width="0.8"/>
+  
+  <!-- Workflow centered in left half (x center at 10) -->
+  <g>
+    <line x1="12" y1="12.25" x2="10" y2="16.25" stroke="#7c3aed" stroke-width="1.3" opacity="0.8"/>
+    <line x1="8" y1="12.25" x2="10" y2="16.25" stroke="#7c3aed" stroke-width="1.3" opacity="0.8"/>
+    <line x1="10" y1="16.25" x2="13" y2="19.25" stroke="#7c3aed" stroke-width="1.3" opacity="0.8"/>
+    
+    <circle cx="12" cy="12.25" r="1.8" fill="#fff"/>
+    <circle cx="8" cy="12.25" r="1.8" fill="#fff"/>
+    <circle cx="10" cy="16.25" r="1.8" fill="#fff"/>
+    <circle cx="13" cy="19.25" r="1.8" fill="#fff"/>
+  </g>
+  
+  <!-- Chat bubble centered in right half (x center at 22) -->
+  <g>
+    <path d="M19 13.25 L25 13.25 C25.5 13.25 26 13.75 26 14.25 L26 17.75 C26 18.25 25.5 18.75 25 18.75 L22.5 18.75 L21 20.25 L21 18.75 L19 18.75 C18.5 18.75 18 18.25 18 17.75 L18 14.25 C18 13.75 18.5 13.25 19 13.25 Z" 
+          fill="#fb7185" stroke="#fff" stroke-width="0.9"/>
+    <line x1="19.5" y1="15.25" x2="24.5" y2="15.25" stroke="#fff" stroke-width="1" stroke-linecap="round"/>
+    <line x1="19.5" y1="16.75" x2="23" y2="16.75" stroke="#fff" stroke-width="1" stroke-linecap="round"/>
+  </g>
+</svg>

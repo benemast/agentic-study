@@ -16,6 +16,7 @@ import wsClient from '../services/websocket';
 import { sessionAPI, chatAPI, interactionAPI } from '../services/api';
 
 import { SESSION_CONFIG, TRACKING_EVENTS, STUDY_CONFIG } from '../config/constants';
+import { updateFaviconForGroup } from '../utils/faviconManager';
 
 import { 
   generateSessionId, 
@@ -688,6 +689,8 @@ const useSessionStore = create(
               state.sessionData.studyConfig = config;
               state.sessionData.studyStartedAt = new Date().toISOString();
             });
+
+            updateFaviconForGroup(config.group);
 
             // Trigger sync
             get().syncSessionData();

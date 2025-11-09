@@ -1,17 +1,265 @@
 // frontend/src/components/workflow/NodeResultsModal.jsx
-import React from 'react';
-import { X, CheckCircle, XCircle, Clock, Database, Zap, Info } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, CheckCircle, XCircle, Clock, Database, Zap, Info, ChevronDown, ChevronRight } from 'lucide-react';
+import ReactJson from '@microlink/react-json-view';
+import { useTheme } from '../../../hooks/useTheme';
+
+/**
+ * Format snake_case or camelCase to readable text
+ * e.g., "total_reviews" -> "Total Reviews"
+ *       "sentimentScore" -> "Sentiment Score"
+ */
+const formatKey = (key) => {
+  return key
+    // Insert space before capital letters (camelCase)
+    .replace(/([A-Z])/g, ' $1')
+    // Replace underscores with spaces (snake_case)
+    .replace(/_/g, ' ')
+    // Capitalize first letter of each word
+    .replace(/\b\w/g, char => char.toUpperCase())
+    // Trim any extra spaces
+    .trim();
+};
+
+/**
+ * Format value for display
+ */
+const formatValue = (value) => {
+  if (value === null || value === undefined) return 'N/A';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return value.toLocaleString();
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (typeof value === 'object') return 'View details below';
+  return String(value);
+};
+
+/**
+ * KeyValueList - Display object as structured key-value pairs
+ */
+const KeyValueList = ({ data, title }) => {
+  if (!data || typeof data !== 'object') return null;
+  
+  const entries = Object.entries(data).filter(([_, value]) => 
+    value !== null && value !== undefined && typeof value !== 'object'
+  );
+  
+  if (entries.length === 0) return null;
+  
+  return (
+    <div className="space-y-2">
+      {title && (
+        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+          {title}
+        </h4>
+      )}
+      <div className="grid grid-cols-1 gap-2">
+        {entries.map(([key, value]) => (
+          <div 
+            key={key}
+            className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-900/50 rounded border border-gray-200 dark:border-gray-700"
+          >
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+              {formatKey(key)}
+            </span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {formatValue(value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Collapsible JSON Section Component
+ */
+const CollapsibleSection = ({ title, icon: Icon, iconColor, children, defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-900/70 transition"
+      >
+        <div className="flex items-center gap-2">
+          <Icon className={`w-5 h-5 ${iconColor}`} />
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        </div>
+        {isOpen ? (
+          <ChevronDown className="w-5 h-5 text-gray-500" />
+        ) : (
+          <ChevronRight className="w-5 h-5 text-gray-500" />
+        )}
+      </button>
+      {isOpen && (
+        <div className="p-4 bg-white dark:bg-gray-800">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Node-type-specific summary renderer
+ */
+const NodeSummary = ({ nodeResult }) => {
+  const { tool_executions = [], output_data, results } = nodeResult;
+  
+  // Determine node type from tool executions
+  const toolNames = tool_executions.map(t => t.tool_name);
+  
+  // Sentiment Analysis Node
+  if (toolNames.includes('analyze_sentiment')) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {results?.sentiment_distribution && (
+            <>
+              <StatCard 
+                label="Positive" 
+                value={`${results.sentiment_distribution.positive || 0}%`}
+                color="text-green-600 dark:text-green-400"
+              />
+              <StatCard 
+                label="Neutral" 
+                value={`${results.sentiment_distribution.neutral || 0}%`}
+                color="text-blue-600 dark:text-blue-400"
+              />
+              <StatCard 
+                label="Negative" 
+                value={`${results.sentiment_distribution.negative || 0}%`}
+                color="text-red-600 dark:text-red-400"
+              />
+              <StatCard 
+                label="Reviews" 
+                value={results.total_reviews || output_data?.row_count || 0}
+                color="text-gray-900 dark:text-gray-100"
+              />
+            </>
+          )}
+        </div>
+        {results && <KeyValueList data={results} />}
+      </div>
+    );
+  }
+  
+  // Filter/Search Node
+  if (toolNames.includes('filter_data') || toolNames.includes('search_reviews')) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <StatCard 
+            label="Results Found" 
+            value={output_data?.row_count || results?.count || 0}
+            color="text-blue-600 dark:text-blue-400"
+          />
+          {output_data?.column_count && (
+            <StatCard 
+              label="Columns" 
+              value={output_data.column_count}
+              color="text-gray-600 dark:text-gray-400"
+            />
+          )}
+          {results?.filtered_percentage && (
+            <StatCard 
+              label="Match Rate" 
+              value={`${results.filtered_percentage}%`}
+              color="text-green-600 dark:text-green-400"
+            />
+          )}
+        </div>
+        {results && <KeyValueList data={results} />}
+      </div>
+    );
+  }
+  
+  // Insight Generation Node
+  if (toolNames.includes('generate_insights') || toolNames.includes('extract_themes')) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <StatCard 
+            label="Insights Generated" 
+            value={results?.insights?.length || results?.count || 0}
+            color="text-purple-600 dark:text-purple-400"
+          />
+          {results?.top_themes && (
+            <StatCard 
+              label="Themes" 
+              value={results.top_themes.length}
+              color="text-blue-600 dark:text-blue-400"
+            />
+          )}
+          {output_data?.row_count && (
+            <StatCard 
+              label="Reviews Analyzed" 
+              value={output_data.row_count}
+              color="text-gray-600 dark:text-gray-400"
+            />
+          )}
+        </div>
+        {results && <KeyValueList data={results} />}
+      </div>
+    );
+  }
+  
+  // Default: Generic data stats + all results
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {output_data?.row_count !== undefined && (
+          <StatCard 
+            label="Rows" 
+            value={output_data.row_count}
+            color="text-blue-600 dark:text-blue-400"
+          />
+        )}
+        {output_data?.column_count !== undefined && (
+          <StatCard 
+            label="Columns" 
+            value={output_data.column_count}
+            color="text-gray-600 dark:text-gray-400"
+          />
+        )}
+        {tool_executions.length > 0 && (
+          <StatCard 
+            label="Tools Used" 
+            value={tool_executions.length}
+            color="text-purple-600 dark:text-purple-400"
+          />
+        )}
+      </div>
+      {results && <KeyValueList data={results} />}
+    </div>
+  );
+};
+
+/**
+ * Stat Card Component
+ */
+const StatCard = ({ label, value, color }) => (
+  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
+    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+    <p className={`text-xl font-bold ${color}`}>{value}</p>
+  </div>
+);
 
 /**
  * Modal to display node execution results
  * 
  * Shows:
  * - Execution status and time
- * - Input/output data
+ * - Node-specific summary statistics
  * - Tool execution details
+ * - Input/output data (collapsible)
  * - Error information (if any)
  */
 const NodeResultsModal = ({ isOpen, onClose, nodeResult }) => {
+  const { isDark } = useTheme();
+  
   if (!isOpen || !nodeResult) return null;
 
   const { 
@@ -50,7 +298,7 @@ const NodeResultsModal = ({ isOpen, onClose, nodeResult }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
         
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
@@ -74,9 +322,9 @@ const NodeResultsModal = ({ isOpen, onClose, nodeResult }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           
-          {/* Status Summary */}
+          {/* Status Bar */}
           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -107,148 +355,129 @@ const NodeResultsModal = ({ isOpen, onClose, nodeResult }) => {
             </div>
           )}
 
+          {/* Node-Specific Summary */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+            <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-3">Summary</h3>
+            <NodeSummary nodeResult={nodeResult} />
+          </div>
+
           {/* Tool Executions */}
           {tool_executions.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Zap className="w-5 h-5 text-purple-500 dark:text-purple-400" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-                  Tool Executions ({tool_executions.length})
-                </h3>
-              </div>
-              <div className="space-y-3">
+            <CollapsibleSection
+              title={`Tool Executions (${tool_executions.length})`}
+              icon={Zap}
+              iconColor="text-purple-500 dark:text-purple-400"
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
                 {tool_executions.map((tool, idx) => (
                   <div 
                     key={idx}
-                    className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700"
+                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded border border-gray-200 dark:border-gray-700"
                   >
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex-1">
                       <p className="font-medium text-gray-900 dark:text-gray-100">
                         {tool.tool_name}
                       </p>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {tool.execution_time_ms}ms
-                      </span>
+                      {tool.error && (
+                        <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                          Error: {tool.error}
+                        </p>
+                      )}
                     </div>
-                    {tool.error && (
-                      <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-                        Error: {tool.error}
-                      </p>
-                    )}
+                    <span className="text-sm text-gray-500 dark:text-gray-400 ml-4">
+                      {tool.execution_time_ms}ms
+                    </span>
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
+          )}
+
+          {/* Results Data */}
+          {nodeResult.results && (
+            <CollapsibleSection
+              title="Detailed Results"
+              icon={CheckCircle}
+              iconColor="text-blue-500 dark:text-blue-400"
+              defaultOpen={true}
+            >
+              <ReactJson 
+                src={nodeResult.results}
+                theme={isDark ? 'monokai' : 'rjv-default'}
+                collapsed={2}
+                indentWidth={4}
+                displayDataTypes={true}
+                displayObjectSize={true}
+                enableClipboard={false}
+                name={false}
+                style={{
+                  padding: '12px',
+                  borderRadius: '6px',
+                  backgroundColor: isDark ? '#1f2937' : '#f9fafb',
+                  fontSize: '12px'
+                }}
+              />
+            </CollapsibleSection>
           )}
 
           {/* Input Data */}
           {input_data && Object.keys(input_data).length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Database className="w-5 h-5 text-blue-500 dark:text-blue-400" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Input Data</h3>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                <pre className="text-sm text-gray-800 dark:text-gray-200 overflow-x-auto">
-                  {JSON.stringify(input_data, null, 2)}
-                </pre>
-              </div>
-            </div>
+            <CollapsibleSection
+              title="Input Data"
+              icon={Database}
+              iconColor="text-blue-500 dark:text-blue-400"
+              defaultOpen={false}
+            >
+              <ReactJson 
+                src={input_data}
+                theme={isDark ? 'monokai' : 'rjv-default'}
+                collapsed={2}
+                displayDataTypes={false}
+                displayObjectSize={true}
+                enableClipboard={true}
+                name={false}
+                style={{
+                  padding: '12px',
+                  borderRadius: '6px',
+                  backgroundColor: isDark ? '#1f2937' : '#f9fafb',
+                  fontSize: '12px'
+                }}
+              />
+            </CollapsibleSection>
           )}
 
           {/* Output Data */}
           {output_data && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Database className="w-5 h-5 text-green-500 dark:text-green-400" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Output Data</h3>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                {typeof output_data === 'object' ? (
-                  <div className="space-y-2">
-                    {/* Show summary stats for data */}
-                    {output_data.row_count !== undefined && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">Rows:</span>
-                        <span className="font-semibold text-gray-900 dark:text-gray-100">
-                          {output_data.row_count}
-                        </span>
-                      </div>
-                    )}
-                    {output_data.column_count !== undefined && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">Columns:</span>
-                        <span className="font-semibold text-gray-900 dark:text-gray-100">
-                          {output_data.column_count}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {/* Full data preview */}
-                    <details className="mt-3">
-                      <summary className="cursor-pointer text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                        Show full data
-                      </summary>
-                      <pre className="text-xs text-gray-800 dark:text-gray-200 overflow-x-auto mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded">
-                        {JSON.stringify(output_data, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                ) : (
-                  <pre className="text-sm text-gray-800 dark:text-gray-200 overflow-x-auto">
-                    {String(output_data)}
-                  </pre>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Results Data - Primary Results */}
-          {nodeResult.results && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle className="w-5 h-5 text-blue-500 dark:text-blue-400" />
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100">Results</h3>
-                {nodeResult.success !== undefined && (
-                  <span className={`ml-auto text-xs px-2 py-1 rounded-full ${
-                    nodeResult.success 
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                  }`}>
-                    {nodeResult.success ? 'Success' : 'Failed'}
-                  </span>
-                )}
-              </div>
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                {typeof nodeResult.results === 'object' ? (
-                  <div className="space-y-2">
-                    {/* Show key results stats if available */}
-                    {nodeResult.results.summary && (
-                      <div className="mb-3 p-3 bg-white dark:bg-gray-800 rounded border border-blue-100 dark:border-blue-900">
-                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Summary</div>
-                        <pre className="text-xs text-gray-800 dark:text-gray-200 overflow-x-auto">
-                          {JSON.stringify(nodeResult.results.summary, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                    
-                    {/* Full results preview */}
-                    <details open className="mt-3">
-                      <summary className="cursor-pointer text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium">
-                        Show all results
-                      </summary>
-                      <pre className="text-xs text-gray-800 dark:text-gray-200 overflow-x-auto mt-2 p-3 bg-white dark:bg-gray-800 rounded border border-blue-100 dark:border-blue-900">
-                        {JSON.stringify(nodeResult.results, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                ) : (
-                  <pre className="text-sm text-gray-800 dark:text-gray-200 overflow-x-auto">
-                    {String(nodeResult.results)}
-                  </pre>
-                )}
-              </div>
-            </div>
+            <CollapsibleSection
+              title="Output Data"
+              icon={Database}
+              iconColor="text-green-500 dark:text-green-400"
+              defaultOpen={false}
+            >
+              {typeof output_data === 'object' ? (
+                <ReactJson 
+                  src={output_data}
+                  theme={isDark ? 'monokai' : 'rjv-default'}
+                  collapsed={1}
+                  indentWidth={4}
+                  displayDataTypes={true}
+                  displayObjectSize={true}
+                  enableClipboard={false}
+                  name={false}
+                  style={{
+                    padding: '12px',
+                    borderRadius: '6px',
+                    backgroundColor: isDark ? '#1f2937' : '#f9fafb',
+                    fontSize: '12px'
+                  }}
+                />
+              ) : (
+                <pre className="text-xs text-gray-800 dark:text-gray-200 overflow-x-auto p-3 bg-gray-50 dark:bg-gray-900 rounded">
+                  {String(output_data)}
+                </pre>
+              )}
+            </CollapsibleSection>
           )}
 
           {/* Info Note */}

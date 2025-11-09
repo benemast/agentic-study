@@ -1,15 +1,25 @@
 // frontend/src/components/workflow/nodes/NodeEditor.jsx
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
-import { X as XIcon, Info as InfoIcon, Lock as LockIcon, ChevronDown, ChevronRight } from 'lucide-react';
+import { X as XIcon, Info as InfoIcon, Lock as LockIcon, ChevronDown, ChevronRight, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { getWorkflowFilterableColumns, getWorkflowSortableColumns } from '../../../config/columnConfig';
+import { validateNodeOptionDependencies } from '../../../utils/nodeDependencyValidator';
 
-const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
+const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
   const { t } = useTranslation();
   const [currentConfig, setCurrentConfig] = useState({});
   const [validationErrors, setValidationErrors] = useState({});
   const [collapsedSections, setCollapsedSections] = useState({});
+  
+  // Get option dependency validations and node-level warnings
+  const validationResult = useMemo(() => 
+    validateNodeOptionDependencies(node, nodes, edges),
+    [node, nodes, edges]
+  );
+  
+  const optionValidations = validationResult?.validations || {};
+  const nodeWarnings = validationResult?.nodeWarnings || [];
 
   // Extract config schema and current config from node
   const configSchema = useMemo(() => node?.data?.configSchema || [], [node]);
@@ -29,6 +39,34 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
   // ============================================
   // FIELD VISIBILITY & DEPENDENCY LOGIC
   // ============================================
+  
+  /**
+   * Get dependency state for a specific option
+   * Returns: { disabled, warning, message }
+   */
+  const getOptionDependencyState = useCallback((fieldKey, optionValue) => {
+    const validationKey = `${fieldKey}.${optionValue}`;
+    const validation = optionValidations[validationKey];
+    
+    if (!validation || validation.isValid) {
+      return { disabled: false, warning: false, message: null };
+    }
+    
+    // Build message about missing nodes
+    const missingNodeLabels = validation.missingNodes
+      .map(nodeId => t(`workflow.builder.nodes.${nodeId}.label`) || nodeId)
+      .join(', ');
+    
+    const message = t('workflow.builder.nodeEditor.dependencyMissing', { 
+      nodes: missingNodeLabels 
+    }) || `Requires: ${missingNodeLabels}`;
+    
+    return {
+      disabled: validation.lockType === 'disable',
+      warning: validation.lockType === 'warning',
+      message
+    };
+  }, [optionValidations, t]);
   
   /**
    * Check if a field should be visible based on dependsOn
@@ -473,34 +511,64 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
             {options.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">No options available</p>
             ) : (
-              options.map(opt => (
-                <label 
-                  key={opt.value} 
-                  className="flex items-start space-x-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={(value || []).includes(opt.value)}
-                    onChange={(e) => handleMultiselectChange(field.key, opt.value, e.target.checked)}
-                    disabled={isLocked}
-                    className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center">
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
-                        {shouldTranslate(opt.label) ? t(opt.label) : opt.label}
-                      </span>
-                      <OptionHelpTooltip help={opt.help} />
+              options.map(opt => {
+                const depState = getOptionDependencyState(field.key, opt.value);
+                const isChecked = (value || []).includes(opt.value);
+                const isDisabled = isLocked || depState.disabled;
+                
+                return (
+                  <label 
+                    key={opt.value} 
+                    className={`flex items-start space-x-2 p-2 rounded transition-colors ${
+                      isDisabled 
+                        ? 'opacity-50 cursor-not-allowed' 
+                        : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={(e) => handleMultiselectChange(field.key, opt.value, e.target.checked)}
+                      disabled={isDisabled}
+                      className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          {shouldTranslate(opt.label) ? t(opt.label) : opt.label}
+                        </span>
+                        {depState.warning && (
+                          <div className="relative group">
+                            <AlertTriangleIcon className="w-4 h-4 text-amber-500" />
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-64">
+                              <div className="bg-amber-50 dark:bg-amber-900/90 text-amber-900 dark:text-amber-100 text-xs rounded-lg p-2 shadow-lg border border-amber-200 dark:border-amber-700">
+                                {depState.message}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {depState.disabled && (
+                          <div className="relative group">
+                            <LockIcon className="w-3 h-3 text-gray-400" />
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-64">
+                              <div className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded-lg p-2 shadow-lg border border-gray-200 dark:border-gray-600">
+                                {depState.message}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <OptionHelpTooltip help={opt.help} />
+                      </div>
+                      {/* Show help text inline if no hover tooltip (fallback) */}
+                      {!opt.help && opt.description && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {shouldTranslate(opt.description) ? t(opt.description) : opt.description}
+                        </p>
+                      )}
                     </div>
-                    {/* Show help text inline if no hover tooltip (fallback) */}
-                    {!opt.help && opt.description && (
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {shouldTranslate(opt.description) ? t(opt.description) : opt.description}
-                      </p>
-                    )}
-                  </div>
-                </label>
-              ))
+                  </label>
+                );
+              })
             )}
           </div>
         )}
@@ -636,6 +704,32 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave }) => {
                 {t('workflow.builder.nodeEditor.noConfig') || 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.'}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Node-level Warnings */}
+        {nodeWarnings && nodeWarnings.length > 0 && (
+          <div className="px-6 py-3 space-y-2">
+            {nodeWarnings.map((warning, index) => {
+              const bgColor = warning.severity === 'warning' 
+                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700' 
+                : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700';
+              const textColor = warning.severity === 'warning'
+                ? 'text-amber-800 dark:text-amber-200'
+                : 'text-blue-800 dark:text-blue-200';
+              const iconColor = warning.severity === 'warning'
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-blue-600 dark:text-blue-400';
+              
+              return (
+                <div key={index} className={`flex items-start gap-2 p-3 rounded-lg border ${bgColor}`}>
+                  <AlertTriangleIcon className={`w-4 h-4 ${iconColor} mt-0.5 flex-shrink-0`} />
+                  <p className={`text-xs ${textColor}`}>
+                    {warning.message}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         )}
 

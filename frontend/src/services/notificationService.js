@@ -1,4 +1,4 @@
-// frontend/src/services/NotificationService.js
+// frontend/src/services/notificationService.js
 
 /**
  * Browser Notification Service
@@ -6,6 +6,22 @@
  * Handles native OS-level notifications for important events
  * Works alongside react-hot-toast for in-app notifications
  */
+
+/**
+ * Get current favicon URL from the page
+ * Falls back to default if not found
+ */
+const getCurrentFaviconUrl = () => {
+  // Try to find the favicon link element
+  const faviconLink = document.querySelector("link[rel*='icon']");
+  
+  if (faviconLink && faviconLink.href) {
+    return faviconLink.href;
+  }
+  
+  // Fallback to default
+  return '/favicon-group-3-4.svg';
+};
 
 class NotificationService {
   constructor() {
@@ -65,14 +81,17 @@ class NotificationService {
 
     // Don't send if window is focused (user is actively using the app)
     if (!document.hidden && !options.force) {
-      console.debug('Window is focused, skipping notification:', title);
+      console.info('ℹ️ Window is focused, skipping notification:', title);
       return null;
     }
 
     try {
+      // Get current favicon dynamically
+      const faviconUrl = getCurrentFaviconUrl();
+      
       const notification = new Notification(title, {
-        icon: options.icon || '/favicon.ico',
-        badge: options.badge || '/favicon.ico',
+        icon: options.icon || faviconUrl,
+        badge: options.badge || faviconUrl,
         body: options.body || '',
         tag: options.tag || 'default', // Prevents duplicate notifications
         requireInteraction: options.requireInteraction || false,
@@ -96,6 +115,7 @@ class NotificationService {
         };
       }
 
+      console.log('📬 Sending notification:', title, options.body);
       return notification;
     } catch (error) {
       console.error('Failed to send notification:', error);
@@ -111,8 +131,7 @@ class NotificationService {
     
     return this.send('Execution Started', {
       body: `${conditionName} execution has started`,
-      tag: `execution-${executionId}`,
-      icon: '/favicon.ico'
+      tag: `execution-${executionId}`
     });
   }
 
@@ -126,7 +145,6 @@ class NotificationService {
     return this.send('Execution Completed ✓', {
       body: `${conditionName} execution completed successfully${durationText}`,
       tag: `execution-${executionId}`,
-      icon: '/favicon.ico',
       requireInteraction: true, // Keep visible until user interacts
       timeout: 0
     });
@@ -141,7 +159,6 @@ class NotificationService {
     return this.send('Execution Failed ✗', {
       body: `${conditionName} execution failed: ${error || 'Unknown error'}`,
       tag: `execution-${executionId}`,
-      icon: '/favicon.ico',
       requireInteraction: true,
       timeout: 0
     });
@@ -156,7 +173,6 @@ class NotificationService {
     return this.send(`${conditionName} Progress: ${progress}%`, {
       body: message || 'Execution in progress...',
       tag: `execution-${executionId}-progress`,
-      icon: '/favicon.ico',
       silent: true, // Don't make sound for progress updates
       timeout: 3000
     });
@@ -169,7 +185,6 @@ class NotificationService {
     return this.send('Node Completed', {
       body: `${nodeLabel || nodeId} completed successfully`,
       tag: `node-${nodeId}`,
-      icon: '/favicon.ico',
       silent: true,
       timeout: 3000
     });
@@ -182,7 +197,6 @@ class NotificationService {
     return this.send(`${toolName}`, {
       body: message,
       tag: `tool-${toolName}`,
-      icon: '/favicon.ico',
       silent: true,
       timeout: 3000
     });

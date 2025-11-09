@@ -82,55 +82,44 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
   // EXECUTION LEVEL HANDLERS
   // ========================================
 
-  /**
-   * Handle execution_started (initialization)
-   */
-  const handleExecutionStarted = useCallback((message) => {
-    console.log('Execution started:', message);
-  
+  const handleExecutionStart = useCallback((message) => {
+    console.log('Execution start:', message);
+    
     const data = extractData(message);
-    const { execution_id, status } = data;
-  
+    const { execution_id } = data;
+    
+    // STEP 1: CAPTURE execution_id from WebSocket (PRIMARY SOURCE)
+    // This must happen BEFORE the executionId check below!
     if (execution_id && !executionId && onExecutionIdReceived) {
       console.log('Captured execution_id from WebSocket:', execution_id);
       onExecutionIdReceived(execution_id);
     }
-  
+    
+    // STEP 2: Filter out messages for other executions
+    // Now that we've captured the ID, ignore messages that don't match
+    if (executionId && message.execution_id !== executionId) {
+      console.log('Skipping - belongs to different execution');
+      return;
+    }
+    
+    // STEP 3: Update state
     setStatus('running');
-    clearState();
-    
-    addMessage({
-      type: 'execution',
-      subtype: 'started',
-      content: 'Execution initialized'
-    });
-  }, [executionId, clearState, addMessage]);
-
-  /**
-   * Handle execution_start (actual start)
-   */
-  const handleExecutionStart = useCallback((message) => {
-    console.log('Execution start:', message);
-    
-    if (executionId && message.execution_id !== executionId) return;
-    
-    const data = extractData(message);
-    
-    setStatus('running');
+    clearState(); // Clear previous execution data
     startTimeRef.current = Date.now();
     
+    // STEP 4: Add message to timeline
     addMessage({
       type: 'execution',
-      subtype: 'start',
+      subtype: message.subtype || 'start', // Preserve original subtype
       content: 'Execution started',
       step: data.step,
       total_steps: data.total_steps
     });
     
-    notificationService.notifyExecutionStarted(executionId, condition);
+    // 🔑 STEP 5: Notify user
+    notificationService.notifyExecutionStarted(execution_id || executionId, condition);
     toast.success('Execution started');
-  }, [executionId, condition, addMessage]);
-
+  }, [executionId, condition, clearState, addMessage, onExecutionIdReceived, startTimeRef]);
   /**
    * Handle execution_progress
    */
@@ -222,27 +211,40 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     const data = extractData(message);
     const { node_id, node_label, step_number } = data;
     
-    setNodeStates(prev => ({
-      ...prev,
-      [node_id]: {
-        status: 'running',
-        label: node_label,
-        step: step_number,
-        hasExecuted: true,
-        timestamp: Date.now()
-      }
-    }));
+    // Initialize node state immediately with all fields
+    setNodeStates(prev => {
+      const updatedState = {
+        ...prev,
+        [node_id]: {
+          status: 'running',
+          label: node_label,
+          step: step_number,
+          hasExecuted: true,
+          timestamp: Date.now(),
+          error: null,  // Initialize error field
+          error_type: null
+        }
+      };
+      console.log('🟢 Node start state:', { node_id, status: 'running' });
+      return updatedState;
+    });
 
-    setNodeResults(prevResults => ({
-      ...prevResults,
-      [node_id]: {
-        node_id,
-        node_label,
-        step_number,
-        status: 'running',
-        tool_executions: []
-      }
-    }));
+    setNodeResults(prevResults => {
+      const updatedResults = {
+        ...prevResults,
+        [node_id]: {
+          node_id,
+          node_label,
+          step_number,
+          status: 'running',
+          tool_executions: [],
+          error: null,  // Initialize error field
+          error_type: null
+        }
+      };
+      console.log('🟢 Node results initialized:', { node_id, status: 'running' });
+      return updatedResults;
+    });
     
     setCurrentStep({
       nodeId: node_id,
@@ -314,11 +316,14 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       results
     } = data;
     
+    const finalStatus = error ? 'error' : 'completed';
+    console.log(`🏁 Node end: ${node_id} - Status: ${finalStatus}`, { error, success });
+    
     setNodeStates(prev => ({
       ...prev,
       [node_id]: {
         ...prev[node_id],
-        status: error ? 'error' : 'completed',
+        status: finalStatus,
         hasExecuted: true,
         execution_time_ms,
         results: data.results,
@@ -334,7 +339,7 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
         node_id,
         node_label,
         step_number,
-        status: error ? 'error' : 'completed',
+        status: finalStatus,
         execution_time_ms,
         input_data,
         output_data,
@@ -365,27 +370,40 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     const data = extractData(message);
     const { node_id, node_label, step_number, error, error_type } = data;
     
-    setNodeStates(prev => ({
-      ...prev,
-      [node_id]: {
-        ...prev[node_id],
-        status: 'error',
-        hasExecuted: true,
-        error,
-        error_type,
-        timestamp: Date.now()
-      }
-    }));
+    // Force immediate state update to ensure error state persists
+    // even if node transitions rapidly from start -> error
+    setNodeStates(prev => {
+      const updatedState = {
+        ...prev,
+        [node_id]: {
+          ...prev[node_id],
+          status: 'error',
+          hasExecuted: true,
+          error,
+          error_type,
+          timestamp: Date.now()
+        }
+      };
+      console.log('🔴 Node error state updated:', { node_id, status: 'error', error });
+      return updatedState;
+    });
     
-    setNodeResults(prevResults => ({
-      ...prevResults,
-      [node_id]: {
-        ...prevResults[node_id],
-        status: 'error',
-        error,
-        error_type
-      }
-    }));
+    setNodeResults(prevResults => {
+      const updatedResults = {
+        ...prevResults,
+        [node_id]: {
+          ...prevResults[node_id],
+          node_id,
+          node_label,
+          step_number,
+          status: 'error',
+          error,
+          error_type
+        }
+      };
+      console.log('🔴 Node results updated:', { node_id, status: 'error' });
+      return updatedResults;
+    });
     
     addMessage({
       type: 'node',
@@ -818,8 +836,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           switch (messageKey) {
             // Execution messages
             case 'execution_started':
-              handleExecutionStarted(msg);
-              break;
             case 'execution_start':
               handleExecutionStart(msg);
               break;
@@ -891,8 +907,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           switch (msg.type) {
             // Execution
             case 'execution_started':
-              handleExecutionStarted(msg);
-              break;
             case 'execution_start':
               handleExecutionStart(msg);
               break;
@@ -967,7 +981,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       });
     }
   }, [
-    handleExecutionStarted,
     handleExecutionStart,
     handleExecutionProgress,
     handleExecutionEnd,
@@ -1000,8 +1013,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     
     switch (message.subtype) {
       case 'started':
-        handleExecutionStarted(message);
-        break;
       case 'start':
         handleExecutionStart(message);
         break;
@@ -1017,7 +1028,7 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       default:
         console.warn('Unknown execution subtype:', message.subtype, message);
     }
-  }, [handleExecutionStarted, handleExecutionStart, handleExecutionProgress, handleExecutionEnd, handleExecutionError]);
+  }, [handleExecutionStart, handleExecutionProgress, handleExecutionEnd, handleExecutionError]);
   
   /**
    * Handle all node messages
@@ -1119,64 +1130,36 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     
     console.log('Subscribing to execution events for session:', sessionId, 'execution:', executionId);
   
-    // ========================================
-    // SUBSCRIBE TO UNIFIED EVENTS (6 total)
-    // ========================================
+    // Create stable handler wrapper that doesn't change
+    const handlers = {
+      execution: handleExecutionMessage,
+      node: handleNodeMessage,
+      tool: handleToolMessage,
+      llm: handleLlmMessage,
+      agent: handleAgentMessage,
+      batch_update: handleBatchUpdate,
+      execution_start: handleExecutionStart,
+      node_start: handleNodeStart,
+      node_error: handleNodeError,
+      tool_start: handleToolStart
+    };
     
-    wsOn('execution', handleExecutionMessage);
-    wsOn('node', handleNodeMessage);
-    wsOn('tool', handleToolMessage);
-    wsOn('llm', handleLlmMessage);
-    wsOn('agent', handleAgentMessage);
-    wsOn('batch_update', handleBatchUpdate);
-    
-    // ========================================
-    // BACKWARD COMPATIBILITY (OLD FORMAT)
-    // ========================================
-    // Keep these for transition period
-    // TODO: Remove after full migration to unified format
-    
-    wsOn('execution_started', handleExecutionStarted);
-    wsOn('execution_start', handleExecutionStart);
-    wsOn('node_start', handleNodeStart);
-    wsOn('node_error', handleNodeError);
-    wsOn('tool_start', handleToolStart);
+    // Subscribe to all events
+    Object.entries(handlers).forEach(([event, handler]) => {
+      wsOn(event, handler);
+    });
     
     // Cleanup
     return () => {
       console.log('Unsubscribing from execution events');
-      
-      // Unified events
-      wsOff('execution', handleExecutionMessage);
-      wsOff('node', handleNodeMessage);
-      wsOff('tool', handleToolMessage);
-      wsOff('llm', handleLlmMessage);
-      wsOff('agent', handleAgentMessage);
-      wsOff('batch_update', handleBatchUpdate);
-      
-      // Backward compatibility
-      wsOff('execution_started', handleExecutionStarted);
-      wsOff('execution_start', handleExecutionStart);
-      wsOff('node_start', handleNodeStart);
-      wsOff('node_error', handleNodeError);
-      wsOff('tool_start', handleToolStart);
+      Object.entries(handlers).forEach(([event, handler]) => {
+        wsOff(event, handler);
+      });
     };
   }, [
     sessionId, 
-    executionId,
-    wsOn,
-    wsOff,
-    handleExecutionMessage,
-    handleNodeMessage,
-    handleToolMessage,
-    handleLlmMessage,
-    handleAgentMessage,
-    handleBatchUpdate,
-    handleExecutionStarted,
-    handleExecutionStart,
-    handleNodeStart,
-    handleNodeError,
-    handleToolStart
+    executionId
+    // Handlers intentionally omitted - they're captured in closure
   ]);
 
   // ========================================

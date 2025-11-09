@@ -469,7 +469,7 @@ const ProgressItem = ({ item, condition, isLatest }) => {
   const display = getItemDisplay();
 
   return (
-    <div className={`flex items-start gap-3 p-3 rounded-lg ${display.color} ${isLatest ? 'ring-2 ring-blue-300 dark:ring-blue-600' : ''} transition-all`}>
+    <div style="display: none" className={`executionProgressThingy flex items-start gap-3 p-3 rounded-lg ${display.color} ${isLatest ? 'ring-2 ring-blue-300 dark:ring-blue-600' : ''} transition-all`}>
       <div className="mt-0.5 flex-shrink-0">{display.icon}</div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

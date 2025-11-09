@@ -23,7 +23,6 @@ import NodeResultsModal from './nodes/NodeResultsModal';
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
 import LanguageSwitcher from '../LanguageSwitcher';
-import ExecutionProgress from '../ExecutionProgress';
 
 // Hooks
 import { useSession } from '../../hooks/useSession';
@@ -204,14 +203,14 @@ const WorkflowBuilder = () => {
   } = useWorkflowExecution(sessionId, 'workflow_builder');
 
   const handleViewNodeResults = useCallback((nodeId) => {
-    console.log('🔍 === MODAL OPEN DEBUG ===');
-    console.log('📦 Requested node:', nodeId);
-    console.log('📦 All nodeResults:', nodeResults);
-    console.log('📦 Specific result:', nodeResults?.[nodeId]);
-    console.log('📦 Result status:', nodeResults?.[nodeId]?.status);
-    console.log('📦 Result has results?:', nodeResults?.[nodeId]?.results !== undefined);
-    console.log('📦 Result has result?:', nodeResults?.[nodeId]?.result !== undefined);
-    console.log('📦 Full result data:', JSON.stringify(nodeResults?.[nodeId], null, 2));
+    console.log('=== MODAL OPEN DEBUG ===');
+    console.log('Requested node:', nodeId);
+    console.log('All nodeResults:', nodeResults);
+    console.log('Specific result:', nodeResults?.[nodeId]);
+    console.log('Result status:', nodeResults?.[nodeId]?.status);
+    console.log('Result has results?:', nodeResults?.[nodeId]?.results !== undefined);
+    console.log('Result has result?:', nodeResults?.[nodeId]?.result !== undefined);
+    console.log('Full result data:', JSON.stringify(nodeResults?.[nodeId], null, 2));
     
     const result = nodeResults?.[nodeId];
     
@@ -219,9 +218,9 @@ const WorkflowBuilder = () => {
       setSelectedNodeResult(result);
       setShowResultsModal(true);
     } else {
-      console.error('❌ No result found!');
+      console.error('No result found!');
     }
-    console.log('🔍 === MODAL OPEN DEBUG END ===');
+    console.log('=== MODAL OPEN DEBUG END ===');
   }, [nodeResults]);
 
   // ========================================
@@ -705,13 +704,6 @@ const WorkflowBuilder = () => {
         language: currentLanguage
       });
       
-      /*
-      const result = await executeWorkflow({ nodes, edges }, {
-        session_id: sessionId,
-        category: studyDataset,
-        language: currentLanguage
-      });      
-      */
 
       console.log('✅ Execution started:', result);
       
@@ -1096,7 +1088,9 @@ const WorkflowBuilder = () => {
             )}
           </ReactFlow>
         </div>
+        
         {/* Execution Progress Panel */}
+        {/* Execution Progress Panel 
         {executionStatus !== 'idle' && (
           <div className="w-96 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 overflow-y-auto">
             <ExecutionProgress
@@ -1110,7 +1104,7 @@ const WorkflowBuilder = () => {
               onCancel={cancelExecution}
             />
             
-            {/* Show results */}
+            {/* Show results 
             {executionResult && (
               <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
                 <h4 className="font-semibold text-green-900 dark:text-green-300 mb-2">
@@ -1122,7 +1116,7 @@ const WorkflowBuilder = () => {
               </div>
             )}
             
-            {/* Show errors */}
+            {/* Show errors 
             {executionError && executionStatus === 'failed' && (
               <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
                 <h4 className="font-semibold text-red-900 dark:text-red-300 mb-2">
@@ -1135,6 +1129,7 @@ const WorkflowBuilder = () => {
             )}
           </div>
         )}
+        */}
       </div>
 
       {/* Node Editor Modal */}
@@ -1144,6 +1139,8 @@ const WorkflowBuilder = () => {
           isOpen={!!editingNode}
           onClose={() => setEditingNode(null)}
           onSave={handleNodeSave}
+          nodes={nodes}
+          edges={edges}
         />
       )}
 

@@ -19,10 +19,8 @@ from pydantic import BaseModel, Field
 
 class LoadReviewsFiltersApplied(BaseModel):
     """Filters that were applied during loading"""
-    product_id: Optional[str] = Field(None, description="Product ID filter if applied")
-    min_rating: Optional[int] = Field(None, ge=1, le=5, description="Minimum rating filter")
-    max_rating: Optional[int] = Field(None, ge=1, le=5, description="Maximum rating filter")
-    verified_only: Optional[bool] = Field(None, description="Whether only verified purchases were loaded")
+    limit: Optional[int] = Field(None, ge=1, le=2000)
+    offset: Optional[int] = Field(None, ge=0)
 
 
 class LoadReviewsSummary(BaseModel):
@@ -39,7 +37,6 @@ class LoadReviewsOutput(BaseModel):
     records: Optional[List[Dict[str, Any]]] = Field(None, description="Loaded review records")
     total: Optional[int] = Field(None, ge=0, description="Total number of matching records")
     category: Optional[str] = Field(None, description="Category of reviews (shoes/wireless)")
-    filters_applied: Optional[LoadReviewsFiltersApplied] = Field(None, description="Applied filters")
     execution_time_ms: Optional[int] = Field(None, ge=0, description="Execution time in milliseconds")
     summary: Optional[LoadReviewsSummary] = Field(None, description="Summary for results registry")
     

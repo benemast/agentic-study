@@ -103,18 +103,15 @@ export const useReviewData = ({
     
     // Guard: Only load once per mount
     if (hasLoadedRef.current) {
-      console.log(`[useReviewData] Already loaded for ${cacheKey}, skipping`);
       return;
     }
     
     const loadData = async () => {
       try {
-        console.log(`[useReviewData] Starting load for ${cacheKey}`);
         
         // Check cache first
         const cachedData = getCachedData(cacheKey);
         if (cachedData) {
-          console.log(`[useReviewData] Using cached data (${cachedData.length} reviews)`);
           
           if (isMountedRef.current) {
             setReviews(cachedData);
@@ -122,7 +119,7 @@ export const useReviewData = ({
             setError(null);
           }
           
-          track('DATASET_LOADED_FROM_CACHE', {
+          track('dataset_loaded_from_cache', {
             taskNumber,
             reviewCount: cachedData.length,
             category
@@ -134,22 +131,18 @@ export const useReviewData = ({
         
         // Check if already fetching
         if (activeFetches.has(cacheKey)) {
-          console.log(`[useReviewData] Waiting for existing fetch...`);
           const existingPromise = activeFetches.get(cacheKey);
           const response = await existingPromise;
           
           // Extract reviews from response (not the response itself!)
           const reviewData = response?.reviews || [];
-          console.log(`[useReviewData] Existing fetch completed: ${reviewData.length} reviews`);
-          console.log(`[useReviewData] isMountedRef.current =`, isMountedRef.current);
           
           if (isMountedRef.current) {
-            console.log(`[useReviewData] ✅ Updating state from existing fetch: reviews=${reviewData.length}`);
             setReviews(reviewData);
             setLoading(false);
             setError(null);
           } else {
-            console.log(`[useReviewData] ⚠️ Component unmounted, skipping state update`);
+            console.log(`[useReviewData] Component unmounted, skipping state update`);
           }
           
           hasLoadedRef.current = true;
@@ -157,7 +150,7 @@ export const useReviewData = ({
         }
         
         // Start new fetch
-        track('DATASET_LOAD_STARTED', {
+        track('dataset_load_started', {
           taskNumber,
           category,
           productId
@@ -178,23 +171,19 @@ export const useReviewData = ({
         const response = await fetchPromise;
         const reviewData = response?.reviews || [];
         
-        console.log(`[useReviewData] Loaded ${reviewData.length} reviews`);
-        console.log(`[useReviewData] isMountedRef.current =`, isMountedRef.current);
-        
         // Update cache
         setCachedData(cacheKey, reviewData);
         
         // Update state
         if (isMountedRef.current) {
-          console.log(`[useReviewData] ✅ Updating state: reviews=${reviewData.length}, loading=false`);
           setReviews(reviewData);
           setLoading(false);
           setError(null);
         } else {
-          console.log(`[useReviewData] ⚠️ Component unmounted, skipping state update`);
+          console.log(`[useReviewData] Component unmounted, skipping state update`);
         }
         
-        track('DATASET_LOADED', {
+        track('dataset_loaded', {
           taskNumber,
           reviewCount: reviewData.length,
           category,
@@ -211,7 +200,7 @@ export const useReviewData = ({
           setLoading(false);
         }
         
-        track('DATASET_LOAD_FAILED', {
+        track('dataset_load_failed', {
           taskNumber,
           error: err.message || err.toString(),
           category

@@ -70,9 +70,9 @@ class RedisHashStateManager:
         
         try:
             self.redis_client.ping()
-            logger.info("✅ RedisHashStateManager initialized")
+            logger.info("RedisHashStateManager initialized")
         except redis.ConnectionError as e:
-            logger.error(f"❌ Redis connection failed: {e}")
+            logger.error(f"Redis connection failed: {e}")
             raise
     
     def _get_state_key(self, execution_id: int) -> str:
@@ -81,7 +81,7 @@ class RedisHashStateManager:
     
     def save_state(self, execution_id: int, state: Dict[str, Any]) -> None:
         """
-        ✅ Save state using Redis hash (field-by-field)
+        Save state using Redis hash (field-by-field)
         
         Args:
             execution_id: Execution ID

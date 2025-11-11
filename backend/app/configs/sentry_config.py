@@ -255,7 +255,7 @@ def init_sentry(settings):
             max_value_length=2048,  # Increase value length for better context
         )
         
-        logger.info(f"✅ Sentry initialized for {settings.sentry_environment} environment")
+        logger.info(f"Sentry initialized for {settings.sentry_environment} environment")
         logger.info(f"   - Traces sample rate: {settings.sentry_traces_sample_rate}")
         logger.info(f"   - Profiles sample rate: {settings.sentry_profiles_sample_rate}")
         logger.info(f"   - Enhanced context: ENABLED")

@@ -66,13 +66,12 @@ async function waitForTargets(steps, maxWaitMs = 3000) { // 3 seconds
     }
     
     if (missingTargets.length === 0) {
-      console.log(`✅ All tutorial targets mounted after ${attempts * checkInterval}ms`);
       return true;
     }
     
     // Log progress every second
     if (attempts % 5 === 0 && attempts > 0) {
-      console.log(`⏳ Waiting for targets (${attempts * checkInterval}ms):`, missingTargets);
+      console.log(`Waiting for targets (${attempts * checkInterval}ms):`, missingTargets);
     }
     
     await new Promise(resolve => setTimeout(resolve, checkInterval));
@@ -140,7 +139,7 @@ export function useTutorial(taskNumber, condition) {
   
     if (availableSteps.length === 0) {
         console.error('No tutorial targets available');
-        track('TUTORIAL_FAILED_TO_START', {
+        track('tutorial_failed_to_start', {
             taskNumber,
             tutorialType: type,
             condition,
@@ -154,7 +153,7 @@ export function useTutorial(taskNumber, condition) {
     
     if (!targetsReady) {
         console.error('Tutorial cancelled - targets not available');
-        track('TUTORIAL_FAILED_TO_START', {
+        track('tutorial_failed_to_start', {
             taskNumber,
             tutorialType: type,
             condition,
@@ -167,7 +166,7 @@ export function useTutorial(taskNumber, condition) {
     setTutorialType(type);
     setRun(true);
     
-    track('TUTORIAL_STARTED', {
+    track('tutorial_started', {
         taskNumber,
         tutorialType: type,
         condition,
@@ -183,7 +182,7 @@ export function useTutorial(taskNumber, condition) {
 
     // Track step views
     if (type === 'step:after') {
-      track('TUTORIAL_STEP_VIEWED', {
+      track('tutorial_step_viewed', {
         taskNumber,
         tutorialType,
         condition,
@@ -201,7 +200,7 @@ export function useTutorial(taskNumber, condition) {
       console.log('Tutorial completed!');
       setRun(false);
       
-      track('TUTORIAL_COMPLETED', {
+      track('tutorial_completed', {
         taskNumber,
         tutorialType,
         condition,
@@ -220,7 +219,7 @@ export function useTutorial(taskNumber, condition) {
       console.log('Tutorial skipped');
       setRun(false);
       
-      track('TUTORIAL_SKIPPED', {
+      track('tutorial_skipped', {
         taskNumber,
         tutorialType,
         condition,

@@ -47,7 +47,7 @@ const SessionInitializer = ({ children }) => {
     
     const initSession = async () => {
       try {
-        console.log('🚀 SessionInitializer: Starting session initialization...');
+        console.log('SessionInitializer: Starting session initialization...');
         await initialize();
         setIsInitialized(true);
         console.log('SessionInitializer: Session initialized');
@@ -67,17 +67,17 @@ const SessionInitializer = ({ children }) => {
   useEffect(() => {
     // Wait for session AND WebSocket to be ready
     if (!isInitialized || !sessionId) {
-      console.log('⏳ ConnectionMonitor: Waiting for session initialization...');
+      console.log('ConnectionMonitor: Waiting for session initialization...');
       return;
     }
     
     if (!isWebSocketConnected) {
-      console.log('⏳ ConnectionMonitor: Waiting for WebSocket connection...');
+      console.log('ConnectionMonitor: Waiting for WebSocket connection...');
       return;
     }
     
     // start when everything is ready
-    console.log('🌐 ConnectionMonitor: Session and WebSocket ready, starting monitor...');
+    console.log('ConnectionMonitor: Session and WebSocket ready, starting monitor...');
     connectionMonitor.start();
     
     return () => {
@@ -109,7 +109,7 @@ const SessionInitializer = ({ children }) => {
         connectionMonitor.forceUpdate();
       } else {
         // App hidden - quick save session data
-        console.log('💾 App hidden - quick saving');
+        console.log('App hidden - quick saving');
         quickSaveRef.current?.();
       }
     };
@@ -126,7 +126,7 @@ const SessionInitializer = ({ children }) => {
     if (!isInitialized) return;
     
     const handleBeforeUnload = () => {
-      console.log('💾 Page unloading - final save');
+      console.log('Page unloading - final save');
       quickSaveRef.current?.();
       // Note: WebSocket cleanup happens automatically in websocketStore
     };
@@ -144,18 +144,18 @@ const SessionInitializer = ({ children }) => {
     // Don't start heartbeat until initialized
     if (!isInitialized || !sessionId) return;
     
-    console.log('💓 Starting session heartbeat...');
+    console.log('Starting session heartbeat...');
     
     const heartbeatInterval = setInterval(() => {
       updateLastActivityRef.current?.();
       
       if (connectionStatus !== 'online') {
-        console.log('💓 User active but offline - changes queued for sync');
+        console.log('User active but offline - changes queued for sync');
       }
     }, SESSION_CONFIG.HEARTBEAT_INTERVAL);
 
     return () => {
-      console.log('💓 Stopping session heartbeat');
+      console.log('Stopping session heartbeat');
       clearInterval(heartbeatInterval);
     };
   }, [isInitialized, sessionId, connectionStatus]);

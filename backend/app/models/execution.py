@@ -1,7 +1,7 @@
 # backend/app/models/execution.py
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Text, Boolean, Float
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.models.session import Base
 
 class WorkflowExecution(Base):
@@ -16,7 +16,7 @@ class WorkflowExecution(Base):
     
     # Execution tracking
     status = Column(String(20), default='pending', index=True)  # 'pending', 'running', 'completed', 'failed', 'cancelled'
-    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    started_at = Column(DateTime, default=datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
     
     # Input definition

@@ -179,7 +179,7 @@ const useWebSocketStore = create(
             // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
             const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
             
-            console.log(`🔄 Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts + 1})`);
+            console.log(`Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts + 1})`);
             
             setTimeout(() => {
               const currentStatus = get().connection.status;
@@ -238,13 +238,13 @@ const useWebSocketStore = create(
 
               // Skip if no heartbeats sent yet
               if (!lastHeartbeat) {
-                console.log('⏸️ No heartbeats sent yet');
+                console.log('⏸No heartbeats sent yet');
                 return;
               }
 
               // Skip if no pongs received yet (first heartbeat)
               if (!lastPongReceived) {
-                console.log('⏸️ Waiting for first pong...');
+                console.log(' Waiting for first pong...');
                 return;
               }
 
@@ -294,10 +294,10 @@ const useWebSocketStore = create(
             };
             
             // Give connection time to stabilize (5 seconds)
-            console.log('⏱️ Starting health checks (first check in ', Math.round(WEBSOCKET_CONFIG.HEALTH_CHECK_INITIAL_TIMEOUT / 1000), 's)');
+            console.log('⏱Starting health checks (first check in ', Math.round(WEBSOCKET_CONFIG.HEALTH_CHECK_INITIAL_TIMEOUT / 1000), 's)');
             
             const initialDelay = setTimeout(() => {
-              console.log('💓 Starting heartbeat monitoring');
+              console.log('Starting heartbeat monitoring');
               
               // Send first heartbeat
               sendHeartbeat();
@@ -348,7 +348,7 @@ const useWebSocketStore = create(
               });
             }
             
-            console.log('⏸️ Health checks stopped');
+            console.log('⏸Health checks stopped');
           },
           
           // ========================================
@@ -381,7 +381,7 @@ const useWebSocketStore = create(
             const queue = get().messageQueue;
             if (queue.length === 0) return;
             
-            console.log(`📤 Processing ${queue.length} queued messages`);
+            console.log(`Processing ${queue.length} queued messages`);
             
             const processed = [];
             const failed = [];
@@ -815,10 +815,10 @@ setTimeout(async () => {
         const wsStore = useWebSocketStore.getState();
         
         if (!isVisible) {
-          console.log('⏸️ App hidden - pausing health checks');
+          console.log('⏸App hidden - pausing health checks');
           wsStore.stopHealthCheck();
         } else {
-          console.log('▶️ App visible - resuming health checks');
+          console.log('App visible - resuming health checks');
           if (wsStore.connection.status === 'connected') {
             wsStore.startHealthCheck();
           }

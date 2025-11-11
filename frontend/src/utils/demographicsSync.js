@@ -12,9 +12,7 @@ export const syncPendingDemographics = async () => {
   
   // Check if we have demographics data that failed to sync
   if (sessionData.demographics && sessionData.demographicsSubmissionError) {
-    try {
-      console.log('Attempting to sync pending demographics data...');
-      
+    try {      
       const demographicsData = {
         session_id: sessionId,
         ...sessionData.demographics,
@@ -38,7 +36,6 @@ export const syncPendingDemographics = async () => {
           }
         }));
         
-        console.log('Demographics data synced successfully');
         return { success: true };
       } else {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -59,8 +56,6 @@ export const fetchDemographics = async (sessionId) => {
   try {
     const response = await fetch(`${API_BASE_URL}/demographics/${sessionId}`);
     
-    console.log('Fetch demographics response:', response);
-
     if (response.ok) {
       const data = await response.json();
       return { success: true, data };
@@ -188,7 +183,6 @@ export const initializeDemographicsSync = async () => {
     }
   }
   else if (status.completed) {
-    console.log(`Demographics loaded from ${status.source}`);
     // Set global flag to prevent re-showing questionnaire
     localStorage.setItem('agentic-study-completed-demographics', 'true');
   } else if (isFirstTimeParticipant()) {

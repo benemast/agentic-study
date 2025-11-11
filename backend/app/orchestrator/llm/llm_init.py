@@ -324,14 +324,14 @@ def initialize_llm_module(
     elapsed_ms = int((time.time() - start_time) * 1000)
     
     logger.info("=" * 70)
-    logger.info("✅ LLM MODULE INITIALIZED SUCCESSFULLY")
+    logger.info(" LLM MODULE INITIALIZED SUCCESSFULLY")
     logger.info("=" * 70)
-    logger.info(f"📊 Components initialized: {components_count}")
-    logger.info(f"⏱️  Initialization time: {elapsed_ms}ms")
-    logger.info(f"🤖 Model: {settings.llm_model}")
-    logger.info(f"🔄 Streaming: {'enabled' if settings.use_stream else 'disabled'}")
-    logger.info(f"📊 LangSmith: {'enabled' if langsmith_enabled else 'disabled'}")
-    logger.info(f"🛡️  Circuit breakers: active")
+    logger.info(f" Components initialized: {components_count}")
+    logger.info(f"  Initialization time: {elapsed_ms}ms")
+    logger.info(f" Model: {settings.llm_model}")
+    logger.info(f" Streaming: {'enabled' if settings.use_stream else 'disabled'}")
+    logger.info(f" LangSmith: {'enabled' if langsmith_enabled else 'disabled'}")
+    logger.info(f"  Circuit breakers: active")
     logger.info("=" * 70)
     
     # Create components container

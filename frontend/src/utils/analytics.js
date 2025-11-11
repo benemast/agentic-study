@@ -3,14 +3,9 @@ export const initAnalytics = ({ sessionId, participantId }) => {
   const enableClarity = import.meta.env.VITE_ENABLE_CLARITY === 'true';
   const clarityId = import.meta.env.VITE_CLARITY_PROJECT_ID;
   
-  console.log('Analytics initialization:', {
-    environment: isProduction ? 'production' : 'development',
-    clarityEnabled: enableClarity && isProduction,
-  });
-  
   // Don't load in development
   if (!isProduction || !enableClarity) {
-    console.log('🔕 Clarity disabled');
+    console.log('Clarity disabled');
     return;
   }
   

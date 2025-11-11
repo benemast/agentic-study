@@ -727,8 +727,6 @@ const useSessionStore = create(
            * Mark welcome completed
            */
           completeWelcome: () => {
-            console.log('📋 Completing welcome screen...');
-            
             // Save current state before modification (for potential rollback)
             const previousState = {
               welcomeCompletedAt: get().sessionData.welcomeCompletedAt,
@@ -748,7 +746,6 @@ const useSessionStore = create(
               // Track completion
               get().trackInteraction(TRACKING_EVENTS.WELCOME_COMPLETED);
               
-              console.log('Welcome completed successfully');
             }catch (error) {
               // Log error
               console.error('Failed to complete welcome:', error);
@@ -765,59 +762,11 @@ const useSessionStore = create(
               throw error;
             };
           },
-
-          /**
-           * Complete demographics (already exists but update to set step)
-           */
-          /*completeDemographics: (data) => {
-
-            console.log('📋 Completing demographics screen...');
-            
-            // Save current state before modification (for potential rollback)
-            const previousState = {
-              demographicsData: get().sessionData.demographicsData,
-              demographicsComplete: get().sessionData.demographicsComplete,
-              demographicsCompletedAt: get().sessionData.demographicsCompletedAt,
-              currentStep: get().sessionData.currentStep
-            };
-
-            try {
-              set((state) => {
-                state.sessionData.demographicsData = data;
-                state.sessionData.demographicsComplete = true;
-                state.sessionData.demographicsCompletedAt = new Date().toISOString();
-                state.sessionData.currentStep = 'task_1';
-              });
-              
-              get().syncSessionData();
-              get().trackInteraction(TRACKING_EVENTS.DEMOGRAPHICS_COMPLETED);
-                
-              console.log('Demographics completed');
-              
-            } catch (error) {
-              console.error('Failed to complete Task 1:', error);
-              
-              set((state) => {
-                state.sessionData.demographicsData = previousState.demographicsData;
-                state.sessionData.demographicsComplete = previousState.demographicsComplete;
-                state.sessionData.demographicsCompletedAt = previousState.demographicsCompletedAt
-                state.sessionData.currentStep = previousState.currentStep;
-              });
-              
-              get().handleSessionError(error, 'demographics_completion');
-              
-              throw error;
-            }
-          },
-          */
-
           /**
            * Complete task 1
            */
           completeTask1: () => {
             const task1 = get().sessionData.study?.task1;
-            
-            console.log(`Completing Task 1 (Condition: ${task1?.condition}; Dataset: ${task1?.dataset})...`);
             
             const previousState = {
               task1CompletedAt: get().sessionData.task1CompletedAt,
@@ -832,8 +781,6 @@ const useSessionStore = create(
               
               get().syncSessionData();
               get().trackInteraction(TRACKING_EVENTS.TASK_COMPLETED, { task: 1, condition: task1?.condition, dataset: task1?.dataset });
-              
-              console.log(`Task 1 completed successfully`);
               
             } catch (error) {
               console.error('Failed to complete Task 1:', error);
@@ -852,8 +799,6 @@ const useSessionStore = create(
            * Complete survey 1
            */
           completeSurvey1: (surveyData) => {
-            console.log('Completing Survey 1...');
-            
             const previousState = {
               survey1Data: get().sessionData.survey1Data,
               survey1CompletedAt: get().sessionData.survey1CompletedAt,
@@ -869,8 +814,6 @@ const useSessionStore = create(
               
               get().syncSessionData();
               get().trackInteraction(TRACKING_EVENTS.SURVEY_COMPLETED, { survey: 1 });
-              
-              console.log('Survey 1 completed successfully');
               
             } catch (error) {
               console.error('Failed to complete Survey 1:', error);
@@ -891,8 +834,6 @@ const useSessionStore = create(
           completeTask2: () => {
             const task2 = get().sessionData.study?.task2;
             
-            console.log(`Completing Task 2 (Condition: ${task2?.condition}; Dataset: ${task2?.dataset})...`);
-            
             const previousState = {
               task2CompletedAt: get().sessionData.task2CompletedAt,
               currentStep: get().sessionData.currentStep
@@ -906,8 +847,6 @@ const useSessionStore = create(
               
               get().syncSessionData();
               get().trackInteraction(TRACKING_EVENTS.TASK_COMPLETED, { task: 2, condition: task2?.condition, dataset: task2?.dataset });
-              
-              console.log('Task 2 completed successfully');
               
             } catch (error) {
               console.error('Failed to complete Task 2:', error);
@@ -927,8 +866,6 @@ const useSessionStore = create(
            * Complete survey 2
            */
           completeSurvey2: (surveyData) => {
-            console.log('Completing Survey 2...');
-            
             const previousState = {
               survey2Data: get().sessionData.survey2Data,
               survey2CompletedAt: get().sessionData.survey2CompletedAt,
@@ -944,8 +881,6 @@ const useSessionStore = create(
               
               get().syncSessionData();
               get().trackInteraction(TRACKING_EVENTS.SURVEY_COMPLETED, { survey: 2 });
-              
-              console.log('Survey 2 completed successfully');
               
             } catch (error) {
               console.error('Failed to complete Survey 2:', error);
@@ -966,8 +901,6 @@ const useSessionStore = create(
            * Complete entire study
            */
           completeStudy: () => {
-            console.log('Completing entire study...');
-            
             const previousState = {
               studyCompletedAt: get().sessionData.studyCompletedAt
             };
@@ -981,8 +914,6 @@ const useSessionStore = create(
               get().syncSessionData(true);
               get().trackInteraction(TRACKING_EVENTS.STUDY_COMPLETED);
               
-              console.log('Study completed successfully! Thank you for participating.');
-
               get()
               
             } catch (error) {
@@ -1116,8 +1047,6 @@ const useSessionStore = create(
            * Validates, saves to sessionData, and syncs to backend
            */
           completeDemographics: async (data) => {
-            console.log('Completing demographics...');
-            
             const previousState = {
               demographicsData: get().demographicsData,
               demographicsCompleted: get().demographicsCompleted,
@@ -1137,8 +1066,8 @@ const useSessionStore = create(
                 state.sessionData.demographicsCompleted = true;
                 state.sessionData.demographicsCompletedAt = new Date().toISOString();
 
-                // Move on to task 1
-                state.sessionData.currentStep = 'task_1';
+                // Move on to scenario_brief
+                state.sessionData.currentStep = 'scenario_brief';
               });
               
               // Sync to backend
@@ -1149,8 +1078,6 @@ const useSessionStore = create(
                 fieldsCompleted: Object.keys(data).filter(k => data[k]).length,
                 timestamp: new Date().toISOString()
               });
-              
-              console.log('Demographics completed successfully');
               
             } catch (error) {
               console.error('Failed to complete demographics:', error);
@@ -1170,7 +1097,37 @@ const useSessionStore = create(
               throw error;
             }
           },
-
+          /**
+           * Complete scenario brief
+           */
+          completeScenarioBrief: () => {
+            const previousState = {
+              scenarioBriefCompletedAt: get().sessionData.scenarioBriefCompletedAt,
+              currentStep: get().sessionData.currentStep
+            };
+            
+            try {
+              set((state) => {
+                state.sessionData.scenarioBriefCompletedAt = new Date().toISOString();
+                state.sessionData.currentStep = 'task_1';
+              });
+              
+              get().syncSessionData();
+              get().trackInteraction(TRACKING_EVENTS.SCENARIO_BRIEF_COMPLETED);
+              
+            } catch (error) {
+              console.error('Failed to complete scenario brief:', error);
+              
+              set((state) => {
+                state.sessionData.scenarioBriefCompletedAt = previousState.scenarioBriefCompletedAt;
+                state.sessionData.currentStep = previousState.currentStep;
+              });
+              
+              get().handleSessionError(error, 'scenario_brief_completion');
+              
+              throw error;
+            }
+          },
           // ========================================
           // TUTORIAL ACTIONS
           // ========================================
@@ -1311,10 +1268,8 @@ const useSessionStore = create(
               
 
               if (wsStore.isConnected()) {
-                console.log("WS Store being used!!")
                 history = await wsClient.getChatHistory();
               } else {
-                console.log("REST being used!!")
                 const response = await chatAPI.getHistory(sessionId);
                 history = response;
               }

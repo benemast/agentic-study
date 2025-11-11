@@ -26,19 +26,19 @@ export const WebSocketProvider = ({ children }) => {
   useEffect(() => {
     // Guard 1: No session ID yet
     if (!sessionId) {
-      console.log('🌐 WebSocketProvider: Waiting for session ID...');
+      console.log('WebSocketProvider: Waiting for session ID...');
       return;
     }
     
     // Guard 2: Already connected to this session
     if (isConnected && currentSessionId === sessionId) {
-      console.log('🌐 WebSocketProvider: Already connected to', sessionId);
+      console.log('WebSocketProvider: Already connected to', sessionId);
       return;
     }
     
     // Guard 3: Already attempted connection for this session
     if (connectionAttemptedRef.current && lastAttemptedSessionIdRef.current === sessionId) {
-      console.log('🌐 WebSocketProvider: Connection already attempted for', sessionId);
+      console.log('WebSocketProvider: Connection already attempted for', sessionId);
       return;
     }
     
@@ -46,11 +46,11 @@ export const WebSocketProvider = ({ children }) => {
     connectionAttemptedRef.current = true;
     lastAttemptedSessionIdRef.current = sessionId;
     
-    console.log('🌐 WebSocketProvider: Initiating connection to', sessionId);
+    console.log('WebSocketProvider: Initiating connection to', sessionId);
     
     // Connect
     connect(sessionId).catch(err => {
-      console.error('🌐 WebSocketProvider: Connection failed:', err);
+      console.error('WebSocketProvider: Connection failed:', err);
       // Reset flag on failure to allow retry
       connectionAttemptedRef.current = false;
     });
@@ -62,14 +62,14 @@ export const WebSocketProvider = ({ children }) => {
       
       // Check if this is an actual session change
       if (currentSessionId !== lastSessionId) {
-        console.log('🌐 WebSocketProvider: Session changed from', lastSessionId, 'to', currentSessionId);
+        console.log('WebSocketProvider: Session changed from', lastSessionId, 'to', currentSessionId);
         // Reset for new session
         connectionAttemptedRef.current = false;
         // Optionally disconnect from old session
         this.disconnect();
       } else {
         // This is just a component remount (StrictMode or HMR)
-        console.log('🌐 WebSocketProvider: Component cleanup (remount detected, connection persists)');
+        console.log('WebSocketProvider: Component cleanup (remount detected, connection persists)');
         // Don't reset flags - let the guard prevent duplicate connection
       }
     };

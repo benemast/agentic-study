@@ -1,48 +1,10 @@
 // frontend/src/components/study/DatasetViewer.jsx
 /**
- * Dataset Viewer - VIRTUAL SCROLLING VERSION (Carefully Optimized)
- * 
- * FIXES APPLIED:
- * - Removed double scrollbar issue in table view (popout modal)
- * - Fixed horizontal scrollbar to only show when needed
- * - Added proper text alignment: numbers right-aligned, booleans centered
- * - Single unified scrolling container for table body
- * - Trello-style card view with dynamic heights
- * - Scrollable review body in expanded cards (max-h-64 = 256px)
- * - OPTIMIZED: VariableSizeList always fills available space
- * - OPTIMIZED: Responds to window resize, parent resize, item collapse/expand
- * - OPTIMIZED: Proper spacing and maximum heights for expanded items
- * 
- * Features:
- * Virtual Scrolling (react-window) - Renders only visible items
- * Debounced Inputs - No lag during typing
- * Memoization - Faster filtering/sorting
- * useTransition - Non-blocking UI updates
- * Dynamic height calculation with ResizeObserver
- * 
- * SCROLLBAR STYLING:
- * For better scrollbar appearance in expanded cards, add to your global CSS:
- * 
- * .dark ::-webkit-scrollbar-thumb {
- *   background-color: rgb(75 85 99); // gray-600
- * }
- * ::-webkit-scrollbar {
- *   width: 6px;
- * }
- * ::-webkit-scrollbar-track {
- *   background: transparent;
- * }
- * ::-webkit-scrollbar-thumb {
- *   background-color: rgb(209 213 219); // gray-300
- *   border-radius: 3px;
- * }
+ * Dataset Viewer
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, useTransition } from 'react';
 import { VariableSizeList } from 'react-window';
-
-// frontend/src/components/study/DatasetViewer.jsx
-// frontend/src/config/columnConfig.js
 import {COLUMN_CONFIG} from '../../config/columnConfig'
 import { useTranslation } from '../../hooks/useTranslation';
 
@@ -69,12 +31,6 @@ const useDebounce = (value, delay) => {
 /**
  * Custom hook to dynamically calculate available height for VariableSizeList
  * Responds to: window resize, parent resize, and content changes
- * 
- * Uses multiple measurement strategies to ensure height is captured:
- * 1. Immediate measurement
- * 2. Multiple delayed measurements (catches late renders)
- * 3. ResizeObserver (catches parent size changes)
- * 4. Window resize listener
  */
 const useDynamicHeight = (containerRef, dependencies = []) => {
   const [height, setHeight] = useState(0); // Start with 0 to trigger immediate update
@@ -263,10 +219,10 @@ const calculateTableRowHeight = (review, isExpanded, visibleColumns = {}) => {
   
   // Get actual visible column widths (use maxWidth as it's what the columns grow to)
   const reviewBodyWidth = (visibleColumns['review_body'] !== false && reviewBodyCol) 
-    ? reviewBodycol.dataViewer?.maxWidth 
+    ? reviewBodyCol.dataViewer?.maxWidth 
     : 0;
   const reviewHeadlineWidth = (visibleColumns['review_headline'] !== false && reviewHeadlineCol) 
-    ? reviewHeadlinecol.dataViewer?.maxWidth 
+    ? reviewHeadlineCol.dataViewer?.maxWidth 
     : 0;
   
   // Account for cell padding (12px on each side)
@@ -428,7 +384,7 @@ const SimpleModal = ({ isOpen, onClose, children }) => {
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
-    };
+    };    
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -1220,9 +1176,9 @@ const DatasetViewer = ({ reviews = [], isModal = false, containerKey }) => {
 
   return (
     <>
-      <ViewerContent />
+      <ViewerContent key="embed" />
       <SimpleModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
-        <ViewerContent isModal={true} />
+        <ViewerContent key="modal" isModal />
       </SimpleModal>
     </>
   );

@@ -611,7 +611,6 @@ class WebSocketClient {
   
   // Workflow operations
   async executeWorkflow(workflow, inputData = {}, condition = 'workflow_builder') {
-    console.log(workflow, inputData, condition)
     return this.send({
       type: 'workflow_execute',
       workflow,
@@ -623,7 +622,6 @@ class WebSocketClient {
   
   // AI Assistant operations
   async executeAgent(taskDescription, inputData = {}, condition = 'ai_assistant') {
-    console.log(taskDescription, inputData, condition)
     return this.send({
       type: 'agent_execute',
       task_description: taskDescription,

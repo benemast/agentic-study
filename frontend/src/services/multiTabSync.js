@@ -85,7 +85,6 @@ class MultiTabSync {
         console.error('BroadcastChannel error:', error);
       };
       
-      console.log('Multi-tab sync using BroadcastChannel');
     } catch (error) {
       console.error('Failed to setup BroadcastChannel:', error);
       // Try localStorage fallback
@@ -125,7 +124,6 @@ class MultiTabSync {
     // Store handler for cleanup
     this.storageHandler = handleStorageEvent;
     
-    console.log('Multi-tab sync using localStorage (fallback)');
   }
   
   /**
@@ -247,7 +245,6 @@ class MultiTabSync {
    * Cleanup resources
    */
   cleanup() {
-    console.log('🧹 Cleaning up multiTabSync...');
     
     // Close BroadcastChannel
     if (this.channel) {
@@ -263,8 +260,6 @@ class MultiTabSync {
     
     // Clear subscribers
     this.subscribers = [];
-    
-    console.log('multiTabSync cleaned up');
   }
 }
 

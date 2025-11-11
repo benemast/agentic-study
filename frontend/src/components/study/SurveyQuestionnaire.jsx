@@ -20,7 +20,7 @@ import React, { useState } from 'react';
 import { useTracking } from '../../hooks/useTracking';
 import { useTranslation } from '../../hooks/useTranslation';
 import { surveyAPI } from '../../services/api';
-import { useSessionStore } from '../../store/sessionStore';
+import { useSession } from '../../hooks/useSession';
 
 // ============================================================
 // QUESTION DEFINITIONS
@@ -344,7 +344,7 @@ const NASAScale = ({ value, onChange, questionId, lowKey, highKey, descriptionKe
 const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
   const { track } = useTracking();
   const { t, language } = useTranslation();
-  const { participantId, sessionId } = useSessionStore();
+  const { participantId, sessionId } = useSession();
   
   const [responses, setResponses] = useState({});
   const [openEnded, setOpenEnded] = useState({
@@ -426,7 +426,7 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
   const handleNext = () => {
     if (currentSection < sections.length - 1) {
       setCurrentSection(prev => prev + 1);
-      track('SURVEY_SECTION_COMPLETED', { 
+      track('survey_section_completed', { 
         section: currentSection, 
         taskNumber,
         condition 
@@ -472,23 +472,11 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
         language: language || 'en'
       });
 
-      console.log('[Survey] Submitting survey:', {
-        participantId,
-        taskNumber,
-        condition,
-        responseCount: Object.keys(responses).length
-      });
-
       // Submit to backend
       const result = await surveyAPI.submit(formattedData);
 
-      console.log('[Survey] Submission successful:', {
-        survey_id: result.survey_id,
-        duration: result.duration_seconds
-      });
-
       // Track completion
-      track('SURVEY_COMPLETED', { 
+      track('survey_completed', { 
         taskNumber, 
         condition,
         surveyId: result.survey_id,
@@ -527,7 +515,7 @@ const SurveyQuestionnaire = ({ taskNumber, condition, onComplete }) => {
       setSubmitError(errorMessage);
       
       // Track submission failure
-      track('SURVEY_SUBMISSION_FAILED', {
+      track('survey_submission_failed', {
         taskNumber,
         condition,
         error: error.message

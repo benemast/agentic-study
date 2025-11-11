@@ -174,10 +174,10 @@ def build_trace_metadata(
     execution_id: int,
     session_id: str,
     condition: str,
-    task_data: Optional[Dict[str, Any]] = None,
+    task_data: Optional[Dict[str, Any]] = {},
     step_number: Optional[int] = None,
     tool_name: Optional[str] = None,
-    additional_metadata: Optional[Dict[str, Any]] = None
+    additional_metadata: Optional[Dict[str, Any]] = {}
 ) -> Dict[str, Any]:
     """
     Build rich metadata for trace with PII scrubbing
@@ -330,8 +330,8 @@ def create_run_config(
     execution_id: int,
     session_id: str,
     condition: str,
-    task_data: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    task_data: Optional[Dict[str, Any]] = {},
+    metadata: Optional[Dict[str, Any]] = {},
     step_number: Optional[int] = None,
     tool_name: Optional[str] = None,
     streaming_callback = None,

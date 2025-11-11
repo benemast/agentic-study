@@ -7,10 +7,12 @@
  */
 import { useEffect, useCallback, useMemo } from 'react';
 import { useSessionStore } from '../store/sessionStore';
+import { useTracking} from '../hooks/useTracking'
 
 export const useTheme = () => {
   const theme = useSessionStore(state => state.theme);
   const setTheme = useSessionStore(state => state.setTheme);
+  const { track } = useTracking();
 
   // Get system preference (memoized)
   const systemPreference = useMemo(() => {
@@ -46,7 +48,9 @@ export const useTheme = () => {
 
   // Toggle between light and dark
   const toggleTheme = useCallback(() => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    track('display_theme_changed', {from: theme, to: newTheme})
   }, [theme, setTheme]);
 
   // Follow system preference

@@ -27,7 +27,6 @@ import json
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
-from langchain.agents import AgentExecutor, create_structured_chat_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import StructuredTool
@@ -37,7 +36,8 @@ from .client_langchain import get_llm_client
 from .streaming_callbacks import get_callback_factory
 from .tool_adapter import create_langchain_tools_from_registry
 from .tool_schemas import ActionType, get_tool_validator
-from .tool_output_schemas import AgentDecisionOutput
+
+from app.orchestrator.tools.output_schemas.tool_output_schemas import AgentDecisionOutput
 from .circuit_breaker_enhanced import CircuitBreakerOpen
 
 logger = logging.getLogger(__name__)

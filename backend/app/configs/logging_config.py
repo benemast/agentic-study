@@ -200,14 +200,14 @@ def setup_logging(debug: bool = False):
     # Log configuration completion
     logger = logging.getLogger(__name__)
     logger.info("=" * 60)
-    logger.info("✅ Logging configured successfully")
-    logger.info(f"   📁 Log directory: {log_dir.absolute()}")
-    logger.info(f"   📄 app.log: General application logs (Level: {logging.getLevelName(FILE_LEVEL)})")
-    logger.info(f"   💾 database.log: Database queries (Level: {logging.getLevelName(DB_LEVEL)})")
-    logger.info(f"   ❌ errors.log: Errors only (Level: {logging.getLevelName(ERROR_LEVEL)})")
-    logger.info(f"   🐌 slow_queries.log: Queries > {SLOW_QUERY_THRESHOLD_MS}ms")
-    logger.info(f"   🖥️  Console output: {logging.getLevelName(CONSOLE_LEVEL if not debug else logging.DEBUG)}")
-    logger.info(f"   🔧 Debug mode: {'ENABLED' if debug else 'DISABLED'}")
+    logger.info("Logging configured successfully")
+    logger.info(f"   Log directory: {log_dir.absolute()}")
+    logger.info(f"   app.log: General application logs (Level: {logging.getLevelName(FILE_LEVEL)})")
+    logger.info(f"   database.log: Database queries (Level: {logging.getLevelName(DB_LEVEL)})")
+    logger.info(f"   errors.log: Errors only (Level: {logging.getLevelName(ERROR_LEVEL)})")
+    logger.info(f"   low_queries.log: Queries > {SLOW_QUERY_THRESHOLD_MS}ms")
+    logger.info(f"   Console output: {logging.getLevelName(CONSOLE_LEVEL if not debug else logging.DEBUG)}")
+    logger.info(f"   Debug mode: {'ENABLED' if debug else 'DISABLED'}")
     logger.info("=" * 60)
 
 
@@ -255,7 +255,7 @@ def setup_slow_query_logging(engine: Engine, threshold_ms: int = SLOW_QUERY_THRE
             )
     
     logger = logging.getLogger(__name__)
-    logger.info(f"🐌 Slow query logging enabled (threshold: {threshold_ms}ms)")
+    logger.info(f"Slow query logging enabled (threshold: {threshold_ms}ms)")
 
 
 # ============================================================

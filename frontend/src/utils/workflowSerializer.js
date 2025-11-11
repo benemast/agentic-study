@@ -391,7 +391,6 @@ export const printWorkflow = (nodes, edges) => {
   
   console.group('Workflow Structure');
   
-  console.log('📦 Nodes:', nodes.length);
   nodes.forEach(node => {
     console.log(`  • ${node.id} (${node.data?.template_id})`);
     if (node.data?.config && Object.keys(node.data.config).length > 0) {
@@ -399,7 +398,6 @@ export const printWorkflow = (nodes, edges) => {
     }
   });
   
-  console.log('🔗 Edges:', edges.length);
   edges.forEach(edge => {
     console.log(`  • ${edge.source} → ${edge.target}`);
   });

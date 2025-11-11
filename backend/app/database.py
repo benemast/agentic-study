@@ -135,9 +135,9 @@ def create_tables():
     try:
         logger.info("Creating database tables...")
         Base.metadata.create_all(bind=engine)
-        logger.info("✅ Database tables created successfully")
+        logger.info("Database tables created successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to create tables: {e}")
+        logger.error(f"Failed to create tables: {e}")
         raise
 
 
@@ -151,10 +151,10 @@ def check_database_connection() -> bool:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        logger.info("✅ Database connection successful")
+        logger.info("Database connection successful")
         return True
     except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
+        logger.error(f"Database connection failed: {e}")
         return False
 
 
@@ -202,10 +202,10 @@ def reset_database():
     if not settings.debug:
         raise RuntimeError("Cannot reset database in production!")
     
-    logger.warning("⚠️  Resetting database - dropping all tables...")
+    logger.warning("Resetting database - dropping all tables...")
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    logger.info("✅ Database reset complete")
+    logger.info("Database reset complete")
 
 
 def get_table_counts():

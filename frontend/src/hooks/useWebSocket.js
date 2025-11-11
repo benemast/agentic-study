@@ -117,7 +117,7 @@ export const useWebSocket = (options = {}) => {
       // Store for batch cleanup if needed
       handlersRef.current.set(eventType, unsubscribe);
       
-      console.log(`✅ Successfully subscribed to event: ${eventType}`);
+      console.log(`Successfully subscribed to event: ${eventType}`);
       return unsubscribe;
       
     } catch (error) {

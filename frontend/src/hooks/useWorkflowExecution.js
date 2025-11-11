@@ -37,7 +37,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
   condition,
   {
     onExecutionIdReceived: (id) => {
-      console.log('Setting execution_id from WebSocket:', id);
       setExecutionId(id);
     }
   }
@@ -48,7 +47,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
    */
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
-      console.log('Stopping execution status polling');
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
@@ -59,11 +57,8 @@ export const useWorkflowExecution = (sessionId, condition) => {
    */
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
-      console.log('Polling already active, skipping');
       return;
     }
-
-    console.log('Starting execution status polling as fallback');
 
     pollingIntervalRef.current = setInterval(async () => {
       if (!executionId) {
@@ -74,21 +69,15 @@ export const useWorkflowExecution = (sessionId, condition) => {
 
       try {
         const statusData = await orchestratorAPI.getExecutionStatus(executionId);
-      
-        console.log('Poll status:', statusData.status, 
-                    'Progress:', statusData.progress_percentage + '%');
         
         // Stop polling if execution is complete
         if (['completed', 'failed', 'cancelled'].includes(statusData.status)) {
-          console.log('Execution finished:', statusData.status);
           stopPolling();
           
           // Fetch final result if not already set
           if (!executionProgress.result) {
             try {
               const detail = await orchestratorAPI.getExecutionDetail(executionId);
-              // Result will be set via WebSocket, this is just a fallback
-              console.log('Final result fetched via polling:', detail.final_result);
             } catch (detailErr) {
               console.error('Failed to fetch execution detail:', detailErr);
             }
@@ -105,7 +94,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
       }
     }, 3000); // Poll every 3 seconds (less frequent since WebSocket is primary)
 
-    console.log('Polling started (interval: 3s, fallback mode)');
   }, [executionId, stopPolling, executionProgress.result]);
 
   /**
@@ -116,7 +104,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
       console.warn('WebSocket not connected, starting fallback polling');
       startPolling();
     } else if (executionId && isConnected) {
-      console.log('WebSocket connected, polling not needed');
       stopPolling();
     }
 
@@ -128,8 +115,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
    */
   const executeWorkflow = useCallback(async (workflow, inputData = {}) => {
 
-    console.log(workflow, inputData)
-
     if (!sessionId) {
       throw new Error('Session ID is required');
     }
@@ -139,8 +124,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
     }
 
     try {
-      console.log('🚀 Starting workflow execution');
-      
       // Serialize workflow
       //const serialized = serializeWorkflowMinimal(workflow);
       const serialized = workflow;
@@ -159,7 +142,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
         });
         throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
       }
-      console.log('Workflow validated successfully');
       
       // Print workflow for debugging
       printWorkflow(serialized.nodes, serialized.edges);
@@ -192,9 +174,7 @@ export const useWorkflowExecution = (sessionId, condition) => {
       
       const newExecutionId = response.execution_id;
       setExecutionId(newExecutionId);
-      
-      console.log('Execution started:', newExecutionId);
-      
+
       // Track analytics
       trackWorkflowExecuted({
         executionId: newExecutionId,
@@ -222,7 +202,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
     }
 
     try {
-      console.log('🛑 Cancelling execution:', executionId);
       await orchestratorAPI.cancelExecution(executionId);
       stopPolling();
     } catch (error) {
@@ -236,7 +215,6 @@ export const useWorkflowExecution = (sessionId, condition) => {
    * Clear execution state
    */
   const clearExecution = useCallback(() => {
-    console.log('🧹 Clearing execution state');
     setExecutionId(null);
     executionProgress.reset();
     stopPolling();
@@ -269,6 +247,10 @@ export const useWorkflowExecution = (sessionId, condition) => {
     toolStates: executionProgress.toolStates,
     nodeResults: executionProgress.nodeResults,
     
+    // Summary data from executionProgress
+    summaryData: executionProgress.summaryData,
+    summaryAvailable: executionProgress.summaryAvailable,
+
     // Computed flags
     isRunning: executionProgress.isRunning,
     isComplete: executionProgress.isComplete,

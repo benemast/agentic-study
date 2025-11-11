@@ -236,7 +236,7 @@ class CheckpointBuffer:
                 self.total_flushed += count
                 self.flush_count += 1
                 
-                logger.info(f"✓ Flushed {count} checkpoints for execution {execution_id}")
+                logger.info(f"Flushed {count} checkpoints for execution {execution_id}")
                 return count
                 
             except Exception as e:

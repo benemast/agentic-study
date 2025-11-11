@@ -329,7 +329,7 @@ const Sidebar = memo(({ showNodePanel, setShowNodePanel, onDragStart, onNodeAdd,
                       }`}>
                         {locked 
                           ? t('workflow.builder.sidebar.maxReached', { max: node.maxAllowed })
-                          : t('workflow.builder.sidebar.maxAllowed', { current: currentCount, max: node.maxAllowed })
+                          : t('workflow.builder.sidebar.maxAllowed', { current: (currentCount || 0), max: node.maxAllowed })
                         }
                       </p>
                     </div>

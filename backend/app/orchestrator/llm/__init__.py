@@ -3,13 +3,17 @@
 LLM Integration Module for AI Assistant
 
 Provides intelligent decision making for autonomous agent execution:
-- Robust LLM client with retry logic
-- Tool schema validation
+- Modern LangChain client for LLM calls
+- Tool schema validation  
 - Context-aware decision making
 - Confidence tracking
 """
 
-from .client import LLMClient, llm_client
+# ============================================================
+# MODERN EXPORTS (PRIMARY)
+# ============================================================
+
+from .client_langchain import get_llm_client, LangChainLLMClient
 from .tool_schemas import (
     ActionType,
     AgentDecision,
@@ -17,23 +21,57 @@ from .tool_schemas import (
     tool_validator,
     PARAMETER_SCHEMAS
 )
-from .decision_maker import DecisionMaker, decision_maker
+
+# Circuit breaker (if available)
+try:
+    from .circuit_breaker_enhanced import (
+        circuit_breaker_manager,
+        get_circuit_breaker_manager
+    )
+    _circuit_breaker_available = True
+except ImportError:
+    _circuit_breaker_available = False
+    circuit_breaker_manager = None
+    get_circuit_breaker_manager = None
+
+# Streaming callbacks - LAZY IMPORT (to avoid circular dependency)
+_streaming_available = True
+initialize_callback_factory = None
+get_callback_factory = None
+
+
+# ============================================================
+# EXPORTS
+# ============================================================
 
 __all__ = [
-    # Client
-    'LLMClient',
-    'llm_client',
+    'get_llm_client',
+    'LangChainLLMClient',
     
-    # Schemas
+    # ReactAgent
+    'get_react_agent',
+    'initialize_react_agent',
+    'ReactAgent',
+    
+    # Supporting modules
+    'initialize_callback_factory',
+    'get_callback_factory',
+    'circuit_breaker_manager',
+    'get_circuit_breaker_manager',
+    
+    # Schemas (shared)
     'ActionType',
     'AgentDecision',
     'ToolValidator',
     'tool_validator',
     'PARAMETER_SCHEMAS',
-    
-    # Decision Maker
-    'DecisionMaker',
-    'decision_maker',
 ]
 
-__version__ = '1.0.0'
+__version__ = '2.0.0'
+
+# ============================================================
+# MODULE INITIALIZATION
+# ============================================================
+
+import logging
+logger = logging.getLogger(__name__)

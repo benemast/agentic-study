@@ -73,11 +73,9 @@ class ConnectionMonitor {
   
   start() {
     if (this.isInitialized) {
-      console.log('📶 ConnectionMonitor: Already running, skipping start');
+      console.log('ConnectionMonitor: Already running, skipping start');
       return;
     }
-    
-    this.log('🌐 Starting ConnectionMonitor...', true);
     
     this.setupBrowserListeners();
     this.setupWebSocketListeners();
@@ -88,7 +86,7 @@ class ConnectionMonitor {
   
   stop() {
     if (!this.isInitialized) {
-      console.log('📶 ConnectionMonitor: Not running, skipping stop');
+      console.log('ConnectionMonitor: Not running, skipping stop');
       return;
     }
     
@@ -328,12 +326,12 @@ class ConnectionMonitor {
   // Enable/disable verbose logging at runtime
   setVerbose(enabled) {
     LOG_CONFIG.verbose = enabled;
-    console.log(`🔧 Verbose logging ${enabled ? 'enabled' : 'disabled'}`);
+    console.log(`Verbose logging ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   setHealthLogging(enabled) {
     LOG_CONFIG.logHealthUpdates = enabled;
-    console.log(`🔧 Health logging ${enabled ? 'enabled' : 'disabled'}`);
+    console.log(`Health logging ${enabled ? 'enabled' : 'disabled'}`);
   }
 }
 

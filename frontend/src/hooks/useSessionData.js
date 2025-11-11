@@ -72,6 +72,7 @@ export const useSessionData = () => {
   const setStudyStep = useSessionStore(state => state.setStudyStep);
   const getStudyStep = useSessionStore(state => state.getStudyStep);
   const completeWelcome = useSessionStore(state => state.completeWelcome);
+  const completeScenarioBrief = useSessionStore(state => state.completeScenarioBrief);
   const completeTask1 = useSessionStore(state => state.completeTask1);
   const completeSurvey1 = useSessionStore(state => state.completeSurvey1);
   const completeTask2 = useSessionStore(state => state.completeTask2);
@@ -166,7 +167,8 @@ export const useSessionData = () => {
     clearDemographicsError,
     resetDemographics,
     completeDemographics,
-    
+    completeScenarioBrief,
+
     // Study computed values
     isStudyInitialized: !!sessionData?.studyConfig,
     demographicsCompleted: sessionData?.demographicsComplete || false,

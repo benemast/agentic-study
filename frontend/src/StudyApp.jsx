@@ -6,21 +6,15 @@
  * 1. Welcome → 2. Demographics → 3. Task 1 → 4. Survey 1 
  * → 5. Task 2 → 6. Survey 2 → 7. Completion
  * 
- * Features:
- * - Welcome screen with consent
- * - Automatic counterbalancing (4 groups)
- * - State persistence across page reloads
- * - Progress tracking
- * - Footer with legal links
- * - Dark mode support
- * - Language switching
  */
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
+import { HelpCircle } from 'lucide-react';
 
 // Study Components
 import WelcomeScreen from './components/study/WelcomeScreen';
 import DemographicsQuestionnaire from './components/study/DemographicsQuestionnaire';
+import ScenarioBriefScreen from './components/study/ScenarioBriefScreen';
 import TaskScreen from './components/study/TaskScreen';
 import SurveyQuestionnaire from './components/study/SurveyQuestionnaire';
 import CompletionScreen from './components/study/CompletionScreen';
@@ -49,6 +43,7 @@ const StudyApp = () => {
     initializeStudyConfig,
     completeWelcome,
     completeDemographics,
+    completeScenarioBrief,
     completeTask1,
     completeSurvey1,
     completeTask2,
@@ -69,7 +64,7 @@ const StudyApp = () => {
         setLoading(true);
         const config = initializeStudyConfig();
         
-        track('STUDY_INITIALIZED', { 
+        track('study_initialized', { 
           group: config.group,
           participantNumber: config.participantNumber 
         });
@@ -97,6 +92,13 @@ const StudyApp = () => {
   const handleDemographicsComplete = (data) => {
     completeDemographics(data);
     trackViewChange('task_1');
+  };
+  /**
+   * Handle scenario brief completion
+   */
+  const handleScenarioBriefComplete = () => {
+    track('SCENARIO_BRIEF_COMPLETED');
+    completeScenarioBrief(); // New function in useSessionData
   };
 
   /**
@@ -197,6 +199,13 @@ const StudyApp = () => {
           />
         );
 
+      case STUDY_CONFIG.STEPS.SCENARIO_BRIEF:
+        return (
+          <ScenarioBriefScreen 
+            onContinue={handleScenarioBriefComplete}
+          />
+        );
+
       case STUDY_CONFIG.STEPS.TASK_1:
         return (
           <ReactFlowProvider>
@@ -248,7 +257,7 @@ const StudyApp = () => {
         return (
           <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
             <div className="text-center">
-              <div className="text-6xl mb-4">❓</div>
+              <HelpCircle className="w-24 h-24 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
               <p className="text-xl text-gray-600 dark:text-gray-400">Unknown step: {currentStep}</p>
             </div>
           </div>
@@ -257,7 +266,7 @@ const StudyApp = () => {
   };
 
   return (
-    <div className="study-app flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div data-tour="study-app-container" className="study-app flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header/Navigation */}
       <header className="flex-shrink-0">
         {/* Your header content */}
@@ -277,26 +286,7 @@ const StudyApp = () => {
             className="bg-white dark:bg-gray-800 shadow-lg"
           />
         </div>
-      )} 
-      
-      {/* Debug info (only in development) */}
-      {import.meta.env.DEV && (
-        <div className="fixed bottom-4 right-4 bg-gray-900 dark:bg-gray-800 text-white text-xs p-3 rounded-lg shadow-lg z-50 font-mono">
-          <div className="space-y-1">
-            <div><strong>Group:</strong> {studyConfig.group}</div>
-            <div><strong>Step:</strong> {currentStep}</div>
-            <div><strong>Session:</strong> {sessionId}</div>
-            <div><strong>Theme:</strong> {theme}</div>
-            <div className="pt-2 mt-2 border-t border-gray-700">
-              <a href="/admin" className="text-blue-400 hover:underline">
-                → Admin Interface
-              </a>
-            </div>
-          </div>
-        </div>
       )}
-
-     
 
       {/* Main Content - flex-1 ensures it takes remaining space */}
       <div className="flex-1 flex flex-col">

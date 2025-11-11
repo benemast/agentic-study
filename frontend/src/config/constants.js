@@ -11,28 +11,28 @@ export const STUDY_CONFIG = Object.freeze({
       product_id: 'B00V7N3V78',
       product_title: 'Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones',
       category: 'Wireless',
-      role: 'Product Manager',
-      goal: 'Develop a product improvement roadmap based on customer feedback analysis',
-      focus: 'Your team needs to prioritize the next product iteration. Analyze customer reviews to identify both critical pain points and valued features. Your analysis will inform engineering priorities and competitive positioning.',
+      role: 'Product Analyst',
+      goal: 'Prepare an insights briefing on customer feedback',
+      focus: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the Mpow Cheetah headphones. They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
       expectedOutput: [
         'Executive summary of customer sentiment',
-        'Top 3 negative themes with percentages',
         'Top 3 positive themes with percentages',
-        '3-5 actionable product recommendations'
+        'Top 3 negative themes with percentages',
+        '3-5 actionable recommendations'
       ]
     },
     shoes: {
       product_id: 'B0041FI6O2',
       product_title: "Kamik Women's Jennifer Rain Boot",
       category: 'Shoes',
-      role: 'Marketing Manager',
-      goal: 'Create data-driven marketing messages that resonate with real customers',
-      focus: 'You\'re launching a new campaign and need authentic customer insights. Analyze reviews to understand what customers genuinely love about this product and what concerns you should address proactively in messaging.',
+      role: 'Product Analyst',
+      goal: 'Prepare an insights briefing on customer feedback',
+      focus: 'Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the Kamik Jennifer Rain Boot reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.',
       expectedOutput: [
         'Executive summary of customer sentiment',
         'Top 3 positive themes with percentages',
         'Top 3 negative themes with percentages',
-        '3-5 actionable marketing recommendations'
+        '3-5 actionable recommendations'
       ]
     }
   },
@@ -40,6 +40,7 @@ export const STUDY_CONFIG = Object.freeze({
   STEPS : {
     WELCOME: 'welcome',
     DEMOGRAPHICS: 'demographics',
+    SCENARIO_BRIEF: 'scenario_brief', 
     TASK_1: 'task_1',
     SURVEY_1: 'survey_1',
     TASK_2: 'task_2',
@@ -174,6 +175,9 @@ export const TRACKING_EVENTS = {
   // Demographics events
   DEMOGRAPHICS_STARTED: 'demographics_started',
   DEMOGRAPHICS_COMPLETED: 'demographics_completed',// Welcome events
+
+  SCENARIO_BRIEF_COMPLETED: 'scenario_brief_completed',
+
   // Welcome events
   WELCOME_STARTED: 'welcome_started',
   WELCOME_COMPLETED: 'welcome_completed',

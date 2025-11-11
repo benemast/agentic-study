@@ -315,6 +315,11 @@ export const API_ENDPOINTS = {
     getStats: (category, productId) => `/api/reviews/${category}/${productId}/stats`,
     getById: (category, reviewId) => `/api/reviews/${category}/${reviewId}`,
   },
+  summary: {
+    create: (sessionId) => `/api/sessions/${sessionId}/summary`,
+    get: (sessionId, taskNumber) => `/api/sessions/${sessionId}/summary?task_number=${taskNumber}`,
+    delete: (sessionId, taskNumber) => `/api/sessions/${sessionId}/summary?task_number=${taskNumber}`,
+  },
   health: () => '/health',
   version: () => '/api/version',
   testCors: () => '/api/test-cors',
@@ -497,12 +502,6 @@ export const surveyAPI = {
    * @returns {Promise<Object>} Submission confirmation with survey_id
    */
   submit: (surveyData) => {
-    console.log('[surveyAPI] Submitting survey:', {
-      participant_id: surveyData.participant_id,
-      task_number: surveyData.task_number,
-      condition: surveyData.condition
-    });
-    
     return hybridClient.http.post(API_ENDPOINTS.survey.submit(), surveyData);
   },
 
@@ -690,8 +689,6 @@ export const reviewsAPI = {
     if (options.maxRating) params.append('max_rating', options.maxRating);
     if (options.verifiedOnly) params.append('verified_only', 'true');
 
-    console.log("Sending 'get_reviews' call with parameters: ", params.toString())
-
     return hybridClient.request(
       'get_reviews',
       () => wsClient.request('get_reviews', { 
@@ -724,6 +721,67 @@ export const reviewsAPI = {
     () => wsClient.request('get_review_by_id', { category, review_id: reviewId }),
     () => hybridClient.http.get(API_ENDPOINTS.reviews.getById(category, reviewId))
   ),
+};
+ /* Summary API - Handles task execution summary documents
+ * Summaries are stored per session with separate columns for task 1 and task 2
+ */
+export const summaryAPI = {
+  /**
+   * Create or update summary for a task
+   * @param {string} sessionId - Session ID
+   * @param {Object} summaryData - Summary data to save
+   * @param {number} summaryData.task_number - Task number (1 or 2)
+   * @param {string} summaryData.execution_id - Workflow execution ID
+   * @param {Object} summaryData.sections - Results sections
+   * @param {Object} summaryData.metadata - Metadata
+   * @returns {Promise<Object>} API response
+   */
+  create: (sessionId, summaryData) => {    
+    return hybridClient.http.post(
+      API_ENDPOINTS.summary.create(sessionId), 
+      summaryData
+    );
+  },
+
+  /**
+   * Get summary for a specific task
+   * @param {string} sessionId - Session ID
+   * @param {number} taskNumber - Task number (1 or 2)
+   * @returns {Promise<Object>} API response with summary data
+   */
+  get: (sessionId, taskNumber) => {
+    return hybridClient.http.get(
+      API_ENDPOINTS.summary.get(sessionId, taskNumber)
+    );
+  },
+
+  /**
+   * Check if summary exists for a task
+   * @param {string} sessionId - Session ID
+   * @param {number} taskNumber - Task number (1 or 2)
+   * @returns {Promise<boolean>} True if summary exists
+   */
+  exists: async (sessionId, taskNumber) => {
+    try {
+      const response = await summaryAPI.get(sessionId, taskNumber);
+      return response.success && response.data !== null;
+    } catch (error) {
+      console.error('[summaryAPI] Error checking existence:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Delete summary for a task
+   * @param {string} sessionId - Session ID
+   * @param {number} taskNumber - Task number (1 or 2)
+   * @returns {Promise<Object>} API response
+   */
+  delete: (sessionId, taskNumber) => {
+    return hybridClient.http.delete(
+      API_ENDPOINTS.summary.delete(sessionId, taskNumber)
+    );
+  },
 };
 
 export const systemAPI = {

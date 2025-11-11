@@ -1,345 +1,201 @@
+// CONSISTENTLY WOKRING NO TRANSLATION
+
 // frontend/src/hooks/useExecutionStreaming.js
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useExecutionProgress } from './useExecutionProgress';
-import { notificationService } from '../services/notificationService';
 import { getExecutionStatusMessage } from '../config/executionStatusMessages';
 
 /**
- * Hook for streaming execution progress into conversational chat interface
+ * Minimal execution streaming hook
  * 
- * Accumulates status messages as an array of lines. Typing animation is handled
- * by the StreamingMessage component using react-type-animation.
+ * Processes messages from useExecutionProgress via callback (not useEffect polling).
+ * Adds MESSAGE_DELAY ms delay between messages for smooth streaming effect.
  * 
  * @param {string} sessionId - Session ID
  * @param {string} executionId - Execution ID (can be null initially)
- * @param {string} condition - 'ai_assistant' only
+ * @param {string} condition - 'ai_assistant' or 'workflow_builder'
  * @param {Object} options - Optional callbacks
- * @param {Function} options.onExecutionIdReceived - Callback when execution_id is received
  * @returns {Object} Streaming state and formatted content
  */
+
 export const useExecutionStreaming = (sessionId, executionId, condition = 'ai_assistant', options = {}) => {
-  const { onExecutionIdReceived } = options;
-  
-  // Get raw execution progress with callback forwarding
-  const executionProgress = useExecutionProgress(sessionId, executionId, condition, {
-    onExecutionIdReceived: (id) => {
-      console.log('🆔 useExecutionStreaming received execution_id from WebSocket:', id);
-      onExecutionIdReceived?.(id);
-    }
-  });
-  
-  // Streaming state
-  const [streamedContent, setStreamedContent] = useState([]);
+  const { onExecutionIdReceived, onCleanupComplete } = options;
+  const MESSAGE_DELAY = 120
+
+  // State
+  const [streamedContent, setStreamedContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [finalReportUrl, setFinalReportUrl] = useState(null);
-  const [isChatResponse, setIsChatResponse] = useState(false);
   
-  // Content management
-  const currentNodeRef = useRef(null);
-  const currentToolRef = useRef(null);
-  const processedMessageCountRef = useRef(0);
-  
+  // Refs
+  const messageQueueRef = useRef([]);
+  const processingRef = useRef(false);
+  const executionEndedRef = useRef(false);
+
   /**
-   * Add a new status line
+   * Format a single message into display text
    */
-  const addStatusLine = useCallback((message) => {
-    console.log('➕ Adding status line:', message);
-    setStreamedContent(prev => [...prev, message]);
-  }, []);
-  
-  /**
-   * Update the last status line (replace it)
-   */
-  const updateLastStatusLine = useCallback((message) => {
-    console.log('🔄 Updating last status line:', message);
-    setStreamedContent(prev => {
-      if (prev.length === 0) return [message];
-      const updated = [...prev];
-      updated[updated.length - 1] = message;
-      return updated;
-    });
-  }, []);
-  
-  /**
-   * Overwrite all content (for chat responses)
-   */
-  const overwriteContent = useCallback((message) => {
-    console.log('✏️ Overwriting content with chat response');
-    setStreamedContent([message]);
-  }, []);
-  
-  /**
-   * Handle execution messages
-   */
-  const handleExecutionMessage = useCallback((message) => {
-    console.log('🎬 Execution message:', message.subtype, message);
+  const formatMessage = useCallback((message) => {
+    const { type, subtype, status, tool_id, tool_name, data = {} } = message;
     
-    switch (message.subtype) {
-      case 'start':
+    // Skip execution messages (used for lifecycle only)
+    if (type === 'execution') {
+      return null;
+    }
+    
+    // Agent messages
+    if (type === 'agent') {      
+      if (subtype === 'chat' && data.content) {
+        // Pure chat response - return full content, will overwrite everything
+        return { content: data.content, overwrite: true };
+      }
+      
+      if (subtype === 'progress' && status === 'decision') {
+        if (data.decision) {
+          return { content: data.decision + '\n', overwrite: false };
+        }
+      }
+      
+      if (subtype === 'end' && data.summary) {
+        // Agent summary (last message)
+        return { content: data.summary, overwrite: false };
+      }
+      
+      // Fallback to template
+      const msg = getExecutionStatusMessage('agent', subtype, status, data);
+      return msg ? { content: msg, overwrite: false } : null;
+    }
+    
+    // Tool messages
+    // Use tool_id (backend key) with fallback to tool_name for backwards compatibility
+    const toolIdentifier = tool_id;
+    if (type === 'tool' && toolIdentifier) {
+      // Remove node ID suffix (e.g., "show-results-14" → "show-results")
+      const toolId = toolIdentifier.replace(/-\d+$/, '');
+      const msg = getExecutionStatusMessage('tool', subtype, status, data, toolId);
+      return msg ? { content: msg, overwrite: false } : null;
+    }
+    
+    // Node messages
+    if (type === 'node') {
+      const nodeIdentifier = message.nodeId || message.node_id;
+      // Remove node ID suffix (e.g., "load-reviews-14" → "load-reviews")
+      const nodeId = nodeIdentifier ? nodeIdentifier.replace(/-\d+$/, '') : null;
+      const msg = getExecutionStatusMessage('node', subtype, status, data, nodeId);
+      return msg ? { content: msg, overwrite: false } : null;
+    }    
+    return null;
+  }, []);
+
+  /**
+   * Process message queue with MESSAGE_DELAY ms delays
+   */
+  const processQueue = useCallback(() => {    
+    if (processingRef.current || messageQueueRef.current.length === 0) {
+      return;
+    }
+
+    processingRef.current = true;
+
+    const processNext = () => {
+      if (messageQueueRef.current.length === 0) {
+        processingRef.current = false;
+        
+        // Check if execution ended and queue is empty
+        if (executionEndedRef.current) {
+          setIsStreaming(false);
+          onCleanupComplete?.();
+        }
+        return;
+      }
+
+      const { content, overwrite } = messageQueueRef.current.shift();
+      
+      if (overwrite) {
+        // Overwrite all content (for pure chat responses)
+        setStreamedContent(content);
+      } else {
+        // Append content
+        setStreamedContent(prev => prev ? `${prev}\n${content}` : content);
+      }
+
+      // Process next message after delay
+      setTimeout(processNext, MESSAGE_DELAY);
+    };
+
+    processNext();
+  }, [onCleanupComplete]);
+
+  /**
+   * Handle new message from useExecutionProgress
+   * Called directly by useExecutionProgress when message is added
+   */
+  const handleNewMessage = useCallback((message) => {
+    
+    // Handle execution lifecycle
+    if (message.type === 'execution') {
+      if (message.subtype === 'start') {
         setIsStreaming(true);
-        console.log('Execution started, waiting for agent...');
-        break;
-        
-      case 'end':
-        setIsStreaming(false);
-        addStatusLine('✅ Analysis complete!');
-        
-        // Send desktop notification
-        notificationService.notifyExecutionCompleted(
-          executionId,
-          condition,
-          message.execution_time_ms
-        );
-        break;
+        executionEndedRef.current = false;
+        setStreamedContent(''); // Clear content on new execution
+      } else if (message.subtype === 'end') {
+        executionEndedRef.current = true;
+        // Don't set isStreaming false here - wait for queue to empty
+      }
+      return;
     }
-  }, [executionId, condition, addStatusLine]);
-  
-  /**
-   * Handle node messages
-   */
-  const handleNodeMessage = useCallback((message) => {
-    console.log('📦 Node message:', message.subtype, message);
-    
-    const { subtype, data } = message;
-    
-    // Extract node info (support all naming conventions)
-    const node_id = message.nodeId || message.node_id || message['node-id'] ||
-                    data?.nodeId || data?.node_id || data?.['node-id'];
-    
-    const node_label = message.nodeLabel || message.node_label || message['node-label'] ||
-                      data?.nodeLabel || data?.node_label || data?.['node-label'];
-    
-    const node_type = message.nodeType || message.node_type || message['node-type'] ||
-                     data?.nodeType || data?.node_type || data?.['node-type'];
-    
-    const status = message.status || data?.status;
-    const state = message.state || data?.state;
-    const messageStatus = status || state || null;
-    const messageType = node_type || node_id;
-    
-    // Extract template data
-    const templateData = data ? { ...data } : {};
-    ['node_id', 'nodeId', 'node-id', 'node_label', 'nodeLabel', 'node-label',
-     'node_type', 'nodeType', 'node-type', 'status', 'state', 'execution_id',
-     'executionId', 'execution-id', 'timestamp', 'step_number', 'stepNumber',
-     'step-number'].forEach(key => delete templateData[key]);
-    
-    console.log(`  🔍 Node: ${node_id} (${node_label}), Status: ${messageStatus || 'none'}`);
-    
-    switch (subtype) {
-      case 'start':
-        if (messageType) {
-          currentNodeRef.current = messageType;
-          const statusMessage = getExecutionStatusMessage(messageType, 'start', messageStatus, templateData)
-            || `⚙️ ${node_label || 'Processing'} started...`;
-          addStatusLine(statusMessage);
-        }
-        break;
-        
-      case 'progress':
-        if (currentNodeRef.current === messageType) {
-          const statusMessage = getExecutionStatusMessage(messageType, 'progress', messageStatus, templateData)
-            || `⚙️ ${node_label || 'Processing'}...`;
-          updateLastStatusLine(statusMessage);
-        }
-        break;
-        
-      case 'end':
-        if (currentNodeRef.current === messageType) {
-          const statusMessage = getExecutionStatusMessage(messageType, 'end', messageStatus, templateData)
-            || `✓ ${node_label || 'Step'} completed`;
-          updateLastStatusLine(statusMessage);
-          currentNodeRef.current = null;
-        }
-        break;
-        
-      case 'error':
-        if (currentNodeRef.current === messageType) {
-          const errorMessage = data?.error || message.error || 'Unknown error';
-          const statusMessage = getExecutionStatusMessage(messageType, 'error', messageStatus, templateData) 
-            || `❌ ${node_label || 'Step'} failed: ${errorMessage}`;
-          addStatusLine(statusMessage);
-          currentNodeRef.current = null;
-        }
-        break;
-    }
-  }, [addStatusLine, updateLastStatusLine]);
-  
-  /**
-   * Handle tool messages
-   */
-  const handleToolMessage = useCallback((message) => {
-    console.log('🔧 Tool message:', message.subtype, message);
-    
-    const { subtype, data } = message;
-    
-    // Extract tool name (support all naming conventions)
-    const tool_name = message.toolName || message.tool_name || message['tool-name'] ||
-                      data?.toolName || data?.tool_name || data?.['tool-name'];
-    
-    if (!tool_name) {
-      console.warn('Tool message missing tool name:', message);
+
+    // === FILTER OUT NOISE ===    
+    // Skip agent start messages (not informative)
+    if (message.type === 'agent' && message.subtype === 'start') {
       return;
     }
     
-    const status = message.status || data?.status;
-    const state = message.state || data?.state;
-    const messageStatus = status || state || null;
-    const messageContent = message.content || message.message || data?.content || data?.message;
-    
-    // Extract template data
-    const templateData = data ? { ...data } : {};
-    ['tool_name', 'toolName', 'tool-name', 'status', 'state', 'execution_id',
-     'executionId', 'execution-id', 'timestamp', 'message', 'content', 'progress',
-     'success', 'results'].forEach(key => delete templateData[key]);
-    
-    // Normalize tool name
-    const toolType = tool_name.toLowerCase().replace(/\s+/g, '-').replace(/_/g, '-');
-    
-    console.log(`  🔍 Tool: ${tool_name} → ${toolType}, Status: ${messageStatus || 'none'}`);
-    
-    switch (subtype) {
-      case 'start':
-        currentToolRef.current = toolType;
-        const startMessage = getExecutionStatusMessage(toolType, 'start', messageStatus, templateData)
-          || messageContent
-          || `🔧 ${tool_name} starting...`;
-        addStatusLine(startMessage);
-        break;
-        
-      case 'progress':
-        if (currentToolRef.current === toolType) {
-          const progressMessage = messageContent || 
-            getExecutionStatusMessage(toolType, 'progress', messageStatus, templateData) ||
-            `⚙️ ${tool_name} running...`;
-          updateLastStatusLine(progressMessage);
-        }
-        break;
-        
-      case 'end':
-        if (currentToolRef.current === toolType) {
-          const endMessage = messageContent ||
-            getExecutionStatusMessage(toolType, 'end', messageStatus, templateData) ||
-            `✓ ${tool_name} completed`;
-          updateLastStatusLine(endMessage);
-          currentToolRef.current = null;
-        }
-        break;
-        
-      case 'error':
-        if (currentToolRef.current === toolType) {
-          const error = data?.error || message.error || 'Unknown error';
-          const errorMessage = getExecutionStatusMessage(toolType, 'error', messageStatus, templateData)
-            || `❌ ${tool_name} failed: ${error}`;
-          addStatusLine(errorMessage);
-          currentToolRef.current = null;
-        }
-        break;
+    // Skip node progress
+    if (message.type === 'node' && message.subtype === 'progress') {    
+      return;    
     }
-  }, [addStatusLine, updateLastStatusLine]);
-  
-  /**
-   * Handle agent messages (minimal - just log)
-   */
-  const handleAgentMessage = useCallback((message) => {
-    console.log('🤖 Agent message:', message.subtype, message);
-  }, []);
-  
-  /**
-   * Handle LLM messages (minimal - just log)
-   */
-  const handleLlmMessage = useCallback((message) => {
-    console.log('🧠 LLM message:', message.subtype, message);
-  }, []);
-  
-  /**
-   * Handle response messages (chat responses)
-   */
-  const handleResponseMessage = useCallback((message) => {
-    console.log('💬 Response message:', message);
-    
-    if (message.content) {
-      overwriteContent(message.content);
-      setIsChatResponse(true);
-      setIsStreaming(false);
-    }
-  }, [overwriteContent]);
-  
-  /**
-   * Process new messages from execution progress
-   */
-  useEffect(() => {
-    if (!executionProgress.messages) return;
-    
-    // Get all NEW messages since last check
-    const newMessages = executionProgress.messages.slice(processedMessageCountRef.current);
-    
-    if (newMessages.length === 0) return;
-    
-    console.log(`🔥 Processing ${newMessages.length} new messages`);
-    
-    // Process each message immediately (no queue needed!)
-    newMessages.forEach(message => {
-      switch (message.type) {
-        case 'execution':
-          handleExecutionMessage(message);
-          break;
-        case 'agent':
-          handleAgentMessage(message);
-          break;
-        case 'node':
-          handleNodeMessage(message);
-          break;
-        case 'tool':
-          handleToolMessage(message);
-          break;
-        case 'llm':
-          handleLlmMessage(message);
-          break;
-        case 'response':
-          handleResponseMessage(message);
-          break;
-        default:
-          console.warn('Unknown message type:', message.type);
+
+    // Manage tool skips
+    if (message.type === 'tool') {
+      if(message.subtype === 'start' || message.subtype === 'end'){
+        return;
+
+      }else if(message.subtype === 'progress' 
+        && !(['missing_data_complete', 'spam_complete', 'duplicates_complete', 'LLM_handoff'].includes(message.status))
+      ){
+        return;
       }
-    });
-    
-    // Update processed count
-    processedMessageCountRef.current = executionProgress.messages.length;
-  }, [
-    executionProgress.messages,
-    handleExecutionMessage,
-    handleAgentMessage,
-    handleNodeMessage,
-    handleToolMessage,
-    handleLlmMessage,
-    handleResponseMessage
-  ]);
-  
-  /**
-   * Reset on new execution
-   */
-  useEffect(() => {
-    if (executionId) {
-      setStreamedContent([]);
-      setIsStreaming(false);
-      setIsChatResponse(false);
-      setFinalReportUrl(null);
-      currentNodeRef.current = null;
-      currentToolRef.current = null;
-      processedMessageCountRef.current = 0;
-      console.log('🔄 Reset for new execution:', executionId);
     }
-  }, [executionId]);
-  
+
+
+    // Format and queue displayable messages
+    const formatted = formatMessage(message);
+    
+    if (formatted) {
+      messageQueueRef.current.push(formatted);
+      // Start processing queue
+      processQueue();
+    } 
+  }, [formatMessage, processQueue]);
+
+  // Get raw execution progress with message callback
+  const executionProgress = useExecutionProgress(sessionId, executionId, condition, {
+    onExecutionIdReceived: (id) => {
+      onExecutionIdReceived?.(id);
+    },
+    onMessageAdded: handleNewMessage
+  });
+
   return {
-    streamedContent: streamedContent,
+    streamedContent,
     isStreaming,
     isComplete: executionProgress.status === 'completed',
     isFailed: executionProgress.status === 'failed',
-    finalReportUrl,
-    isChatResponse,
-    executionStatus: executionProgress.status
-    };
+    executionId: executionId,
+    executionStatus: executionProgress.status,
+    // Pass through summary data from executionProgress
+    summaryData: executionProgress.summaryData,
+    summaryAvailable: executionProgress.summaryAvailable,
+  };
 };

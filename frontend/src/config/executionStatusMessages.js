@@ -1,331 +1,421 @@
 // frontend/src/config/executionStatusMessages.js
 /**
- * Modular conversational status messages for AI Assistant execution updates
+ * Status messages for execution updates
  * 
- * Supports multiple levels of granularity:
- * 1. Type level (tool, node, execution, agent)
- * 2. Message subtype level (start, progress, end, error)
- * 3. Custom status level (for specialized messages)
- * 
- * Priority order (most specific to least specific):
- * 1. messages[subtype][status] (if status provided)
- * 2. messages[subtype].default
- * 3. Global default
- * 
- * Optimizations:
- * 1. Template substitution caching (LRU cache with 100 entry limit)
- * 2. Pre-compiled regex patterns for better performance
+ * Hierarchy:
+ * 1. type: agent | node | tool | execution
+ * 2. tool_id: (only for type=tool) load-reviews | clean-data | filter-reviews | sort-reviews | review-sentiment-analysis | generate-insights | show-results | default
+ * 3. subtype: start | progress | end | error | chat | default
+ * 4. status: start | running | completed | failed | exception
  */
 
 export const EXECUTION_STATUS_MESSAGES = {
   // ============================================
-  // TOOL MESSAGES
+  // TYPE: TOOL
   // ============================================
   'tool': {
-    'start': {
-      default: '🔧 Starting tool...',
-      tool_execution_start: '🔧 Initializing...',
-      start: '🔧 Starting...'
+    // Tool: load-reviews
+    'load-reviews': {
+      'start': {
+        'default': 'Loading review data...',
+        'start':   'Loading {category} reviews...'
+      },
+      'progress': {
+        'default': 'Processing reviews...',
+        'running': 'Loading reviews...',
+        'loading': 'Loaded {records_loaded} of {total_available} reviews...'
+      },
+      'end': {
+        'default': 'Reviews loaded successfully',
+        'completed': 'Successfully loaded {records_loaded} {category} reviews'
+      },
+      'error': {
+        'default': 'Failed to load reviews',
+        'failed': 'Failed to load reviews',
+        'exception': 'Error loading reviews'
+      }
     },
-    'progress': {
-      default: '⚙️ Processing...',
-      running: '⚙️ Tool running...',
-      loading: '📥 Loaded {records_loaded} of {total_available} records...'
+
+    // Tool: clean-data
+    'clean-data': {
+      'start': {
+        'default': 'Cleaning data...',
+        'start': 'Starting data cleaning...'
+      },
+      'progress': {
+        'default': 'Cleaning in progress...',
+        'running': 'Processing data...',
+        'missing_data_complete': '• Removed {data.removed} reviews with missing data',
+        'spam_complete': '• Removed {data.removed} reviews with malformed data',
+        'duplicates_complete': '• {data.removed} dupliate reviews found'
+      },
+      'end': {
+        'default': 'Data cleaning complete',
+        'completed': 'Cleaning finished'
+      },
+      'error': {
+        'default': 'Failed to clean data',
+        'failed': 'Failed to clean data',
+        'exception': 'Error cleaning data'
+      }
     },
-    'end': {
-      default: '✓ Tool completed',
-      success: '✓ Successfully completed',
-      completed: '✓ Completed successfully',
-      tool_execution_complete: '✓ Execution complete',
-      loaded: '✓ Successfully loaded {records_loaded} records'
+    
+    // Tool: filter-reviews
+    'filter-reviews': {
+      'start': {
+        'default': 'Filtering reviews...',
+        'start': 'Applying filters...'
+      },
+      'progress': {
+        'default': 'Filtering in progress...',
+        'running': 'Scanning reviews...'
+      },
+      'end': {
+        'default': 'Reviews filtered',
+        'completed': 'Filtered to {count} reviews'
+      },
+      'error': {
+        'default': 'Failed to filter reviews',
+        'failed': 'Failed to filter reviews',
+        'exception': 'Error filtering reviews'
+      }
     },
-    'error': {
-      default: '❌ Tool failed'
+    
+    // Tool: sort-reviews
+    'sort-reviews': {
+      'start': {
+        'default': 'Sorting reviews...',
+        'start': 'Starting sort operation...'
+      },
+      'progress': {
+        'default': 'Sorting in progress...',
+        'running': 'Organizing reviews...'
+      },
+      'end': {
+        'default': 'Reviews sorted',
+        'completed': 'Sorting complete'
+      },
+      'error': {
+        'default': 'Failed to sort reviews',
+        'failed': 'Failed to sort reviews',
+        'exception': 'Error sorting reviews'
+      }
+    },
+    
+    // Tool: review-sentiment-analysis
+
+    /*
+      message=f"{self.name} calling LLM for analysis.",
+      details={
+          'records_cnt': total_reviews
+      },
+      status='LLM_handoff' 
+    */
+
+    'review-sentiment-analysis': {
+      'start': {
+        'default': 'Analyzing sentiment...',
+        'start': 'Starting sentiment analysis...'
+      },
+      'progress': {
+        'default': 'Processing reviews...',
+        'running': 'Analyzing sentiment...',
+        'LLM_handoff': '🔄 Performing sentiment and theme analysis...'
+      }, 
+      'end': {
+        'default': '✅ Sentiment analysis completed.',
+        'completed': '✅ Sentiment analysis completed.'
+      },
+      'error': {
+        'default': 'Failed to analyze sentiment',
+        'failed': 'Failed to analyze sentiment',
+        'exception': 'Error analyzing sentiment'
+      }
+    },
+    
+    // Tool: generate-insights
+    'generate-insights': {
+      'start': {
+        'default': 'Generating insights...',
+        'start': 'Starting insight generation...'
+      },
+      'progress': {
+        'default': 'Processing data...',
+        'running': 'Generating insights...',
+        'LLM_handoff': '🔄 Running insight analysis...'
+      },
+      'end': {
+        'default': 'Insights generated',
+        'completed': 'Insight generation complete'
+      },
+      'error': {
+        'default': 'Failed to generate insights',
+        'failed': 'Failed to generate insights',
+        'exception': 'Error generating insights'
+      }
+    },
+    
+    // Tool: show-results
+    'show-results': {
+      'start': {
+        'default': 'Preparing results...',
+        'start': 'Loading results...'
+      },
+      'progress': {
+        'default': 'Formatting output...',
+        'running': 'Preparing display...',
+        'LLM_handoff': '🧩 Compiling executive summary and main takeaways...'
+      },
+      'end': {
+        'default': 'Results ready',
+        'completed': 'Results displayed'
+      },
+      'error': {
+        'default': 'Failed to show results',
+        'failed': 'Failed to show results',
+        'exception': 'Error showing results'
+      }
+    },
+    
+    // Default tool (fallback)
+    'default': {
+      'start': {
+        'default': 'Starting tool...',
+        'start': 'Starting tool...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{tool_name} running...',
+      },
+      'end': {
+        'default': 'Tool completed',
+        'completed': 'Completed successfully'
+      },
+      'error': {
+        'default': 'Tool failed',
+        'failed': 'Tool failed',
+        'exception': 'Tool error'
+      }
     }
   },
   
   // ============================================
-  // NODE MESSAGES (Legacy support)
+  // TYPE: NODE
   // ============================================
   'node': {
-    'start': {
-      default: '⚙️ Starting node...'
+    'load-reviews': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Loading reviews...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Loaded {data.results.total} reviews successfully.\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{data.error}',
+        'exception': '{data.error}'
+      }
     },
-    'progress': {
-      default: '⚙️ Processing node...'
+    'clean-data': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Cleaning reviews...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Removed {data.results.summary.total_removed} low-quality reviews.\n📊 {data.results.summary.records_after} reviews remaining (data quality: {data.results.summary.quality_score}%).\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{data.error}',
+        'exception': '{data.error}'
+      }
     },
-    'end': {
-      default: '✓ Node completed'
+    'filter-reviews': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Filtering reviews...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Filters applied.\n• Removed {data.results.summary.records_removed} non-matching reviews.\n• {data.results.summary.records_after} reviews remaining.\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{data.error}',
+        'exception': '{data.error}'
+      }
     },
-    'error': {
-      default: '❌ Node failed'
+    'sort-reviews': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Sorting reviews...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Sorted by {data.results.summary.sort_field} ({data.results.summary.sort_order}).\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{data.error}',
+        'exception': '{data.error}'
+      }
+    },
+    'review-sentiment-analysis': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Analyzing sentiment and extracting themes...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '{node_label} completed\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{node_label} failed',
+        'exception': '{node_label} error'
+      }
+    },
+    'generate-insights': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Generating insights...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Insights generated successfully.\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{node_label} failed',
+        'exception': '{node_label} error'
+      }
+    },
+    'show-results': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. Preparing results...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '✅ Formatting complete.\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{data.error}',
+        'exception': '{data.error}'
+      }
+    },
+    // Default node config (fallback)
+    'default': {
+      'start': {
+        'default': 'Starting step...',
+        'start': '{data.step_number}. {data.node_label}...'
+      },
+      'progress': {
+        'default': 'Processing...',
+        'running': '{node_label} running...'
+      },
+      'end': {
+        'default': 'Step completed',
+        'completed': '{node_label} completed\n',
+        'failed': '{node_label} failed',
+      },
+      'error': {
+        'default': 'Step failed',
+        'failed': '{node_label} failed',
+        'exception': '{node_label} error'
+      }
     }
   },
   
   // ============================================
-  // LOAD REVIEWS
+  // TYPE: EXECUTION
   // ============================================
-  'load-reviews': {
+  'execution': {
     'start': {
-      default: '📂 Loading review data...',
-      connecting: '📂 Connecting to data source...',
-      tool_execution_start: '📂 Initializing data loader...',
-      start: '📂 Starting to load {category} reviews...'
+      'default': 'Starting execution...',
+      'start': 'Execution started'
     },
     'progress': {
-      default: '📊 Processing reviews...',
-      reading: '📖 Reading {count} review files...',
-      parsing: '⚙️ Parsing review data...',
-      validating: '✓ Validating data quality...',
-      counting: '📊 Found {count} reviews...',
-      loading: '📥 Loaded {records_loaded} of {total_available} reviews...',
-      running: '📥 Loading {category} reviews...'
+      'default': 'Executing...',
+      'running': 'Execution in progress...'
     },
     'end': {
-      default: '✓ Reviews loaded successfully',
-      cached: '✓ Reviews loaded from cache',
-      fresh: '✓ Loaded {count} fresh reviews',
-      with_count: '✓ Successfully loaded {count} reviews',
-      loaded: '✓ Successfully loaded {records_loaded} reviews',
-      completed: '✓ Successfully loaded {records_loaded} {category} reviews',
-      tool_execution_complete: '✓ Data loading complete'
+      'default': 'Execution complete',
+      'failed': 'Execution failed',
+      'completed': 'Execution completed'
     },
     'error': {
-      default: '❌ Failed to load reviews',
-      connection_error: '❌ Could not connect to data source',
-      not_found: '❌ Review data not found',
-      timeout: '❌ Loading timed out after {elapsed}s'
+      'default': 'Execution failed',
+      'failed': 'Execution failed',
+      'exception': 'Execution error'
     }
   },
   
   // ============================================
-  // PROCESSING
+  // TYPE: AGENT
   // ============================================
-  'sort-reviews': {
+  'agent': {
     'start': {
-      default: '📊 Sorting reviews...',
-      date: '📅 Sorting by date...',
-      rating: '⭐ Sorting by rating...',
-      tool_execution_start: '📊 Initializing sort...',
-      start: '📊 Starting sort operation...'
+      'default': 'Agent starting...',
+      'start': 'Agent starting...',
+      'running': 'Agent analyzing task...'
     },
     'progress': {
-      default: '⚙️ Organizing {count} reviews...',
-      running: '⚙️ Sorting in progress...'
+      'default': 'Agent working...',
+      'running': 'Agent processing...',
+      'decision': '{data.decision}\n'
+    },
+    'chat': {
+      'default': '{content}',
+      'completed': '{content}'
     },
     'end': {
-      default: '✓ Reviews sorted',
-      with_count: '✓ Sorted {count} reviews',
-      completed: '✓ Sort complete',
-      tool_execution_complete: '✓ Sorting finished'
+      'default': 'Agent finished',
+      'completed': 'Summary:\n{summary}'
     },
     'error': {
-      default: '❌ Failed to sort reviews'
-    }
-  },
-  
-  'data-cleaner': {
-    'start': {
-      default: '🧹 Cleaning and preprocessing data...',
-      tool_execution_start: '🧹 Initializing data cleaner...',
-      start: '🧹 Starting data cleaning...',
-      initializing: '🧹 Preparing cleaning pipeline...'
-    },
-    'progress': {
-      default: '⚙️ Removing noise and formatting...',
-      trimming: '✂️ Removing extra whitespace...',
-      normalizing: '📝 Normalizing text format...',
-      processing: '⚙️ Processed {count}/{total} reviews...',
-      running: '🧹 Cleaning in progress...',
-      scanning_missing_data: '🔍 Scanning for missing data...',
-      missing_data_complete: '✓ Missing data scan complete',
-      scanning_spam: '🔍 Analyzing text patterns for spam...',
-      spam_complete: '✓ Spam detection complete',
-      scanning_duplicates: '🔍 Checking for duplicates...',
-      duplicates_complete: '✓ Duplicate check complete'
-    },
-    'end': {
-      default: '✓ Data cleaning complete',
-      with_count: '✓ Cleaned {count} reviews',
-      completed: '✓ Cleaning finished',
-      tool_execution_complete: '✓ All cleaning tasks complete'
-    },
-    'error': {
-      default: '❌ Failed to clean data'
-    }
-  },
-  
-  'show-results': {
-    'start': {
-      default: '📋 Preparing results...',
-      tool_execution_start: '📋 Loading results viewer...',
-      start: '📋 Displaying results...'
-    },
-    'progress': {
-      default: '⚙️ Formatting output...',
-      running: '📊 Preparing data display...'
-    },
-    'end': {
-      default: '✓ Results ready',
-      completed: '✓ Results displayed',
-      tool_execution_complete: '✓ Display complete'
-    },
-    'error': {
-      default: '❌ Failed to show results'
-    }
-  },
-  
-  'filter-reviews': {
-    'start': {
-      default: '🔍 Filtering reviews based on your criteria...',
-      rating: '⭐ Filtering by rating {min_rating}+...',
-      date: '📅 Filtering by date range...',
-      keyword: '🔤 Filtering by keywords: "{keyword}"...'
-    },
-    'progress': {
-      default: '⚙️ Applying filters...',
-      scanning: '👀 Scanning through {total} reviews...',
-      matching: '✓ Found {count} matching reviews...'
-    },
-    'end': {
-      default: '✓ Reviews filtered',
-      few: '✓ Found {count} matching reviews',
-      many: '✓ Found {count} matching reviews',
-      none: '⚠️ No reviews match your criteria',
-      with_percentage: '✓ Filtered to {count} reviews ({percentage}% match)'
-    },
-    'error': {
-      default: '❌ Failed to filter reviews',
-      invalid_criteria: '❌ Invalid filter criteria'
-    }
-  },
-  
-  'clean-reviews': {
-    'start': {
-      default: '🧹 Cleaning and preprocessing review text...'
-    },
-    'progress': {
-      default: '⚙️ Removing noise and formatting...',
-      trimming: '✂️ Removing extra whitespace...',
-      normalizing: '📝 Normalizing text format...',
-      processing: '⚙️ Processed {count}/{total} reviews...'
-    },
-    'end': {
-      default: '✓ Reviews cleaned',
-      with_count: '✓ Cleaned {count} reviews'
-    },
-    'error': {
-      default: '❌ Failed to clean reviews'
-    }
-  },
-  
-  // ============================================
-  // ANALYSIS
-  // ============================================
-  'review-sentiment-analysis': {
-    'start': {
-      default: '🧠 Analyzing sentiment in reviews...',
-      batch: '🧠 Starting batch sentiment analysis of {count} reviews...'
-    },
-    'progress': {
-      default: '💭 Processing emotions and opinions...',
-      positive: '😊 Analyzing positive sentiments...',
-      negative: '😔 Analyzing negative sentiments...',
-      themes: '🎨 Extracting emotional themes...',
-      counting: '📊 Analyzed {count}/{total} reviews...',
-      percentage: '📊 Analysis {percentage}% complete...'
-    },
-    'end': {
-      default: '✓ Sentiment analysis complete',
-      positive_dominant: '✓ Analysis complete - {percentage}% positive sentiment',
-      negative_dominant: '✓ Analysis complete - {percentage}% negative sentiment',
-      mixed: '✓ Analysis complete - mixed sentiments detected',
-      with_stats: '✓ Analysis complete: {positive} positive, {negative} negative, {neutral} neutral'
-    },
-    'error': {
-      default: '❌ Failed to analyze sentiment',
-      llm_error: '❌ AI model error - please try again'
-    }
-  },
-  
-  'generate-insights': {
-    'start': {
-      default: '✨ Generating actionable insights...',
-      focused: '✨ Generating insights focused on {focus_area}...'
-    },
-    'progress': {
-      default: '💡 Identifying patterns and recommendations...',
-      analyzing: '🧪 Analyzing data patterns...',
-      synthesizing: '🎯 Synthesizing findings...',
-      counting: '💡 Generated {count} insights so far...'
-    },
-    'end': {
-      default: '✓ Insights generated',
-      actionable: '✓ Generated {count} actionable recommendations',
-      with_count: '✓ Generated {count} insights'
-    },
-    'error': {
-      default: '❌ Failed to generate insights',
-      insufficient_data: '⚠️ Not enough data for insights (need at least {min_required})'
-    }
-  },
-  
-  'aggregate-reviews': {
-    'start': {
-      default: '📈 Aggregating review statistics...'
-    },
-    'progress': {
-      default: '⚙️ Computing metrics...',
-      processing: '⚙️ Processing {count}/{total} reviews...'
-    },
-    'end': {
-      default: '✓ Aggregation complete',
-      with_stats: '✓ Aggregated {count} reviews (avg rating: {avg_rating})'
-    },
-    'error': {
-      default: '❌ Failed to aggregate reviews'
-    }
-  },
-  
-  // ============================================
-  // OUTPUT
-  // ============================================
-  'generate-report': {
-    'start': {
-      default: '📝 Preparing comprehensive report...',
-      with_sections: '📝 Preparing report with {section_count} sections...'
-    },
-    'progress': {
-      default: '⚙️ Compiling findings...',
-      formatting: '✨ Formatting report...',
-      charts: '📊 Creating {chart_count} visualizations...',
-      writing: '✏️ Writing section {current}/{total}...'
-    },
-    'end': {
-      default: '✓ Report generated',
-      ready: '✓ Report ready for download',
-      with_pages: '✓ Generated {page_count}-page report'
-    },
-    'error': {
-      default: '❌ Failed to generate report'
-    }
-  },
-  
-  'export-data': {
-    'start': {
-      default: '💾 Exporting processed data...',
-      with_format: '💾 Exporting {count} records as {format}...'
-    },
-    'progress': {
-      default: '⚙️ Formatting output...',
-      processing: '⚙️ Exported {count}/{total} records...'
-    },
-    'end': {
-      default: '✓ Data exported',
-      with_size: '✓ Exported {count} records ({size})'
-    },
-    'error': {
-      default: '❌ Failed to export data'
+      'default': 'Agent failed',
+      'failed': 'Agent failed',
+      'exception': 'Agent error'
     }
   }
 };
@@ -334,63 +424,50 @@ export const EXECUTION_STATUS_MESSAGES = {
 // TEMPLATE SUBSTITUTION WITH CACHING
 // ========================================
 
-/**
- * LRU Cache for template substitution results
- * Limits memory usage while providing performance boost
- */
 const templateCache = new Map();
 const CACHE_SIZE_LIMIT = 100;
 
-/**
- * Apply template substitution to message with caching
- * Replaces {field} placeholders with actual values from data
- * 
- * @param {string} template - Message template with {field} placeholders
- * @param {Object} data - Data object with field values
- * @returns {string} Message with substitutions applied
- * 
- * @example
- * applyTemplateSubstitution('Processing {count} items...', { count: 42 })
- * // Returns: 'Processing 42 items...'
- */
 const applyTemplateSubstitution = (template, data) => {
-  // Create cache key from template + data
   const cacheKey = `${template}::${JSON.stringify(data)}`;
   
-  // Check cache first
   if (templateCache.has(cacheKey)) {
     return templateCache.get(cacheKey);
   }
   
   let result = template;
   
-  // Find all {field} placeholders and replace with data values
-  Object.entries(data).forEach(([key, value]) => {
-    const placeholder = `{${key}}`;
+  // Find all placeholders in the template (e.g., {key} or {data.key})
+  const placeholders = template.match(/\{[^}]+\}/g) || [];
+  
+  placeholders.forEach(placeholder => {
+    const path = placeholder.slice(1, -1); // Remove { and }
     
-    if (result.includes(placeholder)) {
-      // Format the value appropriately
-      let formattedValue = value;
-      
-      // Special formatting for common types
-      if (typeof value === 'number') {
-        // Round to 2 decimal places if it's a float
-        formattedValue = value % 1 === 0 ? value : value.toFixed(2);
-      } else if (value === null || value === undefined) {
-        formattedValue = 'N/A';
-      }
-      
-      // Use pre-compiled regex for better performance
-      result = result.replace(
-        new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), 
-        formattedValue
-      );
+    // Handle nested paths (e.g., "data.node_label")
+    let value;
+    if (path.includes('.')) {
+      const keys = path.split('.');
+      value = keys.reduce((obj, key) => obj?.[key], data);
+    } else {
+      // Direct key access
+      value = data[path];
     }
+    
+    // Format the value
+    let formattedValue = value;
+    if (typeof value === 'number') {
+      formattedValue = value % 1 === 0 ? value : value.toFixed(2);
+    } else if (value === null || value === undefined) {
+      formattedValue = 'N/A';
+    }
+    
+    // Replace placeholder
+    result = result.replace(
+      new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), 
+      formattedValue
+    );
   });
   
-  // Cache result with LRU eviction
   if (templateCache.size >= CACHE_SIZE_LIMIT) {
-    // Remove oldest entry (first key)
     const firstKey = templateCache.keys().next().value;
     templateCache.delete(firstKey);
   }
@@ -400,58 +477,94 @@ const applyTemplateSubstitution = (template, data) => {
 };
 
 /**
- * Get status message from frontend configuration with dynamic data substitution
+ * Get status message from configuration with dynamic data substitution
  * 
- * Looks up message template based on: type → subtype → status
- * Then replaces {field} placeholders with actual values from data
- * 
- * @param {string} type - Message type (e.g., 'tool', 'node', 'load-reviews')
- * @param {string} subtype - Message subtype (e.g., 'start', 'progress', 'end', 'error')
- * @param {string} status - Optional specific status (e.g., 'running', 'completed')
+ * @param {string} type - Message type: agent | node | tool | execution
+ * @param {string} subtype - Message subtype: start | progress | end | error | chat | default
+ * @param {string} status - Specific status: start | running | completed | failed | exception
  * @param {Object} data - Data object containing fields for substitution
+ * @param {string} itemId - For type=tool: toolId (e.g. 'load-reviews'); For type=node: nodeId (e.g. 'node-1')
+ * @param {Function} t - Optional translation function from useTranslation
  * @returns {string|null} Formatted status message or null if no template found
- * 
- * @example
- * // Basic usage
- * getExecutionStatusMessage('load-reviews', 'progress', 'loading', {
- *   records_loaded: 1917,
- *   total_available: 1917
- * })
- * // Returns: '📥 Loaded 1917 of 1917 reviews...'
- * 
- * // No matching template
- * getExecutionStatusMessage('unknown', 'test', null, {})
- * // Returns: null
  */
-export const getExecutionStatusMessage = (type, subtype, status = null, data = {}) => {
+export const getExecutionStatusMessage = (type, subtype, status = null, data = {}, itemId = null, t = null) => {
+  
+  // If translation function provided, use translated templates
+  if (t) {
+    // Build translation key: execution.tool.clean-data.progress.missing_data_complete
+    const keyParts = ['execution', type];
+    if (itemId) keyParts.push(itemId);
+    keyParts.push(subtype);
+    if (status) keyParts.push(status);
+    
+    const translationKey = keyParts.join('.');
+    const translated = t(translationKey);
+    
+    // If translation found (not just the key returned), use it
+    if (translated !== translationKey) {
+      return applyTemplateSubstitution(translated, data);
+    }
+    
+    // Try without status as fallback
+    if (status) {
+      const fallbackKey = keyParts.slice(0, -1).concat('default').join('.');
+      const fallbackTranslated = t(fallbackKey);
+      if (fallbackTranslated !== fallbackKey) {
+        return applyTemplateSubstitution(fallbackTranslated, data);
+      }
+    }
+  }
+
   // Navigate config: type → subtype → status
   const typeConfig = EXECUTION_STATUS_MESSAGES[type];
   if (!typeConfig) {
-    console.log(`⚠️ No config found for type: ${type}`);
+    console.warn(`NO CONFIG - type: "${type}" not found`);
     return null;
   }
   
-  const subtypeConfig = typeConfig[subtype];
+  // For type=tool or type=node, navigate through itemId level if specific config exists
+  let subtypeConfig;
+  if (type === 'tool' && itemId) {
+    const toolConfig = typeConfig[itemId] || typeConfig['default'];
+    if (!toolConfig) {
+      console.warn(`NO CONFIG - toolId: "${itemId}" not found and no default available`);
+      return null;
+    }
+    
+    subtypeConfig = toolConfig[subtype];
+  } else if (type === 'node' && itemId) {
+    // Use same pattern as tools: check for specific nodeId, fallback to 'default'
+    const nodeConfig = typeConfig[itemId] || typeConfig['default'];
+    if (!nodeConfig) {
+      console.warn(`NO CONFIG - nodeId: "${itemId}" not found and no default available`);
+      return null;
+    }
+    
+    subtypeConfig = nodeConfig[subtype];
+  } else {
+    subtypeConfig = typeConfig[subtype];
+  }
+  
   if (!subtypeConfig) {
-    console.log(`⚠️ No config found for type: ${type}, subtype: ${subtype}`);
+    console.warn(`NO CONFIG - subtype: "${subtype}" not found`);
     return null;
   }
   
   // Get message template
   let template;
+  let matchedKey = null;
   
   if (status && subtypeConfig[status]) {
     // Specific status message
     template = subtypeConfig[status];
+    matchedKey = status;
   } else if (subtypeConfig.default) {
     // Default message for this subtype
     template = subtypeConfig.default;
+    matchedKey = 'default';
   } else {
-    console.log(`⚠️ No message found for type: ${type}, subtype: ${subtype}, status: ${status}`);
     return null;
   }
-  
-  console.log(`🔍 Found template: "${template}"`);
   
   // Apply data substitution with caching
   const message = applyTemplateSubstitution(template, data);

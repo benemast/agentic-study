@@ -14,6 +14,14 @@ const extractData = (message) => {
   return message;
 };
 
+const isShowResultsNode = (message) => {
+  const data = extractData(message);
+  return (
+    data.node_id?.startsWith('show-results') ||
+    data.node_label === 'Show Results'
+  );
+};
+
 /**
  * Complete execution progress hook with ALL streaming support
  * 
@@ -39,8 +47,10 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
   const [nodeResults, setNodeResults] = useState({}); 
   const [llmStates, setLlmStates] = useState({});
   const [agentStates, setAgentStates] = useState({});
+  const [summaryData, setSummaryData] = useState(null);
+  const [summaryAvailable, setSummaryAvailable] = useState(false);
   
-  const { onExecutionIdReceived } = callbacks;
+  const { onExecutionIdReceived, onMessageAdded } = callbacks;
 
   // Refs
   const startTimeRef = useRef(null);
@@ -60,7 +70,11 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     };
     
     setMessages(prev => [...prev, messageWithId]);
-  }, []);
+    
+  if (onMessageAdded) {
+    onMessageAdded(messageWithId);
+  }
+}, [onMessageAdded]);
 
   /**
    * Clear all state (when execution starts/ends)
@@ -74,6 +88,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     setNodeResults({});
     setLlmStates({});
     setAgentStates({});
+    setSummaryData(null);
+    setSummaryAvailable(false);
     startTimeRef.current = null;
     messageCounterRef.current = 0;
   }, []);
@@ -83,7 +99,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
   // ========================================
 
   const handleExecutionStart = useCallback((message) => {
-    console.log('Execution start:', message);
     
     const data = extractData(message);
     const { execution_id } = data;
@@ -91,14 +106,12 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     // STEP 1: CAPTURE execution_id from WebSocket (PRIMARY SOURCE)
     // This must happen BEFORE the executionId check below!
     if (execution_id && !executionId && onExecutionIdReceived) {
-      console.log('Captured execution_id from WebSocket:', execution_id);
       onExecutionIdReceived(execution_id);
     }
     
     // STEP 2: Filter out messages for other executions
     // Now that we've captured the ID, ignore messages that don't match
     if (executionId && message.execution_id !== executionId) {
-      console.log('Skipping - belongs to different execution');
       return;
     }
     
@@ -110,21 +123,25 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     // STEP 4: Add message to timeline
     addMessage({
       type: 'execution',
-      subtype: message.subtype || 'start', // Preserve original subtype
+      subtype: message.subtype || 'start',
+      status: data.status || 'start',
       content: 'Execution started',
       step: data.step,
-      total_steps: data.total_steps
+      total_steps: data.total_steps,
+      data: data
     });
     
-    // 🔑 STEP 5: Notify user
-    notificationService.notifyExecutionStarted(execution_id || executionId, condition);
-    toast.success('Execution started');
+    // Smart notification with toast fallback
+    notificationService.notifyExecutionStarted(
+      executionId, 
+      condition,
+      (title, body) => toast.success(body || title)
+    );
   }, [executionId, condition, clearState, addMessage, onExecutionIdReceived, startTimeRef]);
   /**
    * Handle execution_progress
    */
   const handleExecutionProgress = useCallback((message) => {
-    console.log('Execution progress:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -134,22 +151,21 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       setProgressPercentage(data.progress);
     }
     
-    if (data.message) {
-      addMessage({
-        type: 'execution',
-        subtype: 'progress',
-        content: data.message,
-        progress: data.progress
-      });
-    }
+    // Always add message (useExecutionStreaming will handle display)
+    addMessage({
+      type: 'execution',
+      subtype: 'progress',
+      status: data.status || 'running',
+      content: data.message || '',
+      progress: data.progress,
+      data: data
+    });
   }, [executionId, addMessage]);
 
   /**
    * Handle execution_end
    */
   const handleExecutionEnd = useCallback((message) => {
-    console.log('Execution end:', message);
-    
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
@@ -163,13 +179,20 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       type: 'execution',
       subtype: 'end',
       content: 'Execution completed',
+      status: 'completed',
       steps_completed: data.steps_completed,
       execution_time_ms: data.execution_time_ms,
-      duration
+      duration,
+      data: data
     });
     
-    notificationService.notifyExecutionCompleted(executionId, condition, duration);
-    toast.success('Execution completed!');
+    // Smart notification with toast fallback
+    notificationService.notifyExecutionCompleted(
+      executionId, 
+      condition, 
+      duration,
+      (title, body) => toast.success(body || title)
+    );
   }, [executionId, condition, addMessage]);
 
   /**
@@ -188,12 +211,19 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     addMessage({
       type: 'execution',
       subtype: 'error',
+      status: data.status || 'error',
       content: data.error || 'Execution failed',
-      error_type: data.error_type
+      error_type: data.error_type,
+      data: data
     });
     
-    notificationService.notifyExecutionFailed(executionId, condition, data.error);
-    toast.error(`Execution failed: ${data.error}`);
+    // Smart notification with toast fallback
+    notificationService.notifyExecutionFailed(
+      executionId, 
+      condition, 
+      data.error,
+      (title, body) => toast.error(body || title)
+    );
   }, [executionId, condition, addMessage]);
 
   // ========================================
@@ -204,7 +234,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle node_start
    */
   const handleNodeStart = useCallback((message) => {
-    console.log('Node start:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -225,7 +254,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           error_type: null
         }
       };
-      console.log('🟢 Node start state:', { node_id, status: 'running' });
       return updatedState;
     });
 
@@ -242,7 +270,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           error_type: null
         }
       };
-      console.log('🟢 Node results initialized:', { node_id, status: 'running' });
       return updatedResults;
     });
     
@@ -257,8 +284,10 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       subtype: 'start',
       nodeId: node_id,
       nodeLabel: node_label,
+      status: message.status || data.status || 'start',
       content: `${node_label}: started`,
-      step: step_number
+      step: step_number,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -266,7 +295,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle node_progress
    */
   const handleNodeProgress = useCallback((message) => {
-    console.log('Node progress:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -282,24 +310,24 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       }
     }));
     
-    if (data.message) {
-      addMessage({
-        type: 'node',
-        subtype: 'progress',
-        nodeId: node_id,
-        nodeLabel: node_label,
-        content: data.message,
-        step: step_number,
-        progress
-      });
-    }
+    // Always add message (useExecutionStreaming will handle display)
+    addMessage({
+      type: 'node',
+      subtype: 'progress',
+      nodeId: node_id,
+      nodeLabel: node_label,
+      status: message.status || data.status || 'running',
+      content: data.message || '',
+      step: step_number,
+      progress,
+      data: data
+    });
   }, [executionId, addMessage]);
 
   /**
    * Handle node_end
    */ 
   const handleNodeEnd = useCallback((message) => {
-    console.log('Node end:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -317,7 +345,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     } = data;
     
     const finalStatus = error ? 'error' : 'completed';
-    console.log(`🏁 Node end: ${node_id} - Status: ${finalStatus}`, { error, success });
     
     setNodeStates(prev => ({
       ...prev,
@@ -349,13 +376,48 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       }
     }));
     
+    // Check if this is a Show Results node completion with results
+    if (finalStatus === 'completed' && isShowResultsNode(message)) {
+      
+      // Backend path: data.results.data.sections
+      const sections = results?.data?.sections;
+      const metadata = results?.data?.metadata;
+      
+      if (sections) {
+        setSummaryData({
+          sections: sections,
+          metadata: metadata || {
+            total_records: 0,
+            processed_at: new Date().toISOString()
+          }
+        });
+        setSummaryAvailable(true);
+        
+        // Optional: trigger callback if provided
+        if (callbacks.onSummaryAvailable) {
+          callbacks.onSummaryAvailable({
+            sections: sections,
+            metadata: metadata,
+            nodeId: node_id,
+            executionId
+          });
+        }
+      } else {
+        console.warn('Show Results completed but no sections data found');
+        console.warn('Expected at: data.results.data.sections');
+        console.warn('Got results:', results);
+      }
+    }
+
     addMessage({
       type: 'node',
       subtype: 'end',
       nodeId: node_id,
       nodeLabel: node_label,
+      status: message.status || data.status || 'completed',
       content: `${node_label}: completed`,
-      step: step_number
+      step: step_number,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -384,7 +446,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           timestamp: Date.now()
         }
       };
-      console.log('🔴 Node error state updated:', { node_id, status: 'error', error });
       return updatedState;
     });
     
@@ -401,7 +462,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
           error_type
         }
       };
-      console.log('🔴 Node results updated:', { node_id, status: 'error' });
       return updatedResults;
     });
     
@@ -410,10 +470,12 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       subtype: 'error',
       nodeId: node_id,
       nodeLabel: node_label,
+      status: message.status || data.status || 'error',
       content: `${node_label}: ${error}`,
       error,
       error_type,
-      step: step_number
+      step: step_number,
+      data: data
     });
     
     toast.error(`Node failed: ${node_label}`);
@@ -427,12 +489,11 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle tool_start
    */
   const handleToolStart = useCallback((message) => {
-    console.log('Tool start:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
-    const { tool_name } = data;
+    const { tool_id, tool_name, status, execution_id: exec_id, timestamp, ...templateFields } = data;
     
     setToolStates(prev => ({
       ...prev,
@@ -445,8 +506,13 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     addMessage({
       type: 'tool',
       subtype: 'start',
+      tool_id: tool_id,
       toolName: tool_name,
-      content: `${tool_name}: started`
+      tool_name: tool_name,
+      status: status || 'start',
+      data: templateFields,  // Only pass fields needed for templates
+      content: `${tool_name}: started`,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -454,12 +520,11 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle tool_progress
    */
   const handleToolProgress = useCallback((message) => {
-    console.log('Tool progress:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
-    const { tool_name, progress } = data;
+    const { tool_id, tool_name, progress, status, execution_id: exec_id, timestamp, message: msg, content, ...templateFields } = data;
     
     setToolStates(prev => ({
       ...prev,
@@ -470,27 +535,31 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       }
     }));
     
-    if (data.message) {
-      addMessage({
-        type: 'tool',
-        subtype: 'progress',
-        toolName: tool_name,
-        content: data.message,
-        progress
-      });
-    }
+    // Always add message (useExecutionStreaming will handle display)
+    addMessage({
+      type: 'tool',
+      subtype: 'progress',
+      tool_id: tool_id,
+      toolName: tool_name,
+      tool_name: tool_name,
+      status: status || 'running',
+      data: templateFields,  // Only pass fields needed for templates
+      content: msg || content || '',  // Empty string if no content
+      progress:progress,
+      data: data
+    });
   }, [executionId, addMessage]);
 
   /**
    * Handle tool_end
    */
   const handleToolEnd = useCallback((message) => {
-    console.log('Tool end:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
-    const { tool_name, execution_time_ms, output_length, node_id, error } = data;
+    const { tool_id, tool_name, execution_time_ms, output_length, node_id, error, status, 
+            execution_id: exec_id, timestamp, success, results, ...templateFields } = data;
     
     setToolStates(prev => {
       const toolState = prev[tool_name];
@@ -529,10 +598,15 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     addMessage({
       type: 'tool',
       subtype: 'end',
+      tool_id: tool_id, 
       toolName: tool_name,
+      tool_name: tool_name,
+      status: status || 'completed',
+      data: templateFields,  // Only pass fields needed for templates
       content: `${tool_name}: ${error ? 'failed' : 'completed'}`,
-      execution_time_ms,
-      output_length
+      execution_time_ms:execution_time_ms,
+      output_length:output_length,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -545,7 +619,7 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
-    const { tool_name, error } = data;
+    const { tool_id, tool_name, error, status, execution_id: exec_id, timestamp, ...templateFields } = data;
     
     setToolStates(prev => ({
       ...prev,
@@ -560,9 +634,14 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     addMessage({
       type: 'tool',
       subtype: 'error',
+      tool_id: tool_id,
       toolName: tool_name,
+      tool_name: tool_name,
+      status: status || 'error',
+      data: templateFields,  // Only pass fields needed for templates
       content: error,
-      error
+      error: error,
+      data: data
     });
     
     toast.error(`Tool failed: ${tool_name}`);
@@ -576,7 +655,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle llm_start
    */
   const handleLlmStart = useCallback((message) => {
-    console.log('🤖 LLM start:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -608,7 +686,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       subtype: 'start',
       toolName: tool_name,
       content: `${tool_name}: thinking started`,
-      step: step_number
+      step: step_number,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -617,7 +696,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * These are all token streaming events with different names
    */
   const handleLlmToken = useCallback((message) => {
-    console.log('LLM token:', message);
     
     if (executionId && message.execution_id !== executionId) return;
     
@@ -664,8 +742,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle llm_end
    */
   const handleLlmEnd = useCallback((message) => {
-    console.log('LLM end:', message);
-    
     if (executionId && message.execution_id !== executionId) return;
     
     const data = extractData(message);
@@ -699,7 +775,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       tokens_generated,
       elapsed_ms,
       ttfb_ms,
-      step: step_number
+      step: step_number,
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -736,7 +813,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
       subtype: 'error',
       toolName: tool_name,
       content: `${tool_name}: ${error}`,
-      error
+      error:error,
+      data: data
     });
     
     toast.error(`LLM error: ${tool_name}`);
@@ -749,58 +827,48 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
   /**
    * Handle agent_action
    */
-  const handleAgentAction = useCallback((message) => {
-    console.log('🎯 Agent action:', message);
+  const handleAgentProgress = useCallback((message) => {
     
     if (executionId && message.execution_id !== executionId) return;
     
-    const data = extractData(message);
-    const { tool, tool_input, log, step_number } = data;
+    const data = message.data;
+    const status = message.status;
     
-    const actionKey = `action_${Date.now()}`;
+    const actionKey = `"progress"_${Date.now()}`;
     
     setAgentStates(prev => ({
       ...prev,
       [actionKey]: {
-        type: 'action',
-        tool,
-        tool_input,
-        log,
+        type: '"progress"',
+        data,
+        status,
         timestamp: Date.now()
       }
     }));
-    
-    setCurrentStep({
-      action: tool,
-      step: step_number
-    });
-    
+
+    setCurrentStep(null);
+
     addMessage({
       type: 'agent',
-      subtype: 'action',
-      content: `Agent action: ${tool}`,
-      tool,
-      tool_input: tool_input,
-      step: step_number
+      subtype: 'progress',
+      status: status || 'running',
+      data: data
     });
   }, [executionId, addMessage]);
 
   /**
    * Handle agent_finish
    */
-  const handleAgentFinish = useCallback((message) => {
-    console.log('🏁 Agent finish:', message);
-    
+  const handleAgentEnd = useCallback((message) => {
     if (executionId && message.execution_id !== executionId) return;
     
-    const data = extractData(message);
-    const { output, step_number } = data;
+    const data = message.data
     
     setAgentStates(prev => ({
       ...prev,
       finish: {
-        type: 'finish',
-        output,
+        type: 'end',
+        data,
         timestamp: Date.now()
       }
     }));
@@ -809,10 +877,37 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     
     addMessage({
       type: 'agent',
-      subtype: 'finish',
-      content: 'Agent finished',
-      output,
-      step: step_number
+      subtype: 'end',
+      status: status || 'completed',
+      data: data
+    });
+  }, [executionId, addMessage]);
+
+  /**
+   * Handle agent_chat (conversational AI responses)
+   */
+  const handleAgentChat = useCallback((message) => {
+    if (executionId && message.execution_id !== executionId) return;
+    
+    const data = message.data
+
+
+    setAgentStates(prev => ({
+      ...prev,
+      chat: {
+        type: 'chat',
+        data,
+        timestamp: Date.now()
+      }
+    }));
+    
+    setCurrentStep(null);
+  
+    addMessage({
+      type: 'agent',
+      subtype: 'chat',
+      status: message.status || 'complete',
+      data: data
     });
   }, [executionId, addMessage]);
 
@@ -824,8 +919,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle batch_update - supports both old and new unified format
    */
   const handleBatchUpdate = useCallback((message) => {
-    console.log('Batch update:', message.message_count, 'messages');
-    
     // Process each message in the batch
     if (message.messages && Array.isArray(message.messages)) {
       message.messages.forEach(msg => {
@@ -997,8 +1090,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     handleLlmToken,
     handleLlmEnd,
     handleLlmError,
-    handleAgentAction,
-    handleAgentFinish
+    handleAgentProgress,
+    handleAgentEnd
   ]);
 
   // ========================================
@@ -1009,8 +1102,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle all execution messages
    */
   const handleExecutionMessage = useCallback((message) => {
-    console.log(`Execution [${message.subtype}]:`, message);
-    
     switch (message.subtype) {
       case 'started':
       case 'start':
@@ -1034,8 +1125,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle all node messages
    */
   const handleNodeMessage = useCallback((message) => {
-    console.log(`Node [${message.subtype}]:`, message);
-    
     switch (message.subtype) {
       case 'start':
         handleNodeStart(message);
@@ -1058,8 +1147,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle all tool messages
    */
   const handleToolMessage = useCallback((message) => {
-    console.log(`Tool [${message.subtype}]:`, message);
-    
     switch (message.subtype) {
       case 'start':
         handleToolStart(message);
@@ -1082,8 +1169,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle all LLM messages
    */
   const handleLlmMessage = useCallback((message) => {
-    console.log(`LLM [${message.subtype}]:`, message);
-    
     switch (message.subtype) {
       case 'start':
         handleLlmStart(message);
@@ -1106,19 +1191,23 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Handle all agent messages
    */
   const handleAgentMessage = useCallback((message) => {
-    console.log(`Agent [${message.subtype}]:`, message);
-    
     switch (message.subtype) {
-      case 'action':
-        handleAgentAction(message);
+      case 'chat':
+        handleAgentChat(message);
         break;
-      case 'finish':
-        handleAgentFinish(message);
+      case 'start':
+        //handleAgentProgress(message);
+        break;
+      case 'progress':
+        handleAgentProgress(message);
+        break;
+      case 'end':
+        handleAgentEnd(message);
         break;
       default:
         console.warn('Unknown agent subtype:', message.subtype, message);
     }
-  }, [handleAgentAction, handleAgentFinish]);
+  }, [handleAgentChat, handleAgentProgress, handleAgentEnd]);
 
   // ========================================
   // SUBSCRIBE TO WEBSOCKET EVENTS (UNIFIED)
@@ -1128,8 +1217,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     // Subscribe with sessionId (connection identifier)
     if (!sessionId) return;
     
-    console.log('Subscribing to execution events for session:', sessionId, 'execution:', executionId);
-  
     // Create stable handler wrapper that doesn't change
     const handlers = {
       execution: handleExecutionMessage,
@@ -1151,7 +1238,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     
     // Cleanup
     return () => {
-      console.log('Unsubscribing from execution events');
       Object.entries(handlers).forEach(([event, handler]) => {
         wsOff(event, handler);
       });
@@ -1163,25 +1249,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
   ]);
 
   // ========================================
-  // DEBUG LOGGING
-  // ========================================
-
-  useEffect(() => {
-    if (executionId) {
-      console.log('Execution State:', {
-        status,
-        messages: messages.length,
-        nodes: Object.keys(nodeStates),
-        tools: Object.keys(toolStates),
-        llms: Object.keys(llmStates),
-        agents: Object.keys(agentStates),
-        progress: progressPercentage + '%',
-        thinking: currentStep?.thinking || false
-      });
-    }
-  }, [executionId, status, messages.length, nodeStates, toolStates, llmStates, agentStates, progressPercentage, currentStep]);
-
-  // ========================================
   // RESET FUNCTION
   // ========================================
 
@@ -1189,7 +1256,6 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
    * Reset function - manually clear all state
    */
   const reset = useCallback(() => {
-    console.log('Resetting execution progress');
     clearState();
     setStatus('idle');
   }, [clearState]);
@@ -1208,6 +1274,8 @@ export const useExecutionProgress = (sessionId, executionId, condition, callback
     nodeResults,
     llmStates,
     agentStates,
+    summaryData,
+    summaryAvailable,
     reset
   };
 };

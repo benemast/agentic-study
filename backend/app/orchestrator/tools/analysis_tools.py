@@ -1,14 +1,17 @@
 # backend/app/orchestrator/tools/analysis_tools.py
 import json
 import math
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Literal, ClassVar, Set
 import logging
 import time
 from collections import Counter
 import asyncio
 
 from app.orchestrator.tools.base_tool import BaseTool
-
+from app.orchestrator.llm.tool_schemas import (
+    ReviewSentimentAnalysisInputData,
+    GenerateInsightsInputData
+)
 from app.websocket.manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
@@ -16,12 +19,15 @@ logger = logging.getLogger(__name__)
 MAX_PARALLEL_CALLS:int=5
 BATCH_SIZE:int=20           # Reviews per LLM call (balance between API efficiency and progress feedback)
 BATCH_PADDING:float=0.25    # Tolerance for final batch (0.1 = 10%) - if remaining reviews ≤ 110% of batch_size, include all in last batch to avoid tiny batches
-MAX_REVIEWS:int=1000        # Hard limit - prevents excessive API costs and timeouts
+MAX_REVIEWS:int=100         # Hard limit - prevents excessive API costs and timeouts
 RECOMMENDED_MAX:int=500     # Soft limit - warns user but allows continuation above this threshold
-SAMPLE_RATE:float=0.23 #0.025# Percentage of total reviews to analyze (0.1 = 10%) - reduces cost/time while maintaining statistical validity via strategic sampling
+SAMPLE_RATE:float=0.20 #0.025# Percentage of total reviews to analyze (0.1 = 10%) - reduces cost/time while maintaining statistical validity via strategic sampling
 TRUNCATE_PRODUCT:int=50
 TRUNCATE_HEAD:int=100
 TRUNCATE_BODY:int=400
+
+THEMES_MAX_TOKENS:int= 6144
+INSIGHT_MAX_TOKENS:int= 6144
 
 class ReviewSentimentAnalysisTool(BaseTool):
     """
@@ -49,14 +55,14 @@ class ReviewSentimentAnalysisTool(BaseTool):
     WEIGHT_SCALING_FACTOR:float=14
 
     # Keyword lists for text analysis fallback
-    POSITIVE_KEYWORDS = {
+    POSITIVE_KEYWORDS: ClassVar[Set[str]] = {
         'excellent', 'amazing', 'great', 'perfect', 'love', 'best',
         'awesome', 'fantastic', 'wonderful', 'superb', 'outstanding',
         'highly recommend', 'impressed', 'satisfied', 'quality', 'comfortable',
         'durable', 'worth', 'reliable', 'beautiful', 'nice'
     }
-    
-    NEGATIVE_KEYWORDS = {
+
+    NEGATIVE_KEYWORDS: ClassVar[Set[str]] = {
         'terrible', 'awful', 'horrible', 'worst', 'bad', 'poor',
         'disappointed', 'waste', 'defective', 'broken', 'cheap',
         'uncomfortable', 'overpriced', 'regret', 'useless', 'junk',
@@ -66,6 +72,8 @@ class ReviewSentimentAnalysisTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="Review Sentiment Analysis",
+            tool_id="review-sentiment-analysis",
+            descripton="Analyse reviews to extract Themes and Sentiment. Data should be clenead and filtered before starting analysis!",
             timeout=600  # 10 minutes
         )
         self.websocket_manager: Optional[WebSocketManager] = None   # Injected by orchestrator
@@ -74,6 +82,7 @@ class ReviewSentimentAnalysisTool(BaseTool):
     def _build_llm_prompt(
         self,
         reviews_batch: List[Dict[str, Any]],
+        language: Literal['en','de'] = 'en'
     ) -> tuple[str, str]:
         """
         Build optimized system and user prompts
@@ -81,8 +90,10 @@ class ReviewSentimentAnalysisTool(BaseTool):
         Returns:
             (system_prompt, user_prompt)
         """
-        
-         # Build review text for prompt
+
+        requested_lang = 'English' if language == 'en' else 'German'
+
+        # Build review text for prompt
         reviews_text = ""
         for i, review in enumerate(reviews_batch, 1):
             product_title = review.get('product_title', '')[:TRUNCATE_PRODUCT]
@@ -99,7 +110,8 @@ Body: {body}
 """
         
         # Dynamic system prompt based on theme extraction
-        system_prompt ="""Role: You are a sentiment analysis specialist focused on product reviews.
+        system_prompt =f"""REPLY IN {requested_lang}!
+Role: You are a sentiment analysis specialist focused on product reviews.
 
 Begin with a concise checklist (3–7 bullets) of what you will do; keep items conceptual, not implementation-level.
 This checklist should NOT be returned!
@@ -113,6 +125,7 @@ Analyze each review and extract the main themes or product aspects the customer 
 
 ## Extraction Guidelines
 - Identify and extract 3–4 specific topics per review; if fewer than 3, extract all available topics. Do not exceed 4 topics per review.
+- Do NOT extract more topics then you can actually find in a review!!
 - Focus on concrete product aspects mentioned (e.g., "bass quality" over general terms like "sound").
 - Find themes recurring across reviews and categorize accordingly.
 - For each topic, specify:
@@ -134,11 +147,11 @@ Provide a JSON object with this exact structure:
 - If a review only mentions one or two topics, include only those in its value array.
 - Example format:
 ```json
-{
-  "1": [["sound quality", 4, 5], ["comfort", 3, 2], ["value for money", 5, 7]],
+{{
+  "1": [["durability", 4, 5], ["comfort", 3, 2], ["value for money", 5, 7]],
   "2": [["color", 7, 1], ["comfort", 4, 2], ["haptic", 2, 5]]
   // ...continue for all reviews
-}
+}}
 ```
 
 Before returning your output:
@@ -151,12 +164,14 @@ Before returning your output:
   - All required fields are present and structured correctly; if missing, self-correct before submitting the output.
   - You are NOT returning your initial checklist!
 
-After preparing your output, validate that the extracted topics are concrete product aspects, the scoring is internally consistent, and all output follows the exact format. If validation fails, correct errors before returning the final result."""
+After preparing your output, validate that the extracted topics are concrete product aspects, the scoring is internally consistent, and all output follows the exact format. If validation fails, correct errors before returning the final result.
+Return ONLY the JSON array, nothing else."""
       
         user_prompt = f"""Analyze these {len(reviews_batch)} product reviews:
 {reviews_text}
 
 Return JSON with analysis for each review."""
+
 
         return system_prompt, user_prompt
     
@@ -168,7 +183,8 @@ Return JSON with analysis for each review."""
         execution_id: int,
         condition: str,
         batch_num: int = 1,
-        total_batches: int = 1
+        total_batches: int = 1,
+        language: Literal['en','de'] = 'en'
     ) -> Dict[str, Any]:
         """
         Analyze batch of reviews for sentiment AND themes using LLM
@@ -181,21 +197,29 @@ Return JSON with analysis for each review."""
         """
                 
         try:
-            system_prompt, user_prompt = self._build_llm_prompt(reviews_batch)
+            system_prompt, user_prompt = self._build_llm_prompt(reviews_batch=reviews_batch, language=language)
 
             logger.info(f"Calling LLM for batch {batch_num}/{total_batches}")
 
+            """
             # Call LLM with streaming - LangChain based
-            response = await self._call_llm_with_streaming(
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 condition=condition,
                 tool_name='review_sentiment_analysis',
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,                
-                max_tokens=20480, #8192,
+                max_tokens=20480, #8192
                 verbosity='low'
             )      
+            """
+
+            response = await self._call_llm_simple_forceNoReasoning(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=THEMES_MAX_TOKENS
+            )
             
             # Map LLM results to reviews
             analyzed_reviews, themes = self._parse_sentiment_response(response, reviews_batch)
@@ -217,7 +241,7 @@ Return JSON with analysis for each review."""
                         'theme_analysis': {
                             'themes': [],
                             'theme_count': 0,
-                            'model': response.get('model',self.llm_client.model),
+                            'model': self.llm_client.model,
                             'analyzed_at': time.time()
                         }
                     }
@@ -506,7 +530,7 @@ Return JSON with analysis for each review."""
         
         return formatted
     
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run(self, input_data: ReviewSentimentAnalysisInputData) -> Dict[str, Any]:
         """
         Execute sentiment analysis with theme extraction
         
@@ -598,7 +622,7 @@ Return JSON with analysis for each review."""
                     5,
                     f"Sampling {self.MAX_REVIEWS} from {original_count} reviews"
                 )                 
-                 reviews = self._sample_reviews_mulit_strategically(reviews, self.MAX_REVIEWS)
+                 reviews = self._sample_reviews_multi_strategically(reviews, self.MAX_REVIEWS)
             """
             # Production approach, sample while conserving start_rating ratio (general sentiment) 
             # and above avg length (ensure quality input for sentiment analysis)            
@@ -606,7 +630,7 @@ Return JSON with analysis for each review."""
 
             # Sample analysis
             try:
-                reviews_sample = self._sample_reviews_mulit_strategically(records, target_count)
+                reviews_sample = self._sample_reviews_multi_strategically(records, int(min(target_count, (MAX_PARALLEL_CALLS * BATCH_SIZE))))
                 reviews_sample_size = len(reviews_sample)
                 logger.warning(f"Sampled dataset: {original_count} → {len(reviews_sample)} reviews")
 
@@ -617,17 +641,16 @@ Return JSON with analysis for each review."""
                 total_batches = len(batches)
 
 
-                # Start Batch processing
-                await self._send_tool_start(
-                    session_id,
-                    execution_id,
-                    condition=state.get("condition"),
-                    message = f"Starting theme and sentiment analysis. Processing reviews in {total_batches} batches.",
+                # Start Batch processing                
+                await self._send_tool_update(
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    condition=condition,
+                    message=f"{self.name} calling LLM for analysis.",
                     details={
-                        'progress': 0,
-                        'step_num': 0,
-                        'total_steps':total_batches + 2,
-                    }
+                        'records_cnt': len(records)
+                    },
+                    status='LLM_handoff'
                 )
 
                 # Parallel batch processing with controlled concurrency
@@ -647,7 +670,8 @@ Return JSON with analysis for each review."""
                             execution_id=execution_id,
                             condition=condition,
                             batch_num=batch_num,
-                            total_batches=total_batches
+                            total_batches=total_batches,
+                            language=state.get("language")
                         )
                         
                         # Send batch complete progress update
@@ -842,8 +866,8 @@ Return JSON with analysis for each review."""
             results = {
                 'success': True,
                 'analyzed_records': records, 
-                'column_data': column_data,             # For apply_enrichment()
                 'columns_added': ['sentiment', 'sentiment_confidence'], #+ (['themes'] if extract_themes else []),
+                'column_data': column_data,             # For apply_enrichment()
                 
                 # Top Level availability for other tools
                 'state_updates': {
@@ -901,6 +925,8 @@ class GenerateInsightsTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="Generate Insights",
+            tool_id="generate-insights",
+            description="Generate Insights about customer reviews. For best results input should be cleaned, filtered and analysed!",
             timeout=300  # 5 minutes for LLM processing
         )
         self.websocket_manager: Optional[WebSocketManager] = None   # Injected by orchestrator
@@ -913,7 +939,8 @@ class GenerateInsightsTool(BaseTool):
         sentiment_statistics: Dict[str, Any],
         theme_analysis: Optional[Dict[str, Any]],
         sample_reviews: List[Dict[str, Any]],
-        total_reviews: int
+        total_reviews: int,
+        language: Literal['en','de'] = 'en'
     ) -> tuple[str, str]:
         """
         Build optimized system and user prompts
@@ -922,6 +949,8 @@ class GenerateInsightsTool(BaseTool):
             (system_prompt, user_prompt)
         """
         
+        requested_lang = 'English' if language == 'en' else 'German'
+
         # Map focus areas to business context
         # Single comprehensive focus area configuration
         FOCUS_AREA_CONFIG = {
@@ -976,8 +1005,9 @@ class GenerateInsightsTool(BaseTool):
         focus_area_labels_list = "\n".join([f'- "{key}"' for key in FOCUS_AREA_CONFIG.keys()])
         focus_area_labels_line = ", ".join([f'"{key}"' for key in FOCUS_AREA_CONFIG.keys()])
 
-        # System prompt
-        system_prompt = f"""Role: You are a senior business analyst specializing in e-commerce product strategy and market intelligence.
+        # System prompt """
+        system_prompt = f"""REPLY IN {requested_lang.upper()}!
+Role: You are a senior business analyst specializing in e-commerce product strategy and market intelligence.
 
 # Core Competencies
 - Derive strategic insights from customer feedback trends and sentiment data.
@@ -1035,6 +1065,7 @@ Examples:
 - If a focus area label is missing or empty, return an empty array for that label
 - All insight statements are strings, ordered from highest to lowest business impact based on analysis or best estimation
 
+Return ONLY the JSON array, nothing else.
 """
 
         # Build statistics summary
@@ -1112,7 +1143,8 @@ Generate insights now."""
         total_reviews: int,
         session_id: str | None = None,
         execution_id: int | None = None,
-        condition: str | None = None
+        condition: str | None = None,
+        language: Literal['en','de'] = 'en'
     ) -> List[Dict[str, Any]]:
         """
         Generate insights using streaming LLM
@@ -1122,7 +1154,8 @@ Generate insights now."""
         """
         
         # Sample reviews for context
-        sample_reviews = self._sample_reviews_mulit_strategically(reviews, MAX_REVIEWS)
+        target_count = math.ceil(len(reviews) * SAMPLE_RATE)
+        sample_reviews = self._sample_reviews_multi_strategically(reviews, int(min(target_count, MAX_REVIEWS)))
 
         # Build prompts
         system_prompt, user_prompt = self._build_llm_prompt(
@@ -1131,7 +1164,8 @@ Generate insights now."""
             sentiment_statistics=sentiment_statistics,
             theme_analysis=theme_analysis,
             sample_reviews=sample_reviews,
-            total_reviews=total_reviews
+            total_reviews=total_reviews,
+            language=language
         )
         
         #logger.info(f"system_prompt: {system_prompt}")
@@ -1140,8 +1174,9 @@ Generate insights now."""
         logger.debug(f"Calling LLM for {len(focus_areas)} focus areas")
         
         try:
+            """
             # Call LLM with streaming - LangChain based
-            response = await self._call_llm_with_streaming(
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 condition=condition,
@@ -1150,6 +1185,13 @@ Generate insights now."""
                 user_prompt=user_prompt,
                 max_tokens=20480, #8192
                 verbosity='low'
+            )
+            """
+
+            response = await self._call_llm_simple_forceNoReasoning(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=INSIGHT_MAX_TOKENS
             )
 
             # Parse JSON response
@@ -1212,7 +1254,7 @@ Generate insights now."""
         
         return insights[:max_insights * len(focus_areas)]
 
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run(self, input_data: GenerateInsightsInputData) -> Dict[str, Any]:
         """
         Generate insights with streaming support
         
@@ -1278,16 +1320,16 @@ Generate insights now."""
             
             # Send start notification
             if self.websocket_manager and session_id:
-                try:
-                    await self._send_tool_start(
-                        session_id, 
+                try:                    
+                    await self._send_tool_update(
+                        session_id=session_id,
                         execution_id=execution_id,
-                        condition=state.get("condition"),
-                        message="Generating actionable business insights...",
+                        condition=condition,
+                        message=f"{self.name} calling LLM for analysis.",
                         details={
-                            'progress': 10,
-                            'total_steps':1,
-                        }
+                            'records_cnt': total_reviews
+                        },
+                        status='LLM_handoff'
                     )
                 except Exception as e:
                     logger.warning(f"Failed to send start: {e}")
@@ -1302,14 +1344,15 @@ Generate insights now."""
                 total_reviews=total_reviews,
                 session_id=session_id,
                 execution_id=execution_id,
-                condition=condition
+                condition=condition,
+                language=state.get("language")
             )
             
             # Valid only (excluding insufficient data)            
             # Count total insights across all categories
             total_insights = sum(
                 sum(1 for insight in insights if "Insufficient data" not in insight)
-                for insights in insights.values()
+                for insights in insights
             )
 
             # By category, excluding "Insufficient data"

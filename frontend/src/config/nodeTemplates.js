@@ -85,7 +85,7 @@ export const NODE_TEMPLATES = [
         help: 'workflow.builder.nodes.loadReviews.config.category.help',
         placeholder: 'workflow.builder.nodes.loadReviews.config.category.placeholder'
       },
-      {
+      /*{
         key: 'limit',
         label: 'workflow.builder.nodes.loadReviews.config.limit.label',
         type: 'number',
@@ -95,11 +95,11 @@ export const NODE_TEMPLATES = [
         locked: false,
         help: 'workflow.builder.nodes.loadReviews.config.limit.help',
         placeholder: 'workflow.builder.nodes.loadReviews.config.limit.placeholder'
-      }
+      }*/
     ],
     defaultConfig: {
       category: null,
-      limit: null
+      //limit: null
     }
   },
   
@@ -291,7 +291,11 @@ export const NODE_TEMPLATES = [
           { 
             value: 'competitive_positioning', 
             label: 'workflow.builder.nodes.generateInsights.config.focusArea.options.competitivePositioning.label',
-            help: 'workflow.builder.nodes.generateInsights.config.focusArea.options.competitivePositioning.help'
+            help: 'workflow.builder.nodes.generateInsights.config.focusArea.options.competitivePositioning.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           },
           { 
             value: 'customer_experience', 
@@ -306,7 +310,11 @@ export const NODE_TEMPLATES = [
           { 
             value: 'product_improvements', 
             label: 'workflow.builder.nodes.generateInsights.config.focusArea.options.productImprovements.label',
-            help: 'workflow.builder.nodes.generateInsights.config.focusArea.options.productImprovements.help'
+            help: 'workflow.builder.nodes.generateInsights.config.focusArea.options.productImprovements.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           }
         ],
         required: true,
@@ -328,8 +336,7 @@ export const NODE_TEMPLATES = [
       focus_area: null,
       max_recommendations: null
     }
-  },
-  
+  },  
   {
     id: 'review-sentiment-analysis',
     label: 'workflow.builder.nodes.reviewSentimentAnalysis.label',
@@ -380,7 +387,9 @@ export const NODE_TEMPLATES = [
         required: true,
         locked: false,
         help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.help'
-      },
+      }
+      /*
+      ,
       {
         key: 'include_percentages',
         label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.label',
@@ -389,13 +398,12 @@ export const NODE_TEMPLATES = [
         locked: false,
         help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.help',
         placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.placeholder'
-      }
+      }*/
     ],
     defaultConfig: {
       extract_themes: true,
       theme_separation: 'combined',
-      max_themes_per_category: 1,
-      include_percentages: false
+      max_themes_per_category: 1
     }
   },
 
@@ -426,27 +434,43 @@ export const NODE_TEMPLATES = [
           { 
             value: 'executive_summary', 
             label: 'workflow.builder.nodes.showResults.config.includeSections.options.executiveSummary.label',
-            help: 'workflow.builder.nodes.showResults.config.includeSections.options.executiveSummary.help'
+            help: 'workflow.builder.nodes.showResults.config.includeSections.options.executiveSummary.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis','generate-insights'],
+              lockType: 'warning'
+            },
           },
           { 
             value: 'themes', 
             label: 'workflow.builder.nodes.showResults.config.includeSections.options.themes.label',
-            help: 'workflow.builder.nodes.showResults.config.includeSections.options.themes.help'
+            help: 'workflow.builder.nodes.showResults.config.includeSections.options.themes.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           },
           { 
             value: 'recommendations', 
             label: 'workflow.builder.nodes.showResults.config.includeSections.options.recommendations.label',
-            help: 'workflow.builder.nodes.showResults.config.includeSections.options.recommendations.help'
+            help: 'workflow.builder.nodes.showResults.config.includeSections.options.recommendations.help',
+            dependencies: {
+              requiresNodes: ['generate-insights'],
+              lockType: 'disable' 
+            }
           },
           { 
             value: 'statistics', 
             label: 'workflow.builder.nodes.showResults.config.includeSections.options.statistics.label',
-            help: 'workflow.builder.nodes.showResults.config.includeSections.options.statistics.help'
+            help: 'workflow.builder.nodes.showResults.config.includeSections.options.statistics.help',
           },
           { 
             value: 'data_preview', 
             label: 'workflow.builder.nodes.showResults.config.includeSections.options.dataPreview.label',
-            help: 'workflow.builder.nodes.showResults.config.includeSections.options.dataPreview.help'
+            help: 'workflow.builder.nodes.showResults.config.includeSections.options.dataPreview.help',
+            dependencies: {
+              requiresNodes: ['filter-reviews'],
+              lockType: 'warning'  // Warning: works but may be slow
+            }
           }
         ],
         required: false,
@@ -461,7 +485,11 @@ export const NODE_TEMPLATES = [
           { 
             value: 'sentiment_distribution', 
             label: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentDistribution.label',
-            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentDistribution.help'
+            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentDistribution.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           },
           { 
             value: 'review_summary', 
@@ -481,12 +509,20 @@ export const NODE_TEMPLATES = [
           { 
             value: 'theme_coverage', 
             label: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.themeCoverage.label',
-            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.themeCoverage.help'
+            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.themeCoverage.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           },
           { 
             value: 'sentiment_consistency', 
             label: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentConsistency.label',
-            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentConsistency.help'
+            help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.options.sentimentConsistency.help',
+            dependencies: {
+              requiresNodes: ['review-sentiment-analysis'],
+              lockType: 'disable'
+            }
           }
         ],
         required: false,
@@ -494,6 +530,7 @@ export const NODE_TEMPLATES = [
         dependsOn: 'include_sections.statistics',
         help: 'workflow.builder.nodes.showResults.config.statisticsMetrics.help'
       },
+      /*
       {
         key: 'show_visualizations',
         label: 'workflow.builder.nodes.showResults.config.showVisualizations.label',
@@ -504,12 +541,13 @@ export const NODE_TEMPLATES = [
         help: 'workflow.builder.nodes.showResults.config.showVisualizations.help',
         placeholder: 'workflow.builder.nodes.showResults.config.showVisualizations.placeholder'
       },
+      */
       {
         key: 'max_data_items',
         label: 'workflow.builder.nodes.showResults.config.maxDataItems.label',
         type: 'number',
         min: 1,
-        max: 1000,
+        max: 500,
         required: false,
         locked: false,
         dependsOn: 'include_sections.data_preview',
@@ -525,7 +563,7 @@ export const NODE_TEMPLATES = [
   // ============================================
   // LOGIC TOOLS - Will not be used for study!
   // ============================================
-/*
+  /*
   {
     id: 'logic-if', 
     label: 'Logic If',
@@ -663,7 +701,6 @@ export const isNodeEditable = (id) => {
  * @returns {string} Dynamic label
  */
 export const getLoadReviewsLabel = (category) => {
-  console.log("[nodeTemplates] getting LoadReviews Label for category:", category)
   const categoryLabels = {
     'headphones': 'Load Headphone Reviews',
     'shoes': 'Load Shoe Reviews',

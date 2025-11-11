@@ -176,7 +176,8 @@ const CustomNode = memo(({ data, selected, id }) => {
     isValidConnection, 
     onDelete,
     onEdit,
-    onViewResults, 
+    onViewResults,
+    summaryAvailable = false,
     executionState = {}
   } = data;
   
@@ -219,15 +220,12 @@ const CustomNode = memo(({ data, selected, id }) => {
     if (!connectionState.isConnecting) return 'normal';
     
     if (connectionState.sourceNodeId === id) {
-      if (handleType === 'source' && connectionState.sourceHandleType === 'source') {
-        const sourceHandleIndex = connectionState.sourceHandleId ? 
-          parseInt(connectionState.sourceHandleId.split('-')[1]) || 0 : 0;
-        return handleIndex === sourceHandleIndex ? 'source' : 'normal';
-      }
-      return 'normal';
+      return handleType === 'source' ? 'source' : 'normal';
     }
     
-    if (handleType === 'target' && connectionState.sourceHandleType === 'source') {
+    if (handleType === 'source') return 'normal';
+    
+    if (handleType === 'target') {
       const targetHandleId = `input-${handleIndex}`;
       
       const targetHandleConnections = currentEdges.filter(e => 
@@ -345,7 +343,12 @@ const CustomNode = memo(({ data, selected, id }) => {
       case 'completed':
         bgColor = 'bg-green-500';
         borderColor = 'border-green-600';
-        tooltip = 'Completed - Click to view results';
+        
+        // Use summaryAvailable from props (available in outer scope)
+        tooltip = summaryAvailable 
+          ? 'Completed - Click to view summary'
+          : 'Completed - Click to view results';
+        
         icon = (
           <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />

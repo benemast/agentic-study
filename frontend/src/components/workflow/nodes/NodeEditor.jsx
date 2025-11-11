@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { X as XIcon, Info as InfoIcon, Lock as LockIcon, ChevronDown, ChevronRight, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { getWorkflowFilterableColumns, getWorkflowSortableColumns } from '../../../config/columnConfig';
+import { getWorkflowFilterableColumns } from '../../../config/columnConfig';
 import { validateNodeOptionDependencies } from '../../../utils/nodeDependencyValidator';
 
 const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
@@ -36,6 +36,86 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
     }
   }, [node]);
 
+  // Auto-remove invalid selections when validation changes
+  useEffect(() => {
+    if (!optionValidations || Object.keys(optionValidations).length === 0) return;
+    
+    setCurrentConfig(prevConfig => {
+      let needsUpdate = false;
+      const updatedConfig = { ...prevConfig };
+      const removedItems = [];
+      
+      configSchema.forEach(field => {
+        // Only process multiselect and checklist fields
+        if (field.type !== 'multiselect' && field.type !== 'checklist') return;
+        
+        const currentValues = prevConfig[field.key];
+        if (!Array.isArray(currentValues) || currentValues.length === 0) return;
+        
+        // Filter out invalid values (those with disabled validation)
+        const validValues = currentValues.filter(value => {
+          const validationKey = `${field.key}.${value}`;
+          const validation = optionValidations[validationKey];
+          
+          // Keep value if:
+          // 1. No validation exists (option doesn't have dependencies) -> KEEP
+          if (!validation) return true;
+          
+          // 2. Validation exists and is valid -> KEEP
+          if (validation.isValid) return true;
+          
+          // 3. Validation exists but lockType is 'warning' (only disabled should be removed) -> KEEP
+          if (validation.lockType === 'warning') return true;
+          
+          // 4. Remove if disabled and invalid
+          if (validation.lockType === 'disable' && !validation.isValid) {
+            removedItems.push({
+              field: t(field.label),
+              option: value
+            });
+            return false;
+          }
+          
+          // Default: keep the value
+          return true;
+        });
+        
+        // Update config if values were removed
+        if (validValues.length !== currentValues.length) {
+          updatedConfig[field.key] = validValues;
+          needsUpdate = true;
+        }
+      });
+      
+      // Show toast notification if items were removed
+      if (needsUpdate && removedItems.length > 0) {
+        const message = removedItems.length === 1
+          ? `Removed invalid option: ${removedItems[0].option} (missing required node)`
+          : `Removed ${removedItems.length} invalid options (missing required nodes)`;
+        
+        // Create toast notification element
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-4 right-4 bg-amber-600 text-white px-4 py-3 rounded-lg shadow-lg z-[60] flex items-center gap-2 animate-fade-in';
+        toast.innerHTML = `
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span class="text-sm font-medium">${message}</span>
+        `;
+        document.body.appendChild(toast);
+        
+        // Remove toast after 4 seconds
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transition = 'opacity 0.3s ease-out';
+          setTimeout(() => toast.remove(), 300);
+        }, 4000);
+      }
+      
+      return needsUpdate ? updatedConfig : prevConfig;
+    });
+  }, [optionValidations, configSchema, t]);
+
   // ============================================
   // FIELD VISIBILITY & DEPENDENCY LOGIC
   // ============================================
@@ -52,14 +132,27 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
       return { disabled: false, warning: false, message: null };
     }
     
+    // Convert kebab-case to camelCase for translation keys
+    const kebabToCamel = (str) => str.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+    
     // Build message about missing nodes
     const missingNodeLabels = validation.missingNodes
-      .map(nodeId => t(`workflow.builder.nodes.${nodeId}.label`) || nodeId)
+      .map(nodeId => t(`workflow.builder.nodes.${kebabToCamel(nodeId)}.label`) || nodeId)
       .join(', ');
     
-    const message = t('workflow.builder.nodeEditor.dependencyMissing', { 
+    
+    // Use different translation keys for warning vs disable
+    const translationKey = validation.lockType === 'warning' 
+      ? 'workflow.builder.nodeEditor.dependencyRecommended'
+      : 'workflow.builder.nodeEditor.dependencyMissing';
+    
+    const fallbackMessage = validation.lockType === 'warning'
+      ? `Recommended: ${missingNodeLabels}`
+      : `Requires: ${missingNodeLabels}`;
+    
+    const message = t(translationKey, { 
       nodes: missingNodeLabels 
-    }) || `Requires: ${missingNodeLabels}`;
+    }) || fallbackMessage;
     
     return {
       disabled: validation.lockType === 'disable',
@@ -341,32 +434,52 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
   }, [node, currentConfig, validateConfig, onSave, onClose]);
 
   // ============================================
-  // TOOLTIP COMPONENT FOR OPTION HELP
+  // SMART TOOLTIP COMPONENT WITH ADAPTIVE POSITIONING
   // ============================================
   
-  const OptionHelpTooltip = memo(({ help }) => {
+  const SmartTooltip = memo(({ children, content, variant = 'info', isFirst = false, isLast = false, isTranslated = false }) => {
     const [showTooltip, setShowTooltip] = useState(false);
 
-    if (!help) return null;
+    if (!content) return children;
+
+    // Determine tooltip direction based on position
+    // First item: always bottom, Last item: always top, Others: default bottom
+    const openUpward = isLast && !isFirst;
+    
+    const variantStyles = {
+      info: 'bg-gray-900 dark:bg-gray-800 text-white border-gray-700',
+      warning: 'bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700',
+      lock: 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
+    };
+
+    const positionClasses = openUpward
+      ? 'absolute left-0 bottom-full mb-2'
+      : 'absolute left-0 top-full mt-2';
+    
+    const arrowClasses = openUpward
+      ? 'absolute -bottom-1 left-2 w-2 h-2 transform rotate-45 border-b border-r'
+      : 'absolute -top-1 left-2 w-2 h-2 transform rotate-45 border-l border-t';
 
     return (
-      <div className="relative inline-block ml-2">
-        <InfoIcon 
-          className="w-3 h-3 text-gray-400 hover:text-blue-500 cursor-help transition-colors"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-        />
+      <div 
+        className="relative inline-block"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        {children}
         {showTooltip && (
-          <div className="absolute left-0 top-full mt-1 z-50 w-64 p-2 bg-gray-900 dark:bg-gray-800 text-white text-xs rounded shadow-lg border border-gray-700">
-            <div className="absolute -top-1 left-2 w-2 h-2 bg-gray-900 dark:bg-gray-800 transform rotate-45 border-l border-t border-gray-700"></div>
-            {t(help)}
+          <div className={`${positionClasses} z-50 w-64`}>
+            <div className={`${variantStyles[variant]} text-xs rounded-lg p-2 shadow-lg border`}>
+              <div className={`${arrowClasses} ${variantStyles[variant]}`}></div>
+              {isTranslated ? content : t(content)}
+            </div>
           </div>
         )}
       </div>
     );
   });
 
-  OptionHelpTooltip.displayName = 'OptionHelpTooltip';
+  SmartTooltip.displayName = 'SmartTooltip';
 
   // ============================================
   // CHECK IF ANY FIELDS ARE LOCKED
@@ -511,17 +624,19 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
             {options.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">No options available</p>
             ) : (
-              options.map(opt => {
+              options.map((opt, index) => {
                 const depState = getOptionDependencyState(field.key, opt.value);
                 const isChecked = (value || []).includes(opt.value);
                 const isDisabled = isLocked || depState.disabled;
+                const isFirstItem = index === 0;
+                const isLastItem = index === options.length - 1;
                 
                 return (
                   <label 
                     key={opt.value} 
                     className={`flex items-start space-x-2 p-2 rounded transition-colors ${
                       isDisabled 
-                        ? 'opacity-50 cursor-not-allowed' 
+                        ? 'cursor-not-allowed' 
                         : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                   >
@@ -530,34 +645,28 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
                       checked={isChecked}
                       onChange={(e) => handleMultiselectChange(field.key, opt.value, e.target.checked)}
                       disabled={isDisabled}
-                      className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 flex-shrink-0"
+                      className={`mt-0.5 w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 flex-shrink-0 ${isDisabled ? 'opacity-50' : ''}`}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                        <span className={`text-sm text-gray-700 dark:text-gray-300 ${isDisabled ? 'opacity-50' : ''}`}>
                           {shouldTranslate(opt.label) ? t(opt.label) : opt.label}
                         </span>
                         {depState.warning && (
-                          <div className="relative group">
+                          <SmartTooltip content={depState.message} variant="warning" isFirst={isFirstItem} isLast={isLastItem} isTranslated={true}>
                             <AlertTriangleIcon className="w-4 h-4 text-amber-500" />
-                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-64">
-                              <div className="bg-amber-50 dark:bg-amber-900/90 text-amber-900 dark:text-amber-100 text-xs rounded-lg p-2 shadow-lg border border-amber-200 dark:border-amber-700">
-                                {depState.message}
-                              </div>
-                            </div>
-                          </div>
+                          </SmartTooltip>
                         )}
                         {depState.disabled && (
-                          <div className="relative group">
+                          <SmartTooltip content={depState.message} variant="lock" isFirst={isFirstItem} isLast={isLastItem} isTranslated={true}>
                             <LockIcon className="w-3 h-3 text-gray-400" />
-                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-64">
-                              <div className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded-lg p-2 shadow-lg border border-gray-200 dark:border-gray-600">
-                                {depState.message}
-                              </div>
-                            </div>
-                          </div>
+                          </SmartTooltip>
                         )}
-                        <OptionHelpTooltip help={opt.help} />
+                        {opt.help && (
+                          <SmartTooltip content={opt.help} variant="info" isFirst={isFirstItem} isLast={isLastItem}>
+                            <InfoIcon className="w-3 h-3 text-gray-400 hover:text-blue-500 cursor-help transition-colors" />
+                          </SmartTooltip>
+                        )}
                       </div>
                       {/* Show help text inline if no hover tooltip (fallback) */}
                       {!opt.help && opt.description && (
@@ -695,17 +804,6 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
           </div>
         )}
 
-        {/* Locked Fields Notice */}
-        {hasLockedFields && (
-          <div className="px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800">
-            <div className="flex items-start gap-2">
-              <LockIcon className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-amber-800 dark:text-amber-200">
-                {t('workflow.builder.nodeEditor.noConfig') || 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.'}
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Node-level Warnings */}
         {nodeWarnings && nodeWarnings.length > 0 && (

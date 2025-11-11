@@ -3,8 +3,8 @@ export const en = {
   // ========== COMMON ==========
   common: {
     form: {
-      pleaseSelect: 'Please select...',
-      selectOption: 'Please select...',
+      pleaseSelect: 'Please select…',
+      selectOption: 'Please select…',
       required: 'This field is required',
       optional: '(optional)',
       yes: 'Yes',
@@ -45,13 +45,13 @@ export const en = {
         text: 'Study configuration could not be loaded. Please reload the page.',
         reload: 'Reload'
       },
-      init: 'Initializing study...'
+      init: 'Initializing study…'
     }
   },
   // ========== FOOTER ==========
   footer: {
     legalNote: {
-      label: 'Legal note',
+      label: 'Legal Note',
       url: 'https://www.tu-darmstadt.de/impressum/index.en.jsp'
     },
     note:'The study takes approximately 45-60 minutes. Your progress is automatically saved.',
@@ -91,12 +91,12 @@ export const en = {
     },
 
     legalNote: {
-      lable: 'Legal note'
+      lable: 'Legal Note'
     },
     
     privacy: {
       label: 'Privacy',
-      value: 'Anonymous & GDPR-compliant',
+      value: 'Anonymous & GDPR-Compliant',
       url: 'https://www.tu-darmstadt.de/datenschutzerklaerung.en.jsp'
     },
     
@@ -107,11 +107,11 @@ export const en = {
       keyPoints: {
         title: 'Key Points:',
         anonymous: 'Completely anonymized data collection and storage',
-        gdprCompliant: 'GDPR and HDSIG compliant',
+        gdprCompliant: 'GDPR and HDSIG Compliant',
         voluntary: 'Voluntary participation with right to withdraw at any time',
         retention: 'Data stored for 3 years, then deleted'
       },
-      viewFullPolicy: 'View full privacy policy'
+      viewFullPolicy: 'View Full Privacy Policy'
     },
 
     privacyModal: {
@@ -166,7 +166,7 @@ export const en = {
         }
       },
       tuLink: {
-        label: 'Further information',
+        label: 'Further Information',
         text: 'TU Darmstadt Privacy Policy'
       }
     },
@@ -202,15 +202,15 @@ export const en = {
       description: 'Tell us a bit about yourself',
       age: {
         label: 'Age Range',
-        preferNotToSay: 'Prefer not to say'
+        preferNotToSay: 'Prefer Not to Say'
       },
       genderIdentity: {
         label: 'Gender Identity',
         woman: 'Woman',
         man: 'Man',
-        nonBinary: 'Non-binary',
+        nonBinary: 'Non-Binary',
         other: 'Other',
-        preferNotToSay: 'Prefer not to say'
+        preferNotToSay: 'Prefer Not to Say'
       },
       country: {
         label: 'Country/Region (optional)',
@@ -222,17 +222,17 @@ export const en = {
         placeholder: 'e.g., German, English, Spanish, Mandarin, etc.'
       },
       education: {
-        label:          'Highest level of education',
-        none:           'No formal qualification',
+        label:          'Highest Level of Education',
+        none:           'No Formal Qualification',
         school:         'School leaving certificate (e.g., secondary level I)',
         upperSecondary: 'Upper secondary (e.g., A-level, high school diploma)',
         vocational:     'Vocational training / professional qualification',
         shortTertiary:  'Tertiary qualification (e.g., technical college, professional certificate)',
-        bachelors:      'Bachelor’s degree or equivalent',
-        masters:        'Master’s degree or equivalent ',
-        phd:            'PhD or doctoral degree',
-        other:          'Other qualification',
-        preferNotToSay: 'Prefer not to say'
+        bachelors:      'Bachelor’s Degree or Equivalent',
+        masters:        'Master’s Degree or Equivalent ',
+        phd:            'Phd or Doctoral Degree',
+        other:          'Other Qualification',
+        preferNotToSay: 'Prefer Not to Say'
       },
       fieldOfStudy: {
         label: 'Field of Study (optional)',
@@ -262,7 +262,7 @@ export const en = {
         other: 'Other'
       },
       workExperience:{
-        label: 'Overall professional experience',
+        label: 'Overall Professional Experience',
         none: 'None',
         lessThan2: '2 years or less',
         threeToFive: '3 to 5  years',
@@ -296,22 +296,22 @@ export const en = {
       
       programmingExperience: {
         label: 'Programming Experience',
-        none: 'No programming experience',
-        basic: '< 1 year experience',
-        intermediate: '1-3 years experience',
-        advanced: '3-7 years experience',
-        expert: '7+ years experience'
+        none: 'No Programming Experience',
+        basic: '< 1 Year Experience',
+        intermediate: '1-3 Years Experience',
+        advanced: '3-7 Years Experience',
+        expert: '7+ Years Experience'
       },
       
       aiMlExperience: {
         time:{
           label: 'Experience with Artificial Intelligence (AI) and Machine Learning (ML)',
           description: 'Everyday AI usage counts! Examples: asking ChatGPT questions, using AI writing assistants, generating images with DALL-E/Midjourney, trying voice assistants (Siri, Alexa), or using any AI-powered features in apps you use.',
-          none: 'No AI/ML experience',
-          basic: '< 1 year experience',
-          intermediate: '1-3 years experience',
-          advanced: '3-7 years experience',
-          expert: '7+ years experience'
+          none: 'No AI/ML Experience',
+          basic: '< 1 Year Experience',
+          intermediate: '1-3 Years Experience',
+          advanced: '3-7 Years Experience',
+          expert: '7+ Years Experience'
         },
         level: {
           label: 'How would you rate your expertise working with AI/ML? (optional)',
@@ -331,7 +331,7 @@ export const en = {
       
       comments: {
         label: 'Additional Comments (optional)',
-        placeholder: 'Any other information you would like to share, or questions about the study...'
+        placeholder: 'Any other information you would like to share, or questions about the study…'
       }
     },
     
@@ -339,9 +339,52 @@ export const en = {
       title: 'Optional Information',      
       comments: {
         label: 'Additional Comments (optional)',
-        placeholder: 'Any other information you would like to share, or questions about the study...'
+        placeholder: 'Any other information you would like to share, or questions about the study…'
       }
     }
+  },
+  // ========== BRIEFING ==========
+  briefing:{
+    title: "Welcome, Analyst!",
+    mainContent: {
+      intro: {
+        first: "In this study, you'll step into the role of a ",
+        strong: "Product Analyst at Amerzone",
+        final: ", a leading e-commerce platform known for connecting millions of customers with everything from stylish footwear to the latest tech gear."
+      },
+      toolBox: {
+        first: "Amerzone's Product Insights team is currently testing ",
+        strong: "two new tools",
+        final: " designed to help analysts transform customer feedback into clear, actionable insights:",
+        workflow: {
+          strong: "The Workflow Builder",
+          text: ", where you can structure and control your own analysis process."
+        },
+        assistant: {
+          strong: "The AI Chat Assistant",
+          text: ", a conversational partner that guides and supports you."
+        }
+      },
+      mission: {
+        first: "Your mission is to analyze real customer reviews for ",
+        strong: "two products",
+        final: " — one in the wireless headphones category and one in the shoes category — and to prepare a short insights briefing for each."
+      },
+      counterBalance: "The order in which you'll work with the tools and products will vary, but by the end, you'll have experienced both systems and both tasks.",
+      colaboration: {
+        first: "Amerzone is especially interested in how analysts collaborate with AI tools that show ",
+        strong: "different levels of autonomy",
+        final: " — from those that follow your lead step-by-step, to those that act more like proactive teammates.",
+        feedback: "Your feedback and interaction will help decide how to design the companys next-generation product analysis platform."
+      },
+      tutorial: {
+        first: "Before diving into your assignments, you'll first go through a short ",
+        strong: "tutorial",
+        final: " that introduces the platform and walks you through its main features. Once you're familiar with the interface, you'll move on to the first analysis task."
+      },
+    },
+    close: "So, settle in, open your analyst dashboard, and get ready to help Amerzone turn customer voices into strategy.",
+    ready: "Ready to Begin"
   },
   // ========== TASK ==========
   task: {
@@ -352,18 +395,45 @@ export const en = {
       headphones: 'Headphones',
       shoes: 'Shoes',
       completeTooltip: 'Mark this task as complete',
-      completeButton: 'Complete Task'
+      completeButton: 'Complete Task',
+      viewSummaryFirst: 'Please execute and view the summary before completing the task',
+      executeFirst: 'Please execute the workflow/chat to generate results'
     },
     
     description: {
       title: 'Task Description',
       collapse: 'Collapse',
-      expand: 'Expand'
+      expand: 'Expand',
+      role: 'Your Role: Product Analyst',
+      goal: 'Prepare an insights briefing on customer feedback',
+      focusLabel: 'Focus: ',
+      focusText: {
+        wireless: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the Mpow Cheetah headphones. They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
+        shoes: 'Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the Kamik Jennifer Rain Boot reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.',
+      },
+      expectedOutputLabel: 'Expected Output:',
+      expectedOutput1: 'Executive summary of customer sentiment',
+      expectedOutput2: 'Top 3 positive themes with percentages',
+      expectedOutput3: 'Top 3 negative themes with percentages',
+      expectedOutput4: '3-5 actionable recommendations',
+      productCard:{
+        title: 'Product to analyse:',
+        titleLable: 'Title:',
+        categoryLabel: 'Category:',
+        wireless: 'Wireless / Headphones',
+        shoes: 'Shoes'
+      }
     },
-    
+    previousSummary: {
+      title: "Summary Available",
+      savedOn: "Saved on",
+      at: "at",
+      unknownTime: "Unknown time",
+      viewButton: "View Summary"
+    },
     completion: {
       title: 'Complete Task',
-      message: 'Are you sure you want to mark this task as complete? This action cannot be undone.',
+      message: 'Are you satisfied that the results meet the task requirements?',
       confirm: 'Yes, Complete Task',
       cancel: 'Cancel'
     }
@@ -373,7 +443,7 @@ export const en = {
     title: 'Data Viewer',
     reviewsCount: 'reviews',
     openModal: 'Open in modal',
-    updating: 'Updating...',
+    updating: 'Updating…',
     noReviews: 'No reviews found.',
     viewMode: {
       cards: 'Card view',
@@ -402,7 +472,7 @@ export const en = {
     screen: {
       welcome: {
         title: '👋 Welcome to the Task Screen!',
-        description: 'This screen has everything you need to complete your task. Let me show you around!',
+        description: 'This screen has everything you need to complete your task. Let me show you around.',
       },
       taskDescription: {
         title: '📋 Task Description',
@@ -414,7 +484,7 @@ export const en = {
       },
       viewModes: {
         title: 'Switch View Modes',
-        description: 'Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you!',
+        description: 'Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you.',
       },
       filterReviews: {
         title: '🔍 Filter Reviews',
@@ -422,15 +492,25 @@ export const en = {
       },
       popOutViwer:{
         title: '🔲 Pop-Out Viewer',
-        description: 'Click this button to open the dataset viewer in a larger window. Perfect for when you need to focus on the data or view it in more detail!',
+        description: 'Click this button to open the dataset viewer in a larger window. Perfect for when you need to focus on the data or view it in more detail.',
+        devNote: 'Developer Note:',
+        devNoteText: 'If the Data Viewer looks smaller than expected, it’s just a display glitch that can happen on some browsers or screen sizes. Simply toggle between Card and Table view once to fix it.'
       },
       resizePanels: {
         title: '↔️ Resize Panels',
-        description: 'Drag this handle left or right to adjust the panel sizes. Make the data viewer larger or give more space to your work area!',
+        description: 'Drag this handle left or right to adjust the panel sizes. Make the data viewer larger or give more space to your work area.',
       },
       tutorialButtons: {
         title: '📚 Restart Tutorials',
-        description: 'Should you need a refresher later on you can always restart this tutorial. The button on the left will focus on the features of this page overall, while the one on the right will give a refresher on the task specific elements!',
+        description: 'Should you need a refresher later on you can always restart this tutorial. The button on the left will focus on the features of this page overall, while the one on the right will give a refresher on the task specific elements.',
+      },
+      completeTaskButton: {
+        title: 'Complete Task',
+        description: 'After you viewed your latest results you will be able to complete the task, if you are happy with the contents.',
+      },
+      final:{
+        title: "Phew, made it to the end! 🎉",
+        description: "That was a lot to take in, but you’re all set now. Thanks for sticking with it! 🙌"
       }
     },
     
@@ -438,7 +518,7 @@ export const en = {
     workflowBuilder: {
       welcome: {
         title: '🔧 Workflow Builder',
-        description: 'Build your analysis by connecting tools together. Each tool processes data and passes it to the next step!',
+        description: 'Build your analysis by connecting tools together. Each tool processes data and passes it to the next step.',
       },
       
       // NEW: Sidebar section
@@ -456,7 +536,7 @@ export const en = {
       tooltips: {
         title: '💬 Hover for Details',
         description: 'Each tool has a helpful tooltip that appears when you hover over it. These tooltips explain what the tool does and how to use it.',
-        tryText: 'Try hovering over "Load Reviews" to see its tooltip!',
+        tryText: 'Try hovering over "Load Reviews" to see its tooltip.',
       },
       
       // Canvas
@@ -517,12 +597,16 @@ export const en = {
         description: 'Once your workflow is complete, click Execute to run it and see results.',
         requirementsTitle: 'Requirements',
         requirementsText: 'Your workflow needs at least one input node, one output node, and a valid path connecting them.',
+        whatHappensTitle: "What’s Next",
+        whatHappensBody: "Each node’s executin status is shown by an icon on its left: ✅ Success, 🔄 Processing, or ❌ Failure. Click an icon to view more details.",
+        viewResultsTitle: "View Your Results",
+        viewResultsText: "Click the success icon on your 'Show Results' node to see the review summary generated by your workflow. This will unlock the task for completion — you decide when you’re satisfied with the results.",
       },
       
       // Tips
       tips: {
         title: '💡 Tips for Success',
-        startSimple: 'Start simple: Load Reviews → Show Results is a valid workflow!',
+        startSimple: 'Start simple: Load Reviews → Show Results is a valid workflow.',
         useTooltips: 'Use tooltips: Hover over tools to learn what they do',
         checkSettings: 'Configure settings: Each tool shows its settings on the node',
         validateBefore: 'Check the status: Make sure the toolbar shows "Ready" before executing',
@@ -534,12 +618,14 @@ export const en = {
     aiAssistant: {
       welcome: {
         title: '🤖 AI Assistant',
-        description: 'Chat with the AI to analyze your data. The AI will autonomously execute tasks and use tools to help you!',
+        description: 'Chat with the AI to analyze your data. The AI will autonomously execute tasks and use tools to help you.',
       },
       chatInterface: {
         title: '💬 Chat Interface',
-        description: 'Describe what you want to analyze or ask questions about the data. Be specific for best results!',
-        example: 'Example: "Find the top 3 negative themes" or "Analyze sentiment distribution"',
+        description: 'Describe the task you ',
+        example: 'Example: "Analyze sentiment distribution for Product ID XYZ"',
+        devNote: "Developer Note:",
+        devNoteText: "The base dataset is pretty large, so the AI only has a very limited understanding of the specific data you’re using."
       },
       aiTakesAction: {
         title: 'AI Takes Action',
@@ -547,11 +633,11 @@ export const en = {
       },
       reviewResults: {
         title: '🔍 Review Results',
-        description: 'The AI will show you analysis results, insights, and data. You can ask follow-up questions to dig deeper!',
+        description: 'The AI will show you analysis results, insights, and data.',
       },
       iterateRefine: {
         title: '🔁 Iterate & Refine',
-        description: 'Keep chatting to refine your analysis. Ask for more details, different perspectives, or additional insights.',
+        description: 'Keep chatting to refine your analysis until you are satisfied with the results.',
       },
       tipsForSuccess: {
         title: '💡 Tips for Success',
@@ -564,81 +650,136 @@ export const en = {
   },
   // ========== SURVEY ==========
   survey: {
-    title: 'Post-Task Survey',
-    conditionAI: 'AI Assistant Condition',
-    conditionWorkflow: 'Workflow Builder Condition',
-    description: 'Please answer the following questions about your experience with the task.',
-    
+    // Main survey labels
+    title: 'Post-Task Survey {{number}}',
+    description: 'Please rate your experience with {{condition}}',
+    conditionWorkflow: 'the Workflow Builder',
+    conditionAI: 'the AI Assistant',
+    submit: 'Submit Survey',
+    submitting: 'Submitting survey…',
+    allQuestionsRequired: 'Please answer all questions before proceeding.',
+
+    // Progress indicators
     progress: {
       section: 'Section',
+      question: 'Question',
       of: 'of',
-      complete: 'Complete'
+      complete: 'complete'
     },
-    
+
+    // Section titles and descriptions
     sections: {
-      agency: 'Agency & Control',
-      understanding: 'Understanding & Transparency',
-      trust: 'Trust & Confidence',
-      effort: 'Cognitive Effort',
-      experience: 'Overall Experience'
+      cognitiveWorkload: 'Cognitive Workload Assessment',
+      cognitiveWorkloadDesc: 'Please rate the mental effort required to complete the task.',
+      controlEngagement: 'Control, Agency & Engagement',
+      controlEngagementDesc: 'Please rate your experience with control and engagement.',
+      understanding: 'Understanding & Explainability',
+      understandingDesc: 'Please rate how well you understood what the system was doing.',
+      performance: 'Task Performance & Outcomes',
+      performanceDesc: 'Please rate how well the system supported your work.',
+      feedback: 'Additional Feedback',
+      feedbackDesc: 'Please share any additional thoughts (optional).'
     },
-    
-    agency: {
-      control: 'I felt in control of the task execution',
-      autonomy: 'I had sufficient autonomy to make decisions',
-      influence: 'I could influence how the task was performed',
-      decisionMaking: 'I was actively involved in decision-making'
+
+    // NASA-TLX (5 dimensions)
+    nasaTlx: {
+      // Dimension 1: Mental Demand
+      mentalDemand: 'Mental Demand',
+      mentalDemandDesc: 'How mentally demanding was the task?',
+
+      // Dimension 2: Temporal Demand
+      temporalDemand: 'Temporal Demand',
+      temporalDemandDesc: 'How hurried or rushed was the pace of the task?',
+
+      // Dimension 3: Performance
+      performance: 'Performance',
+      performanceDesc: 'How successful were you in accomplishing what you were asked to do?',
+
+      // Dimension 4: Effort
+      effort: 'Effort',
+      effortDesc: 'How hard did you have to work to accomplish your level of performance?',
+
+      // Dimension 5: Frustration
+      frustration: 'Frustration',
+      frustrationDesc: 'How insecure, discouraged, irritated, stressed, and annoyed were you?',
+
+      // Scale labels
+      veryLow: 'Very Low',
+      veryHigh: 'Very High',
+      perfect: 'Perfect',
+      failure: 'Failure',
+
+      // Instructions and helpers
+      instruction: 'Please rate each dimension by moving the slider. You can drag the slider or click anywhere on the scale.',
+      pleaseRate: 'Please rate',
+      dragOrClick: 'Drag the slider or click to set your rating'
     },
-    
-    understanding: {
-      systemBehavior: 'I understood how the system worked',
-      taskProgress: 'I could track the progress of my task',
-      results: 'The results were clearly presented',
-      transparency: 'The system was transparent in its operations'
-    },
-    
-    trust: {
-      reliability: 'I trust the system to perform tasks reliably',
-      accuracy: 'I believe the results are accurate',
-      confidence: 'I feel confident using this system',
-      predictability: 'The system behaved predictably'
-    },
-    
-    effort: {
-      mentalDemand: 'The task required high mental effort',
-      complexity: 'The system was complex to use',
-      learning: 'Learning to use the system was easy',
-      efficiency: 'I could complete the task efficiently'
-    },
-    
-    experience: {
-      satisfaction: 'I am satisfied with my overall experience',
-      enjoyment: 'I enjoyed using this system',
-      frustration: 'I felt frustrated during the task',
-      recommendation: 'I would recommend this system to others'
-    },
-    
-    likert: {
+
+    // 7-Point Likert Scale
+    likert7: {
+      // Full labels
       stronglyDisagree: 'Strongly Disagree',
       disagree: 'Disagree',
+      somewhatDisagree: 'Somewhat Disagree',
       neutral: 'Neutral',
+      somewhatAgree: 'Somewhat Agree',
       agree: 'Agree',
-      stronglyAgree: 'Strongly Agree'
+      stronglyAgree: 'Strongly Agree',
+
+      // Short labels (for buttons with line breaks)
+      short: {
+        stronglyDisagree: 'Strongly\nDisagree',
+        disagree: 'Disagree',
+        somewhatDisagree: 'Somewhat\nDisagree',
+        neutral: 'Neutral',
+        somewhatAgree: 'Somewhat\nAgree',
+        agree: 'Agree',
+        stronglyAgree: 'Strongly\nAgree'
+      }
     },
-    
-    navigation: {
-      previous: 'Previous',
-      next: 'Next',
-      submit: 'Submit Survey'
+
+    // Section 2: Control, Agency & Engagement (6 questions)
+    section2: {
+      controlTask: 'I felt in control of the task throughout the process.',
+      agencyDecisions: 'I was able to make meaningful decisions about how to approach the task.',
+      engagement: 'I remained focused and engaged while working with the system.',
+      confidenceQuality: 'I feel confident in the quality of the analysis I produced.',
+      trustResults: 'I trust the results produced by the system.',
+      satisfaction: 'Overall, I am satisfied with my experience using this system.'
     },
-    
-    completion: {
-      title: 'Survey Completed',
-      message: 'Thank you for completing the survey!',
-      continue: 'Continue to Next Task'
+
+    // Section 3: Understanding & Explainability (6 questions)
+    section3: {
+      processTransparency: 'I understood what the system was doing at each step.',
+      predictability: 'The system\'s behavior was predictable and consistent.',
+      understoodChoices: 'I understood why the system made specific choices.',
+      understoodReasoning: 'I understood the reasoning behind the system\'s suggestions.',
+      couldPredict: 'I could predict what the system would do next.',
+      couldExplain: 'I could explain how the system arrived at its conclusions.'
+    },
+
+    // Section 4: Task Performance & Outcomes (8 questions)
+    section4: {
+      easeOfUse: 'The system was easy to use.',
+      efficiency: 'The system helped me complete the task efficiently.',
+      reasonableTime: 'I was able to accomplish the task in a reasonable amount of time.',
+      foundInsights: 'The system helped me find the insights I was looking for.',
+      exploredThoroughly: 'The system helped me explore the data thoroughly.',
+      discoveredInsights: 'I discovered insights I wouldn\'t have found manually.',
+      accurateReliable: 'The results produced were accurate and reliable.',
+      recommend: 'I would recommend this system to others for similar tasks.'
+    },
+
+    // Open-Ended Feedback
+    openEnded: {
+      optional: 'These questions are optional but your feedback is valuable.',
+      positive: 'What did you like most about the system?',
+      negative: 'What frustrated you or could be improved?',
+      improvements: 'Any suggestions for improvements?',
+      placeholder: 'Share your thoughts here…'
     }
   },
-  // ========== WORKFLOW ==========
+  // ========== COMPLETION ==========
   workflow: {
     validation: {
       // Status Titles
@@ -698,7 +839,7 @@ export const en = {
             category: {
               label: 'Product Category',
               help: 'Select which product category to load reviews from',
-              placeholder: 'Select category',
+              placeholder: 'Select Category',
               options: {
                 shoes: 'Shoes',
                 wireless: 'Wireless Headphones'
@@ -707,7 +848,7 @@ export const en = {
             limit: {
               label: 'Maximum Reviews',
               help: 'Limit the number of reviews to load (leave empty for all)',
-              placeholder: 'No limit'
+              placeholder: 'No Limit'
             }
           }
         },
@@ -720,17 +861,17 @@ export const en = {
             field: {
               label: 'Filter Column',
               help: 'Select which column to filter by',
-              placeholder: 'Select column'
+              placeholder: 'Select Column'
             },
             operator: {
               label: 'Filter Condition',
               help: 'Select how to compare the values',
-              placeholder: 'Select condition'
+              placeholder: 'Select Condition'
             },
             value: {
               label: 'Filter Value',
               help: 'Enter the value to filter by',
-              placeholder: 'Enter value'
+              placeholder: 'Enter Value'
             }
           }
         },
@@ -741,13 +882,13 @@ export const en = {
           description: 'Arrange reviews in a specific order by rating, helpfulness, engagement, or other fields. Helps organize data for better analysis.',
           config: {
             sortBy: {
-              label: 'Sort By Column',
+              label: 'Sort by Column',
               help: 'Select which column to sort by',
-              placeholder: 'Select column'
+              placeholder: 'Select Column'
             },
             descending: {
               label: 'Sort Direction',
-              help: 'Choose sort direction',
+              help: 'Choose Sort Direction',
               options: {
                 true: 'Descending (High to Low)',
                 false: 'Ascending (Low to High)'
@@ -764,17 +905,17 @@ export const en = {
             removeNulls: {
               label: 'Remove Null Values',
               help: 'Remove records with null/empty values in key fields',
-              placeholder: 'Enable to remove nulls'
+              placeholder: 'Enable to Remove Nulls'
             },
             normalizeText: {
               label: 'Normalize Text',
               help: 'Standardize text formatting and remove special characters',
-              placeholder: 'Enable to normalize text'
+              placeholder: 'Enable to Normalize Text'
             },
             removeDuplicates: {
               label: 'Remove Duplicates',
               help: 'Remove duplicate reviews based on review ID',
-              placeholder: 'Enable to remove duplicates'
+              placeholder: 'Enable to Remove Duplicates'
             }
           }
         },
@@ -788,7 +929,7 @@ export const en = {
             extractThemes: {
               label: 'Extract Key Themes',
               help: 'Identify recurring topics customers discuss (e.g., comfort, durability, price)',
-              placeholder: 'Enable theme extraction'
+              placeholder: 'Enable Theme Extraction'
             },
             themeSeparation: {
               label: 'Theme Organization',
@@ -805,7 +946,7 @@ export const en = {
             includePercentages: {
               label: 'Include Theme Percentages',
               help: 'Calculate sentiment ditribution and frequency percentage for each theme',
-              placeholder: 'Enable to show percentages'
+              placeholder: 'Enable to Show Percentages'
             }
           }
         },
@@ -910,7 +1051,7 @@ export const en = {
             showVisualizations: {
               label: 'Include Visualizations',
               help: 'Display charts and graphs where applicable',
-              placeholder: 'Enable to show charts'
+              placeholder: 'Enable to Show Charts'
             },
             maxDataItems: {
               label: 'Maximum Items in Data Preview',
@@ -934,15 +1075,15 @@ export const en = {
         settings: {
           // General 
           // workflow.nodes.settings.notConfigured
-          notConfigured: 'Not configured',
+          notConfigured: 'Not Configured',
           locked: 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.',
           
           // Sentiment Analysis Node
           sentiment: {
-            extractThemes: 'Extract themes',
-            separatedBySentiment: 'Separated by sentiment',
+            extractThemes: 'Extract Themes',
+            separatedBySentiment: 'Separated by Sentiment',
             maxThemes: '{{count}} theme(s)',
-            withPercentages: 'With percentages'
+            withPercentages: 'With Percentages'
           },
           
           // Generate Insights Node
@@ -985,9 +1126,9 @@ export const en = {
           // Clean node (existing, keep as-is)
           clean: {
             label: 'Clean: {{actions}}',
-            removeNulls: 'remove nulls',
-            removeDuplicates: 'remove duplicates',
-            normalizeText: 'normalize text'
+            removeNulls: 'Remove Nulls',
+            removeDuplicates: 'Remove Duplicates',
+            normalizeText: 'Normalize Text'
           },
           
           // Load node (existing, keep as-is)
@@ -1044,13 +1185,13 @@ export const en = {
         maxReached: "Limit reached ({{max}} max)"
       },
       status: {
-        ready: 'Ready to execute',
-        emptyWorkflow: 'Empty workflow',
-        missingInput: 'Missing input node',
-        missingOutput: 'Missing output node',
-        noConnections: 'No connections',
-        incompleteWorkflow: 'Incomplete workflow',
-        configurationIncomplete: 'Configuration incomplete'
+        ready: 'Ready to Execute',
+        emptyWorkflow: 'Empty Workflow',
+        missingInput: 'Missing Input Node',
+        missingOutput: 'Missing Output Node',
+        noConnections: 'No Connections',
+        incompleteWorkflow: 'Incomplete Workflow',
+        configurationIncomplete: 'Configuration Incomplete'
       },
       statusDetails: {
         addNodes: 'Add nodes to start building your workflow',
@@ -1077,9 +1218,12 @@ export const en = {
         save: 'Save',
         options: 'Options',
         fields: 'fields',
-        noConfig: 'No configuration options available',
-        fixErrors: 'Please fix {{count}} error(s)'
-      }
+        noConfig: 'No Configuration Options Available',
+        lockedFieldsNotice: 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.',
+        fixErrors: 'Please Fix {{count}} error(s)',
+        dependencyMissing: 'Requires prior node: {{nodes}}',
+        dependencyRecommended: 'Recommended prior node: {{nodes}}'
+      },
     },
     sidebar: {
       dashboard: 'Dashboard',
@@ -1092,31 +1236,564 @@ export const en = {
       settings: 'Settings'
     },
     notifications: {
-      nodeAdded: 'Node added successfully',
-      nodeDeleted: 'Node deleted',
-      nodeSaved: 'Node saved',
-      connectionAdded: 'Connection created',
-      connectionDeleted: 'Connection removed',
-      connectionFailed: 'Cannot create connection',
-      validationFailed: 'Workflow validation failed',
+      nodeAdded: 'Node Added Successfully',
+      nodeDeleted: 'Node Deleted',
+      nodeSaved: 'Node Saved',
+      connectionAdded: 'Connection Created',
+      connectionDeleted: 'Connection Removed',
+      connectionFailed: 'Cannot Create Connection',
+      validationFailed: 'Workflow Validation Failed',
       maxNodesReached: 'Maximum number of nodes ({{max}}) reached',
       maxEdgesReached: 'Maximum number of connections ({{max}}) reached',
       sourceHandleMaxReached: 'Source handle already has maximum of {{max}} connection{{max === 1 ? "" : "s"}}',
       targetHandleMaxReached: 'Target handle already has maximum of {{max}} connection{{max === 1 ? "" : "s"}}',
       workflowSaved: 'Workflow saved: {{nodes}} nodes, {{connections}} connections',
       workflowExecuted: 'Workflow executed with {{nodes}} nodes and {{connections}} connections',
-      workflowCleared: 'Workflow cleared',
-      executionFailed: 'Workflow execution failed',
-      executionStarted: 'Workflow execution started',
-      executionCompleted: 'Workflow execution completed',
-      executionCancelled: 'Workflow execution cancelled',
-      validationFailed: 'Workflow validation failed',
+      workflowCleared: 'Workflow Cleared',
+      executionFailed: 'Workflow Execution Failed',
+      executionStarted: 'Workflow Execution Started',
+      executionCompleted: 'Workflow Execution Completed',
+      executionCancelled: 'Workflow Execution Cancelled',
+      validationFailed: 'Workflow Validation Failed',
       maxAllowedReached: "Cannot add '{{name}}': Maximum of {{max}} allowed",
-      floatingNodesFiltered: '{{count}} floating node(s) were automatically removed from execution',
-      
-      // More detailed versions (optional)
+      floatingNodesFiltered: '{{Count}} floating node(s) were automatically removed from execution',      
       executionFailedWithError: 'Workflow execution failed: {{error}}',
-      validationFailedWithErrors: 'Workflow validation failed: {{errors}}'
+      validationFailedWithErrors: 'Workflow validation failed: {{errors}}',
+      summaryReadyTitle: "Results Ready!",
+      summaryReadyDetails: "Click the checkmark on the Show Results node to view your analysis"
+    },
+  },
+  // ========== CHAT ==========
+  chat: {
+    "summaryAvailable": {
+      "title": "Analysis Summary Available",
+      "description": "Click to view detailed results with insights, themes, recommendations, and statistics."
+    },
+    clearConfirm: "Are you sure you want to clear all messages from this chat?"
+  },
+  // ========== COMPLETION ==========
+  completion: {
+    title: 'Study Completed!',
+    subtitle: 'Thank you for your participation',
+    thankYou: 'Your contribution to this research is greatly appreciated. All your responses have been securely saved and will help us better understand how people interact with AI systems.',
+    
+    summary: {
+      title: 'What You Completed',
+      
+      demographics: 'Demographics Questionnaire',
+      demographicsDesc: 'Provided your background and experience with AI/ML tools',
+      
+      task1: 'Task 1: Customer Review Analysis',
+      task1Desc: 'Analyzed wireless headphone reviews using your assigned tool',
+      
+      survey1: 'Post-Task Survey 1',
+      survey1Desc: 'Shared your experience and feedback after Task 1',
+      
+      task2: 'Task 2: Customer Review Analysis',
+      task2Desc: 'Analyzed running shoe reviews using your assigned tool',
+      
+      survey2: 'Post-Task Survey 2',
+      survey2Desc: 'Shared your experience and feedback after Task 2',
+      
+      workflowBuilder: 'Workflow Builder',
+      aiAssistant: 'AI Assistant'
+    },
+    
+    contact: {
+      title: 'Questions or Comments?',
+      message: 'If you have any questions about the study or would like to learn more about the research, please feel free to reach out:',
+      email: 'benedikt.mast@stud.tu-darmstadt.de'
+    },
+    
+    footer: 'You may now close this window.'
+  },
+  // ========== SUMMARY ==========
+  summary: {
+    modal: {
+      title: "Task {{taskNumber}} Analysis Summary",
+      subtitle: "{{count}} records analyzed • {{date}}",
+      close: "Close summary",
+      closeButton: "Close",
+      footer: "Sections: {{available}} / {{requested}}"
+    },
+    sections: {
+      executiveSummary: {
+        title: "Executive Summary",
+        basedOn: "Based on {{count}} records"
+      },
+      themes: {
+        title: "Key Themes",
+        prevalence: "Prevalence",
+        mentions: "{{count}} mentions",
+        summary: "{{totalThemes}} themes identified from {{recordsAnalyzed}} records",
+        bySentiment: "Themes by Sentiment",
+        aggregated: "Aggregated Themes",
+        positive: "Positive Themes",
+        neutral: "Neutral Themes",
+        negative: "Negative Themes"
+      },
+      recommendations: {
+        title: "Recommendations",
+        impact: "Impact",
+        totalCount: "{{count}} recommendations",
+        highPriorityCount: "{{count}} high priority"
+      },
+      statistics: {
+        title: "Statistics & Metrics",
+        sentimentDistribution: {
+          title: "Sentiment Distribution"
+        },
+        ratingDistribution: {
+          title: "Rating Distribution",
+          averageRating: "Average Rating"
+        },
+        themeCoverage: {
+          title: "Top Themes Identified",
+          totalThemes: "{{count}} total themes identified"
+        },
+        additionalStats: {
+          totalReviews: "Total Reviews",
+          verified: "Verified",
+          avgBodyLength: "Avg Body Length",
+          consistency: "Consistency"
+        },
+        sentimentConsistency: {
+          title: "Sentiment-Rating Consistency",
+          totalCompared: "Total Compared",
+          aligned: "Aligned",
+          misaligned: "Misaligned",
+          consistency: "Consistency",
+          misalignmentPatterns: "Misalignment Patterns",
+          highRatingNegative: "High Rating + Negative",
+          lowRatingPositive: "Low Rating + Positive",
+          neutralExtremes: "Neutral Rating + Extremes"
+        }
+      },
+      dataPreview: {
+        title: "Data Preview",
+        showing: "Showing {{preview}} of {{total}} records",
+        columns: {
+          reviewId: "Review ID",
+          headline: "Headline",
+          rating: "Rating",
+          sentiment: "Sentiment",
+          verified: "Verified"
+        },
+        reviewBody: "Review Body"
+      }
+    }
+  },
+  // ========== CHAT EXECUTION ==========
+  execution: {
+    tool: {
+      // Tool: load-reviews
+      'load-reviews': {
+        start: {
+          default: 'Loading review data…',
+          start:   'Loading {{category}} reviews…'
+        },
+        progress: {
+          default: 'Processing reviews…',
+          running: 'Loading reviews…',
+          loading: 'Loaded {{records_loaded}} of {{total_available}} reviews…'
+        },
+        end: {
+          default: 'Reviews loaded successfully',
+          completed: 'Successfully loaded {{records_loaded}} {{category}} reviews'
+        },
+        error: {
+          default: 'Failed to load reviews',
+          failed: 'Failed to load reviews',
+          exception: 'Error loading reviews'
+        }
+      },
+
+      // Tool: clean-data
+      'clean-data': {
+        start: {
+          default: 'Cleaning data…',
+          start: 'Starting data cleaning…'
+        },
+        progress: {
+          default: 'Cleaning in progress…',
+          running: 'Processing data…',
+          // keeping your detailed bullets and placeholders
+          missing_data_complete: '      ➜ Removed {{data.removed}} reviews with missing data',
+          spam_complete: '      ➜ Removed {{data.removed}} reviews with malformed data',
+          duplicates_complete: '      ➜ {{data.removed}} duplicate reviews found',
+        },
+        end: {
+          default: 'Data cleaning complete',
+          completed: 'Cleaning finished'
+        },
+        error: {
+          default: 'Failed to clean data',
+          failed: 'Failed to clean data',
+          exception: 'Error cleaning data'
+        }
+      },
+      
+      // Tool: filter-reviews
+      'filter-reviews': {
+        start: {
+          default: 'Filtering reviews…',
+          start: 'Applying filters…'
+        },
+        progress: {
+          default: 'Filtering in progress…',
+          running: 'Scanning reviews…'
+        },
+        end: {
+          default: 'Reviews filtered',
+          completed: 'Filtered to {{count}} reviews'
+        },
+        error: {
+          default: 'Failed to filter reviews',
+          failed: 'Failed to filter reviews',
+          exception: 'Error filtering reviews'
+        }
+      },
+      
+      // Tool: sort-reviews
+      'sort-reviews': {
+        start: {
+          default: 'Sorting reviews…',
+          start: 'Starting sort operation…'
+        },
+        progress: {
+          default: 'Sorting in progress…',
+          running: 'Organizing reviews…'
+        },
+        end: {
+          default: 'Reviews sorted',
+          completed: 'Sorting complete'
+        },
+        error: {
+          default: 'Failed to sort reviews',
+          failed: 'Failed to sort reviews',
+          exception: 'Error sorting reviews'
+        }
+      },
+      
+      // Tool: review-sentiment-analysis
+      'review-sentiment-analysis': {
+        start: {
+          default: 'Analyzing sentiment…',
+          start: 'Starting sentiment analysis…'
+        },
+        progress: {
+          default: 'Processing reviews…',
+          running: 'Analyzing sentiment…',
+          LLM_handoff: '    Analyzing sentiment and extracting themes.\\n    Processing time varies with dataset size and current service load (typically 30-90 seconds).'
+        }, 
+        end: {
+          default: 'Sentiment analysis complete',
+          completed: 'Analysis complete'
+        },
+        error: {
+          default: 'Failed to analyze sentiment',
+          failed: 'Failed to analyze sentiment',
+          exception: 'Error analyzing sentiment'
+        }
+      },
+      
+      // Tool: generate-insights
+      'generate-insights': {
+        start: {
+          default: 'Generating insights…',
+          start: 'Starting insight generation…'
+        },
+        progress: {
+          default: 'Processing data…',
+          running: 'Generating insights…',
+          LLM_handoff: '    Generating actionable insights from analysis.\\n    Processing time may vary based on data complexity and current service load.'
+        },
+        end: {
+          default: 'Insights generated',
+          completed: 'Insight generation complete'
+        },
+        error: {
+          default: 'Failed to generate insights',
+          failed: 'Failed to generate insights',
+          exception: 'Error generating insights'
+        }
+      },
+      
+      // Tool: show-results
+      'show-results': {
+        start: {
+          default: 'Preparing results…',
+          start: 'Loading results…'
+        },
+        progress: {
+          default: 'Formatting output…',
+          running: 'Preparing display…',
+          LLM_handoff: '    Compiling executive summary with main takeaways.\\nNearly done—just formatting the final report.'
+        },
+        end: {
+          default: 'Results ready',
+          completed: 'Results displayed'
+        },
+        error: {
+          default: 'Failed to show results',
+          failed: 'Failed to show results',
+          exception: 'Error showing results'
+        }
+      },
+      
+      // Default tool (fallback)
+      default: {
+        start: {
+          default: 'Starting tool…',
+          start: 'Starting tool…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{tool_name}} running…',
+        },
+        end: {
+          default: 'Tool completed',
+          completed: 'Completed successfully'
+        },
+        error: {
+          default: 'Tool failed',
+          failed: 'Tool failed',
+          exception: 'Tool error'
+        }
+      }
+    },
+
+    // ============================================
+    // TYPE: NODE
+    // ============================================
+    node: {
+      'load-reviews': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Loading reviews…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '    Successfully loaded {{data.results.total}} reviews.\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{data.error}}',
+          exception: '{{data.error}}'
+        }
+      },
+      'clean-data': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Cleaning reviews…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '    Successfully removed {{data.results.summary.total_removed}} low-quality reviews.\\n    Remaining reviews: {{data.results.summary.records_after}}.\\n    Data quality: {{data.results.summary.quality_score}}%.\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{data.error}}',
+          exception: '{{data.error}}'
+        }
+      },
+      'filter-reviews': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Filtering reviews…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '    Successfully filtered reviews.\\n    Removed {{data.results.summary.records_removed}} non matching reviews.\\n    Remaining reviews: {{data.results.summary.records_after}}.\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{data.error}}',
+          exception: '{{data.error}}'
+        }
+      },
+      'sort-reviews': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Sorting reviews…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '    Successfully sorted by {{data.results.summary.sort_field}} in {{data.results.summary.sort_order}} order.\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{data.error}}',
+          exception: '{{data.error}}'
+        }
+      },
+      'review-sentiment-analysis': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Analyzing sentiment and extracting themes…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '{{node_label}} completed\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{node_label}} failed',
+          exception: '{{node_label}} error'
+        }
+      },
+      'generate-insights': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Generating insights…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '{{node_label}} completed\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{node_label}} failed',
+          exception: '{{node_label}} error'
+        }
+      },
+      'show-results': {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. Preparing results…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '    Results ready to view\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{data.error}}',
+          exception: '{{data.error}}'
+        }
+      },
+      // Default node config (fallback)
+      default: {
+        start: {
+          default: 'Starting step…',
+          start: '{{data.step_number}}. {{data.node_label}}…'
+        },
+        progress: {
+          default: 'Processing…',
+          running: '{{node_label}} running…'
+        },
+        end: {
+          default: 'Step completed',
+          completed: '{{node_label}} completed\\n',
+          failed: '{{node_label}} failed',
+        },
+        error: {
+          default: 'Step failed',
+          failed: '{{node_label}} failed',
+          exception: '{{node_label}} error'
+        }
+      }
+    },
+
+    // ============================================
+    // TYPE: EXECUTION (meta)
+    // ============================================
+    execution: {
+      start: {
+        default: 'Starting execution…',
+        start: 'Execution started'
+      },
+      progress: {
+        default: 'Executing…',
+        running: 'Execution in progress…'
+      },
+      end: {
+        default: 'Execution complete',
+        failed: 'Execution failed',
+        completed: 'Execution completed'
+      },
+      error: {
+        default: 'Execution failed',
+        failed: 'Execution failed',
+        exception: 'Execution error'
+      }
+    },
+
+    // ============================================
+    // TYPE: AGENT
+    // ============================================
+    agent: {
+      start: {
+        default: 'Agent starting…',
+        start: 'Agent starting…',
+        running: 'Agent analyzing task…'
+      },
+      progress: {
+        default: 'Agent working…',
+        running: 'Agent processing…',
+        decision: '{{data.decision}}\\n'
+      },
+      chat: {
+        default: '{{content}}',
+        completed: '{{content}}'
+      },
+      end: {
+        default: 'Agent finished',
+        completed: '{{summary}}'
+      },
+      error: {
+        default: 'Agent failed',
+        failed: 'Agent failed',
+        exception: 'Agent error'
+      }
+    }
+  },
+  // ========== ADMIN ==========
+  admin: {
+    sidebar: {
+      dashboard: 'Dashboard',
+      builder: 'Workflow Builder',
+      aiChat: 'AI Assistant',
+      templates: 'Templates',
+      executions: 'Executions',
+      analytics: 'Analytics',
+      tutorials: 'Tutorials',
+      settings: 'Settings'
     }
   }
 };

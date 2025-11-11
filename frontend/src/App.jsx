@@ -1,9 +1,16 @@
 // frontend/src/App.jsx
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from 'reactflow';
+import { useLocation } from 'react-router-dom';
 
-// Components
-import DemographicsQuestionnaire from './components/study/DemographicsQuestionnaire.jsx';
+// Study Components (for dev routing)
+import WelcomeScreen from './components/study/WelcomeScreen';
+import DemographicsQuestionnaire from './components/study/DemographicsQuestionnaire';
+import TaskScreen from './components/study/TaskScreen';
+import SurveyQuestionnaire from './components/study/SurveyQuestionnaire';
+import CompletionScreen from './components/study/CompletionScreen';
+
+// Main Components
 import WorkflowBuilder from './components/workflow/WorkflowBuilder';
 import AIChat from './components/assistant/AIChat';
 import LanguageSwitcher from './components/LanguageSwitcher';
@@ -16,7 +23,9 @@ import { useTracking } from './hooks/useTracking';
 import { useSessionData } from './hooks/useSessionData';
 import { useTranslation } from './hooks/useTranslation';
 
-// Error Boundary Component
+// ============================================================
+// ERROR BOUNDARY
+// ============================================================
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -60,58 +69,59 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Navigation Item Component
+// ============================================================
+// NAVIGATION ITEM COMPONENT
+// ============================================================
 const NavItem = ({ icon, label, isActive, onClick, badge = null }) => (
   <button
     onClick={onClick}
     className={`flex items-center w-full px-4 py-3 text-left rounded-lg transition-all ${
       isActive 
-        ? 'bg-blue-600 text-white shadow-md' 
-        : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+        ? 'bg-blue-600 text-white shadow-lg' 
+        : 'text-gray-700 hover:bg-gray-100'
     }`}
   >
-    <span className="text-lg mr-3">{icon}</span>
-    <span className="font-medium">{label}</span>
+    <span className="text-xl mr-3">{icon}</span>
+    {label && <span className="font-medium">{label}</span>}
     {badge && (
-      <span className="ml-auto px-2 py-1 text-xs bg-red-500 text-white rounded-full">
+      <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
         {badge}
       </span>
     )}
   </button>
 );
 
-// Sidebar Component
+// ============================================================
+// SIDEBAR COMPONENT
+// ============================================================
 const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) => {
-  const { trackViewChange } = useTracking();
   const { t } = useTranslation();
   
   const navItems = [
-    { id: 'dashboard', icon: '📊', labelKey: 'workflow.sidebar.dashboard' },
-    { id: 'builder', icon: '🔧', labelKey: 'workflow.sidebar.builder' },
-    { id: 'aichat', icon: '🤖', labelKey: 'workflow.sidebar.aichat' },
-    { id: 'templates', icon: '📋', labelKey: 'workflow.sidebar.templates' },
-    { id: 'executions', icon: '⚡', labelKey: 'workflow.sidebar.executions', badge: '3' },
-    { id: 'analytics', icon: '📈', labelKey: 'workflow.sidebar.analytics' },
-    { id: 'tutorials', icon: '🎓', labelKey: 'workflow.sidebar.tutorials' },
-    { id: 'settings', icon: '⚙️', labelKey: 'workflow.sidebar.settings' },
+    { id: 'dashboard', icon: '📊', labelKey: 'admin.sidebar.dashboard' },
+    { id: 'builder', icon: '🔧', labelKey: 'admin.sidebar.builder' },
+    { id: 'aichat', icon: '🤖', labelKey: 'admin.sidebar.aiChat' },
+    { id: 'templates', icon: '📋', labelKey: 'admin.sidebar.templates' },
+    { id: 'executions', icon: '▶️', labelKey: 'admin.sidebar.executions' },
+    { id: 'analytics', icon: '📈', labelKey: 'admin.sidebar.analytics' },
+    { id: 'tutorials', icon: '📚', labelKey: 'admin.sidebar.tutorials' },
+    { id: 'settings', icon: '⚙️', labelKey: 'admin.sidebar.settings' },
   ];
 
   const handleNavClick = (viewId) => {
     onViewChange(viewId);
-    trackViewChange(viewId);
   };
 
   return (
-    <div className={`bg-white border-r border-gray-200 h-full transition-all duration-300 flex flex-col ${
-      isCollapsed ? 'w-16' : 'w-64'
+    <div className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
+      isCollapsed ? 'w-20' : 'w-64'
     }`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         {!isCollapsed && (
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Agentic Study</h1>
-            <p className="text-xs text-gray-500">Research Platform</p>
-          </div>
+          <h1 className="text-xl font-bold text-gray-900">
+            Admin Panel
+          </h1>
         )}
         <button
           onClick={onToggleCollapse}
@@ -131,7 +141,6 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
             label={isCollapsed ? '' : t(item.labelKey)}
             isActive={activeView === item.id}
             onClick={() => handleNavClick(item.id)}
-            badge={item.badge}
           />
         ))}
       </nav>
@@ -142,11 +151,11 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
           <div className="flex items-center gap-2"> 
             <LanguageSwitcher 
               variant="compact" 
-              className="bg-white dark:bg-gray-800 shadow-lg"
+              className="bg-white shadow-lg"
             />
             <ThemeSwitcher 
               variant="icon-only"
-              className="bg-white dark:bg-gray-800 shadow-lg"
+              className="bg-white shadow-lg"
             />
           </div>
         </div>
@@ -154,10 +163,18 @@ const Sidebar = ({ activeView, onViewChange, isCollapsed, onToggleCollapse }) =>
     </div>
   );
 };
-// Dashboard Component
+
+// ============================================================
+// DASHBOARD COMPONENT
+// ============================================================
 const Dashboard = () => {
   const { sessionId, participantId, isHealthy } = useSession();
   const { workflowsCreated, workflowsExecuted, interactions, currentView } = useSessionData();
+  
+  // Calculate total interactions (interactions is an array or object)
+  const totalInteractions = Array.isArray(interactions) 
+    ? interactions.length 
+    : (typeof interactions === 'number' ? interactions : 0);
   
   return (
     <div className="p-8">
@@ -170,102 +187,219 @@ const Dashboard = () => {
           <div>Session ID: <span className="font-mono">{sessionId || 'Loading...'}</span></div>
           <div>Participant: #{participantId || 'N/A'}</div>
           <div>Status: <span className={isHealthy ? 'text-green-600' : 'text-red-600'}>
-            {isHealthy ? 'Healthy' : 'Issues'}
+            {isHealthy ? '✓ Active' : '✗ Inactive'}
           </span></div>
+          <div>View: {currentView || 'dashboard'}</div>
         </div>
       </div>
-      
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <span className="text-2xl">🔧</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Workflows Created</p>
-              <p className="text-2xl font-bold text-gray-900">{workflowsCreated || 0}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <span className="text-2xl">⚡</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Executions</p>
-              <p className="text-2xl font-bold text-gray-900">{workflowsExecuted || 0}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <span className="text-2xl">⏱️</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Interactions</p>
-              <p className="text-2xl font-bold text-gray-900">{interactions?.length || 0}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <span className="text-2xl">🎯</span>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Current View</p>
-              <p className="text-lg font-bold text-gray-900 capitalize">{currentView || 'dashboard'}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Quick Start */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Start</h3>
-        <p className="text-gray-600 mb-4">
-          Welcome to the Agentic AI Study platform. Choose an option to get started:
-        </p>
-        <div className="space-y-2">
-          <button className="w-full p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors">
-            <div className="flex items-center">
-              <span className="text-2xl mr-3">🔧</span>
-              <div>
-                <div className="font-medium text-gray-900">Build a Workflow</div>
-                <div className="text-sm text-gray-600">Create workflows using visual components</div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="font-semibold text-gray-900 mb-4">Quick Start</h3>
+          <p className="text-gray-600 text-sm mb-4">
+            Choose an option to get started:
+          </p>
+          <div className="space-y-2">
+            <button className="w-full p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors">
+              <div className="flex items-center">
+                <span className="text-2xl mr-3">🔧</span>
+                <div>
+                  <div className="font-medium text-gray-900">Build a Workflow</div>
+                  <div className="text-sm text-gray-600">Create workflows using visual components</div>
+                </div>
               </div>
-            </div>
-          </button>
-          
-          <button className="w-full p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors">
-            <div className="flex items-center">
-              <span className="text-2xl mr-3">🤖</span>
-              <div>
-                <div className="font-medium text-gray-900">Chat with AI Assistant</div>
-                <div className="text-sm text-gray-600">Get help from an AI-powered assistant</div>
+            </button>
+            
+            <button className="w-full p-4 text-left border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors">
+              <div className="flex items-center">
+                <span className="text-2xl mr-3">🤖</span>
+                <div>
+                  <div className="font-medium text-gray-900">Chat with AI Assistant</div>
+                  <div className="text-sm text-gray-600">Get help from an AI-powered assistant</div>
+                </div>
               </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="font-semibold text-gray-900 mb-4">Activity</h3>
+          <div className="space-y-3">
+            <div>
+              <div className="text-sm text-gray-600">Workflows Created</div>
+              <div className="text-2xl font-bold text-gray-900">{workflowsCreated || 0}</div>
             </div>
-          </button>
+            <div>
+              <div className="text-sm text-gray-600">Workflows Executed</div>
+              <div className="text-2xl font-bold text-gray-900">{workflowsExecuted || 0}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Total Interactions</div>
+              <div className="text-2xl font-bold text-gray-900">{totalInteractions}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-// Main App Content Component
+// ============================================================
+// MAIN APP CONTENT COMPONENT
+// ============================================================
 const AppContent = () => {
+  const location = useLocation();
+  const [devView, setDevView] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showDemographics, setShowDemographics] = useState(false);
   
   const { sessionId, isActive } = useSession();
   const { trackViewChange } = useTracking();
+
+  // ============================================================
+  // DEV ROUTE DETECTION (Only in development)
+  // ============================================================
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    
+    const params = new URLSearchParams(location.search);
+    const view = params.get('view');
+    
+    if (view) {
+      setDevView(view);
+    } else {
+      setDevView(null);
+    }
+  }, [location]);
+
+  // ============================================================
+  // DEV VIEW RENDERER
+  // ============================================================
+  const renderDevView = () => {
+    const params = new URLSearchParams(location.search);
+    
+    // Mock data for components
+    const mockStudyConfig = {
+      group: 'A',
+      task1: { 
+        condition: 'workflow_builder',
+        product: 'headphones',
+        productCategory: 'headphones'
+      },
+      task2: { 
+        condition: 'ai_assistant',
+        product: 'shoes',
+        productCategory: 'shoes'
+      }
+    };
+
+    const mockTaskConfig = {
+      condition: params.get('condition') || 'workflow_builder',
+      product: params.get('product') || 'headphones',
+      productCategory: params.get('product') || 'headphones'
+    };
+
+    switch (devView) {
+      case 'welcome':
+        return (
+          <WelcomeScreen 
+            onContinue={() => console.log('Welcome completed')}
+          />
+        );
+
+      case 'demographics':
+        return (
+          <DemographicsQuestionnaire 
+            onComplete={(data) => console.log('Demographics completed:', data)}
+          />
+        );
+
+      case 'task':
+        return (
+          <ReactFlowProvider>
+            <TaskScreen
+              taskConfig={mockTaskConfig}
+              taskNumber={parseInt(params.get('taskNumber')) || 1}
+              onComplete={() => console.log('Task completed')}
+            />
+          </ReactFlowProvider>
+        );
+
+      case 'survey':
+        return (
+          <SurveyQuestionnaire
+            taskNumber={parseInt(params.get('taskNumber')) || 1}
+            condition={params.get('condition') || 'workflow_builder'}
+            onComplete={(data) => console.log('Survey completed:', data)}
+          />
+        );
+
+      case 'completion':
+        return (
+          <CompletionScreen studyConfig={mockStudyConfig} />
+        );
+
+      case 'builder':
+        return (
+          <ReactFlowProvider>
+            <div className="h-screen">
+              <WorkflowBuilder />
+            </div>
+          </ReactFlowProvider>
+        );
+
+      case 'chat':
+        return (
+          <div className="h-screen">
+            <AIChat />
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // ============================================================
+  // DEV VIEW ACTIVE - Render only the dev view
+  // ============================================================
+  if (import.meta.env.DEV && devView) {
+    return (
+      <div id="admin" className="dev-view">
+        {/* Dev toolbar */}
+        <div className="fixed top-0 left-0 right-0 bg-yellow-400 text-black px-4 py-2 z-50 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-4">
+            <span className="font-bold">🔧 DEV MODE:</span>
+            <span className="font-mono">{devView}</span>
+            {location.search && (
+              <span className="text-sm opacity-75">
+                {location.search}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href="/admin"
+              className="px-3 py-1 bg-black text-yellow-400 rounded hover:bg-gray-800 transition-colors"
+            >
+              Exit Preview
+            </a>
+          </div>
+        </div>
+        
+        {/* Render the dev view */}
+        <div className="pt-10">
+          {renderDevView()}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // NORMAL ADMIN VIEW
+  // ============================================================
 
   // Handle view changes
   const handleViewChange = (view) => {
@@ -273,20 +407,9 @@ const AppContent = () => {
     trackViewChange(view);
   };
 
-  // Render main content based on active view
+  // Render content based on active view
   const renderContent = () => {
-    if (showDemographics) {
-      return (
-        <DemographicsQuestionnaire
-          onComplete={() => setShowDemographics(false)}
-        />
-      );
-    }
-
     switch (activeView) {
-      case 'dashboard':
-        return <Dashboard />;
-      
       case 'builder':
         return (
           <ReactFlowProvider>
@@ -300,16 +423,16 @@ const AppContent = () => {
       case 'templates':
         return (
           <div className="p-8">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Workflow Templates</h2>
-            <p className="text-gray-600">Browse and use pre-built workflow templates...</p>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Templates</h2>
+            <p className="text-gray-600">Browse and use workflow templates...</p>
           </div>
         );
       
       case 'executions':
         return (
           <div className="p-8">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Workflow Executions</h2>
-            <p className="text-gray-600">View your workflow execution history...</p>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Executions</h2>
+            <p className="text-gray-600">View workflow execution history...</p>
           </div>
         );
       
@@ -317,7 +440,7 @@ const AppContent = () => {
         return (
           <div className="p-8">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Analytics</h2>
-            <p className="text-gray-600">View your usage analytics...</p>
+            <p className="text-gray-600">View usage statistics and insights...</p>
           </div>
         );
       
@@ -342,10 +465,10 @@ const AppContent = () => {
     }
   };
 
-  // Loading state while session initializes
+  // Loading state
   if (!sessionId || !isActive) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div id="admin" className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Initializing session...</p>
@@ -355,30 +478,31 @@ const AppContent = () => {
   }
 
   return (
-    <>      
-      {/* Main Layout */}
-      <div className="flex h-screen bg-gray-50">
-        <Sidebar
-          activeView={activeView}
-          onViewChange={handleViewChange}
-          isCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        />
-        
-        <main className="flex-1 overflow-y-auto">
-          {renderContent()}
-        </main>
+    <div id="admin" className="flex h-screen bg-gray-50">
+      <Sidebar
+        activeView={activeView}
+        onViewChange={handleViewChange}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+      
+      <main className="flex-1 overflow-y-auto">
+        {renderContent()}
+      </main>
 
-        <NotificationPermission showBanner={true} />
-      </div>
-    </>
+      <NotificationPermission showBanner={true} />
+    </div>
   );
 };
 
-// Root App Component with Error Boundary and Session Initializer
+// ============================================================
+// ROOT APP COMPONENT
+// ============================================================
 function App() {
   return (
+    <ErrorBoundary>
       <AppContent />
+    </ErrorBoundary>
   );
 }
 

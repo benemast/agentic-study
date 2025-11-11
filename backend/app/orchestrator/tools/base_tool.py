@@ -14,13 +14,15 @@ import logging
 import re
 import json
 from html import unescape
-from typing import overload, Dict, Any, Optional, List, Union, Literal
-from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, overload, Dict, Any, Optional, List, Union, Literal
 
 from app.websocket.manager import WebSocketManager
-from app.orchestrator.llm.client_langchain import LangChainLLMClient
-from app.orchestrator.llm.streaming_callbacks import get_callback_factory
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+
+from langchain_core.tools.base import BaseTool as LangChainBaseTool
+
+if TYPE_CHECKING:
+    from app.orchestrator.llm.client_langchain import LangChainLLMClient
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ class ToolTimeoutError(Exception):
         super().__init__(self.message)
 
 
-class BaseTool(ABC):
+class BaseTool(LangChainBaseTool):
     """
     Base class for all tools with timeout protection
     
@@ -52,41 +54,32 @@ class BaseTool(ABC):
                     timeout=300  # 5 minutes
                 )
             
-            async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+            async def _run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
                 # Your tool logic here
                 return {'success': True, 'data': result}
     """
     
-    def __init__(
-        self,
-        name: str = "Base Tool",
-        timeout: int = 300,  # 5 minutes default
-        allow_timeout_override: bool = True
-    ):
-        """
-        Initialize base tool
-        
-        Args:
-            name: Human-readable tool name
-            timeout: Default timeout in seconds
-            allow_timeout_override: Allow per-call timeout override
-        """
-        self.name = name
-        self.default_timeout = timeout
-        self.allow_timeout_override = allow_timeout_override
-        self.websocket_manager = None   # Injected by orchestrator
-        self.llm_client:Optional[LangChainLLMClient] = None          # Injected by orchestrator
-        
-        # Metrics
-        self.total_executions = 0
-        self.total_successes = 0
-        self.total_failures = 0
-        self.total_timeouts = 0
-        self.total_execution_time_ms = 0
-        
+
+    name: str = "Base Tool"
+    tool_id: str = "base-tool"
+    description: str = "Base tool description"
+    default_timeout: int = 300
+    allow_timeout_override: bool = True
+    websocket_manager: Optional[Any] = None
+    llm_client: Optional[Any] = None 
+    
+    # Metrics
+    total_executions: int = 0
+    total_successes: int = 0
+    total_failures: int = 0
+    total_timeouts: int = 0
+    total_execution_time_ms: float = 0
+    
+    def __init__(self, **data):
+        super().__init__(**data)
         logger.debug(
-            f"Tool initialized: {name} "
-            f"(timeout={timeout}s, override={allow_timeout_override})"
+            f"Tool initialized: {self.name} "
+            f"(timeout={self.default_timeout}s, override={self.allow_timeout_override})"
         )
     
     def set_websocket_manager(self, ws_manager):
@@ -104,7 +97,7 @@ class BaseTool(ABC):
     # ========== OVERLOAD SIGNATURES ========== ↓
 
     @overload
-    async def _call_llm_with_streaming(
+    async def _call_llm(
         self,
         session_id: str,
         execution_id: int,
@@ -123,7 +116,7 @@ class BaseTool(ABC):
         ...
 
     @overload
-    async def _call_llm_with_streaming(
+    async def _call_llm(
         self,
         session_id: str,
         execution_id: int,
@@ -143,7 +136,7 @@ class BaseTool(ABC):
         ...
 
     @overload
-    async def _call_llm_with_streaming(
+    async def _call_llm(
         self,
         session_id: str,
         execution_id: int,
@@ -163,11 +156,11 @@ class BaseTool(ABC):
 
     # ========== ACTUAL IMPLEMENTATION ========== ↓
 
-    async def _call_llm_with_streaming(
+    async def _call_llm(
         self,
         session_id: str,
         execution_id: int,
-    condition: str,
+        condition: str,
         tool_name: str,
         messages: List[BaseMessage] | List[Dict[str, str]] | None = None,
         system_prompt: str | None = None,
@@ -176,15 +169,16 @@ class BaseTool(ABC):
         max_tokens: int | None = None,
         step_number: int | None = None,
         parsed: bool = False,
-        verbosity: Literal["low", "medium", "high"] | None = None,
+        verbosity: Literal["low", "medium", "high"] = "low",
+        reasoning_effort: Literal["low", "medium", "high"] = "low",
         **kwargs
     ) -> dict:
         """
         Helper to call LLM with streaming callback
         
         Supports two calling patterns:
-        1. Pre-formatted messages: _call_llm_with_streaming(..., messages=[...])
-        2. Individual prompts: _call_llm_with_streaming(..., system_prompt="...", user_prompt="...")
+        1. Pre-formatted messages: _call_llm(..., messages=[...])
+        2. Individual prompts: _call_llm(..., system_prompt="...", user_prompt="...")
         
         Args:
             session_id: Session ID
@@ -207,7 +201,7 @@ class BaseTool(ABC):
             
         Examples:
             # Using messages
-            response = await self._call_llm_with_streaming(
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 tool_name='sentiment_analysis',
@@ -219,7 +213,7 @@ class BaseTool(ABC):
             )
             
             # Using prompts
-            response = await self._call_llm_with_streaming(
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 tool_name='sentiment_analysis',
@@ -229,7 +223,7 @@ class BaseTool(ABC):
             )
             
             # User prompt only
-            response = await self._call_llm_with_streaming(
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 tool_name='quick_task',
@@ -237,7 +231,9 @@ class BaseTool(ABC):
                 user_prompt="Summarize this text..."
             )
         """
-    
+
+        from app.orchestrator.llm.streaming_callbacks import get_callback_factory
+
         # ========== VALIDATION ========== ↓
         # Must have either messages OR user_prompt (minimum)
         if messages is None and user_prompt is None:
@@ -271,46 +267,182 @@ class BaseTool(ABC):
             step_number=step_number
         )
         
+        from app.configs.config import settings
         # Call LLM with streaming
         response = await self.llm_client.chat_completion(
             tool_name=tool_name,
             messages=messages,
             callbacks=[callback],
-            stream=True,
+            stream=settings.langchain_stream,
             temperature=temperature,
             max_tokens=max_tokens,
             verbosity=verbosity,
+            reasoning_effort=reasoning_effort,
+            session_id=session_id,
             **kwargs
         )
 
         if parsed:
-            # Extract and parse JSON
-            try:
-                content = response['content']
-                
-                # Extract JSON from markdown code blocks
-                if '```json' in content:
-                    content = content.split('```json')[1].split('```')[0].strip()
-                elif '```' in content:
-                    content = content.split('```')[1].split('```')[0].strip()
-                
-                response = json.loads(content)
-                
-            except KeyError as e:
-                logger.error(f"Missing 'content' key in response: {e}")
-                return {"error": "Invalid response structure"}
-            except IndexError as e:
-                logger.error(f"Failed to extract JSON from markdown: {e}")
-                return {"error": "Malformed JSON markdown block"}
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parsing failed: {e}\nContent: {content[:200]}")
-                return {"error": "Invalid JSON format"}
-            except Exception as e:
-                logger.error(f"Unexpected error parsing response: {e}")
-                return {"error": "Parsing failed"}
+           response = self._clean_llm_response(response)
 
+        return response
+
+    def _clean_llm_response(self, response:str) -> str:
+         # Extract and parse JSON with robust cleaning
+        try:
+            content = response['content']
+            
+            # ========== STEP 1: Extract from markdown blocks ==========
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+            
+            # ========== STEP 2: Clean the content ==========
+            content = self._clean_json_content(content)
+            
+            # ========== STEP 3: Parse JSON ==========
+            response = json.loads(content)
+            
+        except KeyError as e:
+            logger.error(f"Missing 'content' key in response: {e}")
+            return {"error": "Invalid response structure"}
+        except IndexError as e:
+            logger.error(f"Failed to extract JSON from markdown: {e}")
+            return {"error": "Malformed JSON markdown block"}
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {e}\nContent: {content[:500]}")
+            return {"error": "Invalid JSON format"}
+        except Exception as e:
+            logger.error(f"Unexpected error parsing response: {e}")
+            return {"error": "Parsing failed"}
         
         return response
+            
+
+    async def _call_llm_simple_forceNoReasoning(
+        self,
+        system_prompt:str,
+        user_prompt:str, 
+        model:str = None,
+        max_tokens:int = 4096,
+        parsed: bool = False,
+    ):
+        start_time = time.time()
+
+        from app.configs.config import settings
+        from langchain_openai import ChatOpenAI
+
+        if not model:
+            model = settings.llm_model
+
+        messages = [
+            {"role": "developer", "content": "# Juice: 0 !important"}, # this forces 0 reasoning tokens!
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        openAI = ChatOpenAI(
+            api_key=settings.openai_api_key,
+            model = model,
+            max_tokens=max_tokens,
+            verbosity='low',
+            reasoning_effort='low',
+        )
+        result = await openAI.ainvoke(messages)
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        response = {
+            'content': result.content,
+            'model': model,
+            'latency_ms': elapsed_ms,
+            'streamed': False,
+            'cached': False
+        }
+
+        if parsed:
+           response = self._clean_llm_response(response)
+
+        return response
+
+
+    @staticmethod
+    def _clean_json_content(content: str) -> str:
+        """
+        Clean JSON content by removing trailing/leading garbage
+        
+        Handles cases like:
+        - Trailing punctuation: {...}\n-
+        - Leading text: "Here's the JSON: {...}"
+        - Multiple JSON objects: {...}\n{...} (takes first)
+        
+        Args:
+            content: Raw content string
+            
+        Returns:
+            Cleaned JSON string ready for parsing
+        """
+        content = content.strip()
+        
+        # Find the start of JSON (first { or [)
+        start_idx = -1
+        for i, char in enumerate(content):
+            if char in '{[':
+                start_idx = i
+                break
+        
+        if start_idx == -1:
+            return content  # No JSON found, return as-is
+        
+        # Find the end of JSON by tracking brackets/braces
+        bracket_count = 0
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        end_idx = -1
+        
+        for i in range(start_idx, len(content)):
+            char = content[i]
+            
+            # Handle escape sequences
+            if escape_next:
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                escape_next = True
+                continue
+            
+            # Track string state
+            if char == '"':
+                in_string = not in_string
+                continue
+            
+            # Only count brackets outside strings
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and bracket_count == 0:
+                        end_idx = i + 1
+                        break
+                elif char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0 and brace_count == 0:
+                        end_idx = i + 1
+                        break
+        
+        # Extract the clean JSON
+        if end_idx > start_idx:
+            return content[start_idx:end_idx].strip()
+        
+        # Fallback: couldn't find proper end, take from start to end
+        return content[start_idx:].strip()
+
 
 
     def _log_to_file(self, data: dict, filename: str = None):
@@ -343,9 +475,16 @@ class BaseTool(ABC):
             
             filepath = log_dir / filename
             
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            log_data = {
+                "timestamp": timestamp,
+                "data": data
+            }
+
             # Write results to file
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(log_data, f, indent=2, ensure_ascii=False)
             
             logger.info(f"Data logged to: {filepath}")
             return filepath
@@ -421,7 +560,7 @@ class BaseTool(ABC):
         
         return sampled[:target_count]
     
-    def _sample_reviews_mulit_strategically(
+    def _sample_reviews_multi_strategically(
         self, 
         reviews: List[Dict[str, Any]], 
         target_count: int
@@ -732,11 +871,13 @@ class BaseTool(ABC):
             payload['status'] = status
         if add_tool_name:
             payload['tool_name'] = self.name
+            payload['tool_id'] = self.tool_id
         if add_timestamp:
             payload['timestamp'] = time.time()        
         if data:
             payload['data'] = data
         
+
         # Add all custom fields
         payload.update(kwargs)
         
@@ -1019,7 +1160,7 @@ class BaseTool(ABC):
     async def run(
         self,
         input_data: Dict[str, Any],
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute tool with timeout protection
@@ -1049,6 +1190,7 @@ class BaseTool(ABC):
             execution_id=execution_id,
             condition=condition,
             details={
+                'progress': 0,
                 'timeout_seconds': effective_timeout                
             },
             status='tool_execution_start'
@@ -1060,7 +1202,7 @@ class BaseTool(ABC):
         try:
             # Run tool with timeout protection
             result = await asyncio.wait_for(
-                self._execute(input_data),
+                self._run(input_data),
                 timeout=effective_timeout
             )
             
@@ -1187,19 +1329,6 @@ class BaseTool(ABC):
                 }
             }
     
-    @abstractmethod
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute tool logic (to be implemented by subclasses)
-        
-        Args:
-            input_data: Tool input data
-            
-        Returns:
-            Result dict with 'success', 'data', 'error', etc.
-        """
-        raise NotImplementedError("Subclasses must implement _execute()")
-    
     def _is_recoverable_error(self, error: Exception) -> bool:
         """
         Determine if error is recoverable (can retry)
@@ -1262,7 +1391,7 @@ class ToolExecutionContext:
     
     Usage:
         async with ToolExecutionContext(tool, input_data) as ctx:
-            result = await tool._execute(input_data)
+            result = await tool._run(input_data)
             ctx.set_result(result)
     """
     

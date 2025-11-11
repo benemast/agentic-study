@@ -13,7 +13,7 @@ Each section is conditional based on:
 1. User parameters (include_sections)
 2. Data availability (previous tools)
 """
-from typing import Dict, Any, List, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal, Union
 import logging
 import time
 from collections import Counter
@@ -21,7 +21,6 @@ from collections import Counter
 from app.websocket.manager import WebSocketManager
 
 from app.orchestrator.tools.base_tool import BaseTool
-from app.orchestrator.tools.visualization_generator import VisualizationGenerator
 from app.orchestrator.graphs.shared_state import SharedWorkflowState
 
 from app.orchestrator.tools.output_schemas.show_results_tool_schema import (
@@ -50,6 +49,9 @@ from app.orchestrator.tools.output_schemas.show_results_tool_schema import (
     ShowResultsSections,
     ShowResultsMetadata
 )
+
+
+from app.orchestrator.llm.tool_schemas import ShowResultsInputData
 
 logger = logging.getLogger(__name__)
 
@@ -82,17 +84,88 @@ class ShowResultsTool(BaseTool):
         }
     }
     """
-    
     def __init__(self):
         super().__init__(
             name="Show Results",
+            tool_id="show-results",
+            description="Prepare processed customer review data for return to user. This is the FINAL / END step of any workflow! For best results other operations like filter, clean, analyze and generate insights should be completed first!",
             timeout=120
         )
         self.websocket_manager: Optional[WebSocketManager] = None   # Injected by orchestrator
         self.llm_client = None                                      # Injected by orchestrator
-        self.viz_generator = VisualizationGenerator()
     
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _get_priority_keywords(language: Literal['en', 'de']) -> tuple[List[str], List[str]]:
+        """Get priority keywords for specified language"""
+        high_priority_en = [
+            'critical', 'urgent', 'immediate', 'essential', 'must', 'required',
+            'crucial', 'vital', 'imperative', 'pressing', 'priority', 'asap',
+            'emergency', 'serious', 'severe', 'major issue', 'failing'
+        ]
+        low_priority_en = [
+            'consider', 'potential', 'could', 'might', 'possible', 'optional',
+            'nice to have', 'future', 'eventually', 'long-term', 'explore',
+            'investigate', 'minor', 'small', 'slight', 'marginal'
+        ]
+        
+        high_priority_de = [
+            'kritisch', 'dringend', 'sofort', 'unverzüglich', 'umgehend', 'essentiell', 
+            'notwendig', 'erforderlich', 'zwingend', 'unbedingt', 'muss', 'pflicht',
+            'entscheidend', 'vital', 'unerlässlich', 'dringlichkeit', 'priorität',
+            'eilig', 'akut', 'notfall', 'ernst', 'schwerwiegend', 'gravierend',
+            'großes problem', 'fehler', 'versagt', 'defekt'
+        ]
+        low_priority_de = [
+            'überlegen', 'erwägen', 'eventuell', 'möglich', 'könnte', 'vielleicht',
+            'optional', 'wünschenswert', 'nice to have', 'zukunft', 'langfristig',
+            'später', 'irgendwann', 'erkunden', 'untersuchen', 'prüfen',
+            'geringfügig', 'klein', 'leicht', 'marginal', 'unbedeutend', 'nebensächlich'
+        ]
+        
+        if language == 'de':
+            return high_priority_de, low_priority_de
+        return high_priority_en, low_priority_en
+    
+    @staticmethod
+    def _get_impact_keywords(language: Literal['en', 'de']) -> tuple[List[str], List[str]]:
+        """Get impact keywords for specified language"""
+        high_impact_en = [
+            'significant', 'major', 'critical', 'substantial', 'large',
+            'dramatic', 'transformative', 'game-changing', 'breakthrough',
+            'revolutionary', 'massive', 'huge', 'enormous', 'extensive',
+            'considerable', 'profound', 'far-reaching', 'widespread',
+            'high-value', 'strategic', 'key', 'fundamental'
+        ]
+        low_impact_en = [
+            'minor', 'small', 'slight', 'marginal', 'minimal', 'limited',
+            'incremental', 'modest', 'negligible', 'tiny', 'little',
+            'low-impact', 'trivial', 'cosmetic', 'surface-level',
+            'insignificant', 'unimportant', 'peripheral', 'secondary',
+            'auxiliary', 'supplementary', 'ancillary', 'nominal'
+        ]
+        
+        high_impact_de = [
+            'signifikant', 'bedeutend', 'erheblich', 'wesentlich', 'substanziell',
+            'beträchtlich', 'kritisch', 'groß', 'massiv', 'enorm', 'gewaltig',
+            'dramatisch', 'transformativ', 'bahnbrechend', 'revolutionär',
+            'durchschlagend', 'tiefgreifend', 'weitreichend', 'umfassend',
+            'grundlegend', 'fundamental', 'zentral', 'strategisch', 'schlüssel',
+            'kernpunkt', 'hauptsächlich', 'hochwertig', 'essenziell'
+        ]
+        low_impact_de = [
+            'geringfügig', 'klein', 'leicht', 'marginal', 'minimal', 'begrenzt',
+            'gering', 'unbedeutend', 'unwesentlich', 'beschränkt', 'eingeschränkt',
+            'inkrementell', 'moderat', 'vernachlässigbar', 'winzig', 'kaum',
+            'niedrig', 'trivial', 'kosmetisch', 'oberflächlich',
+            'unwichtig', 'peripher', 'sekundär', 'nebensächlich',
+            'ergänzend', 'zusätzlich', 'beiläufig', 'nominal'
+        ]
+        
+        if language == 'de':
+            return high_impact_de, low_impact_de
+        return high_impact_en, low_impact_en
+    
+    async def _run(self, input_data: ShowResultsInputData) -> ShowResultsOutput:
         """
         Generate structured results based on parameters
         
@@ -109,10 +182,9 @@ class ShowResultsTool(BaseTool):
         try:
             self._log_input_to_file(input_data)
 
-
             # Extract input
-            state = input_data.get('state')
-            condition= state.get('condition')
+            state = input_data.get('state', {})
+            condition = state.get('condition')
             category = state.get('category')
             session_id = input_data.get('session_id')
             execution_id = input_data.get('execution_id')
@@ -121,29 +193,33 @@ class ShowResultsTool(BaseTool):
             sentiment_statistics = input_data.get('sentiment_statistics')
             insights = input_data.get('insights')
             theme_analysis = input_data.get('theme_analysis')
+            total_records = input_data.get('total', len(records))
             
             # Parse parameters (already validated by Pydantic schema)
-            config = input_data.get('config')
+            config = input_data.get('config', {})
             include_sections = config.get('include_sections', ['data_preview'])
             statistics_metrics = config.get('statistics_metrics')
             show_visualizations = config.get('show_visualizations', False)
             max_data_items = config.get('max_data_items', 50)
             
-            # Use defaults from schema if not provided
-            if statistics_metrics is None and 'statistics' in include_sections:
-                statistics_metrics = [
-                    'sentiment_distribution',
-                    'review_summary', 
-                    'rating_distribution',
-                    'verified_rate'
-                ]
-            elif statistics_metrics is None:
+            if statistics_metrics is None:
                 statistics_metrics = []
             
             logger.info(
-                f"📊 ShowResults: Generating {len(include_sections)} sections "
-                f"(viz={show_visualizations})"
+                f"ShowResults: Generating {len(include_sections)} sections "
             )
+            
+            # Aggregate themes if present
+            if theme_analysis:
+                theme_analysis = self._aggregate_themes(theme_analysis, total_records)
+            
+            # Aggregate insights if present
+            if insights:
+                insights = self._aggregate_insights(insights)
+            
+            # Aggregate sentiment statistics if present
+            if sentiment_statistics:
+                sentiment_statistics = self._aggregate_sentiment_stats(sentiment_statistics)
             
             # Check data availability
             availability = self._check_data_availability(input_data)
@@ -154,57 +230,87 @@ class ShowResultsTool(BaseTool):
             sections_unavailable = []
             
             for section in include_sections:
-
-                if section == 'themes' and theme_analysis:
-                    section_data =  self._generate_themes_section(
-                        input_data, 
+                # Skip executive_summary - it's generated last after other sections
+                if section == 'executive_summary':
+                    continue
+                
+                section_obj = None
+                
+                if section == 'themes':
+                    section_obj = self._generate_themes_section(
+                        data=input_data, 
                         records=records,
-                        themes=theme_analysis,
+                        theme_analysis=theme_analysis,
                         category=category,
                         availability=availability
                     )
                 
                 elif section == 'recommendations':
-                    section_data = self._generate_recommendations_section(
+                    section_obj = self._generate_recommendations_section(
                         data=input_data, 
                         records=records,
-                        availability=availability
+                        insights=insights,
+                        availability=availability,
+                        language=state.get('language', 'en')
                     )
                 
                 elif section == 'statistics':
-                    section_data =  self._generate_statistics_section(
+                    section_obj = self._generate_statistics_section(
                         data=input_data,
-                        sentiment_statistics= sentiment_statistics,
+                        sentiment_statistics=sentiment_statistics,
                         availability=availability,
+                        category=category,
                         metrics=statistics_metrics,
                         show_visualizations=show_visualizations
                     )
                 
                 elif section == 'data_preview':
-                    logger.info(f"Request {section} for max. {max_data_items} of {len(records)} records. Data reported available: {availability}")
-                    section_data =  self._generate_data_preview_section(
+                    logger.info(
+                        f"Generating {section} for max {max_data_items} of "
+                        f"{len(records)} records"
+                    )
+                    section_obj = self._generate_data_preview_section(
                         records=records,
                         availability=availability,
                         max_items=max_data_items
                     )
-
                 
-                sections[section] = section_data
-                
-                # Track availability
-                if section_data.get('available', True):
-                    sections_available.append(section)
-                else:
-                    sections_unavailable.append(section)
+                # Store section if it was generated
+                if section_obj:
+                    sections[section] = section_obj
+                    
+                    # Track availability
+                    if section_obj.available:
+                        sections_available.append(section)
+                    else:
+                        sections_unavailable.append(section)
             
-            if 'executive_summary' in include_sections:            
-                    section_data = await self._generate_executive_summary(
-                        data=input_data,
-                        availability=availability,
-                        session_id=session_id,
-                        execution_id=execution_id,
-                        condition=condition
-                    )
+            # Generate executive summary LAST (after all other sections)
+            # This allows it to summarize all available section data
+            if 'executive_summary' in include_sections:
+                # Update input_data with aggregated data for summary generation
+                summary_data = {
+                    **input_data,
+                    'theme_analysis': theme_analysis,
+                    'insights': insights,
+                    'sentiment_statistics': sentiment_statistics
+                }
+
+                section_obj = await self._generate_executive_summary(
+                    data=summary_data,
+                    availability=availability,
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    condition=condition,
+                    language=state.get("language")
+                )
+                
+                sections['executive_summary'] = section_obj
+                
+                if section_obj.available:
+                    sections_available.append('executive_summary')
+                else:
+                    sections_unavailable.append('executive_summary')
             
             execution_time = int((time.time() - start_time) * 1000)
             
@@ -218,7 +324,7 @@ class ShowResultsTool(BaseTool):
                 sections_requested=include_sections,
                 sections_available=sections_available,
                 sections_unavailable=sections_unavailable,
-                total_records=len(input_data.get('records', [])),
+                total_records=len(records),
                 has_sentiment=availability['has_sentiment'],
                 has_insights=availability['has_insights'],
                 processed_at=time.strftime('%Y-%m-%d %H:%M:%S')
@@ -248,30 +354,7 @@ class ShowResultsTool(BaseTool):
             
             # Convert to dict for compatibility
             results = output.model_dump(exclude_none=True)
-            
-            """
-            results = {
-                'success': True,
-                'data': {
-                    'sections': sections,
-                    'metadata': {
-                        'sections_requested': include_sections,
-                        'sections_available': sections_available,
-                        'sections_unavailable': sections_unavailable,
-                        'total_records': len(input_data.get('total')),
-                        'has_sentiment': availability['has_sentiment'],
-                        'has_insights': availability['has_insights'],
-                        'processed_at': time.strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                },
-                'execution_time_ms': execution_time,
-                'metadata': {
-                    'tool': self.name,
-                    'output_ready': True,
-                    'is_final_output': True
-                }
-            }
-            """
+
             self._log_results_to_file(results)
 
             return results
@@ -288,6 +371,262 @@ class ShowResultsTool(BaseTool):
             
             return error_output.model_dump(exclude_none=True)
     
+    # ============================================================
+    # AGGREGATION METHODS
+    # ============================================================
+    
+    def _aggregate_themes(self, theme_data: Union[List[Dict], Dict], total_records: int = None) -> Union[List[Dict], Dict]:
+        """
+        Aggregate themes by normalizing their names and partial matching.
+        Maintains sentiment split structure if present - NEVER aggregates across sentiments.
+        
+        Args:
+            theme_data: Either a list of themes or dict with sentiment keys
+            total_records: Total number of records in the full dataset (from data.total)
+            
+        Returns:
+            Aggregated themes in same structure as input, with projected counts
+        """
+        def normalize_theme_name(theme: str) -> str:
+            """Normalize theme name: convert all delimiters to /, remove spaces around /"""
+            # Replace common delimiters with /
+            normalized = theme.replace('|', '/').replace(',', '/').replace(';', '/').replace('\\', '/')
+            # Remove spaces around /
+            normalized = '/'.join(part.strip() for part in normalized.split('/'))
+            return normalized.lower()
+        
+        def get_theme_parts(theme: str) -> frozenset:
+            """Get individual parts of a theme (split by /) as frozenset for order-independent comparison"""
+            return frozenset(part.strip().lower() for part in theme.split('/') if part.strip())
+        
+        def is_partial_match(theme1: str, theme2: str) -> bool:
+            """
+            Check if theme1 and theme2 should be merged.
+            Returns True if one is a subset of the other OR if they have identical parts.
+            """
+            parts1 = get_theme_parts(theme1)
+            parts2 = get_theme_parts(theme2)
+            
+            # Exact match (same parts, different order) OR one is subset of the other
+            return parts1 == parts2 or parts1.issubset(parts2) or parts2.issubset(parts1)
+        
+        def find_matching_key(normalized: str, existing_keys: List[str]) -> Optional[str]:
+            """Find existing key that matches the normalized theme"""
+            for key in existing_keys:
+                if is_partial_match(normalized, key):
+                    return key
+            return None
+        
+        def merge_theme_names(theme1: str, theme2: str) -> str:
+            """Merge two theme names, keeping the more complete one, or alphabetically sorted if equal"""
+            parts1 = get_theme_parts(theme1)
+            parts2 = get_theme_parts(theme2)
+            
+            # If same parts (just different order), return alphabetically sorted version
+            if parts1 == parts2:
+                sorted_parts = sorted(parts1)
+                return '/'.join(sorted_parts)
+            
+            # Keep the one with more parts (more specific)
+            if len(parts1) >= len(parts2):
+                return theme1
+            else:
+                return theme2
+        
+        def aggregate_theme_list(themes: List[Dict], total_records: int = None) -> List[Dict]:
+            """
+            Aggregate a single list of themes.
+            ONLY aggregates within this list not cross sentiment boundaries.
+            
+            Args:
+                themes: List of theme dictionaries to aggregate
+                total_records: Total number of records in the full dataset (for projection)
+            """
+            if not themes:
+                return []
+            
+            aggregated = {}
+            
+            for theme in themes:
+                theme_name = theme.get('theme', '')
+                if not theme_name:
+                    continue
+                    
+                normalized = normalize_theme_name(theme_name)
+                
+                # Check if this matches any existing theme
+                matching_key = find_matching_key(normalized, list(aggregated.keys()))
+                
+                if matching_key:
+                    # Merge with existing - keep more complete name
+                    merged_name = merge_theme_names(normalized, matching_key)
+                    
+                    # If merged name is different, we need to update the key
+                    if merged_name != matching_key:
+                        old_data = aggregated.pop(matching_key)
+                        aggregated[merged_name] = {
+                            'theme': merged_name,
+                            'weighted_score': old_data['weighted_score'] + theme.get('weighted_score', 0),
+                            'review_count': old_data['review_count'] + theme.get('review_count', 0),
+                        }
+                    else:
+                        aggregated[matching_key]['weighted_score'] += theme.get('weighted_score', 0)
+                        aggregated[matching_key]['review_count'] += theme.get('review_count', 0)
+                else:
+                    # First occurrence - use normalized name
+                    aggregated[normalized] = {
+                        'theme': normalized,
+                        'weighted_score': theme.get('weighted_score', 0),
+                        'review_count': theme.get('review_count', 0),
+                    }
+            
+            # Convert back to list
+            result = list(aggregated.values())
+            
+            # Calculate percentages based on TOTAL of all aggregated review_counts in this sentiment group
+            if result:
+                # Sum of all review counts in THIS sentiment group (the analyzed sample)
+                total_analyzed_in_group = sum(t['review_count'] for t in result)
+                
+                if total_analyzed_in_group > 0:
+                    for theme in result:
+                        # Percentage within this sentiment group
+                        theme['percentage'] = round((theme['review_count'] / total_analyzed_in_group) * 100, 2)
+                        
+                        # Project to full dataset if total_records provided
+                        if total_records and total_records > 0:
+                            # Estimated count in full dataset
+                            theme['estimated_total_count'] = round((theme['percentage'] / 100) * total_records)
+                else:
+                    for theme in result:
+                        theme['percentage'] = 0.0
+                        if total_records:
+                            theme['estimated_total_count'] = 0
+            
+            # Sort by weighted_score descending
+            result.sort(key=lambda x: x['weighted_score'], reverse=True)
+            
+            return result
+        
+        # Check structure and aggregate accordingly
+        if isinstance(theme_data, dict):
+            # Sentiment-split structure - aggregate each sentiment separately
+            # CRITICAL: Keep sentiment boundaries - do NOT mix positive/neutral/negative
+            result = {}
+            for sentiment_key in ['positive_themes', 'neutral_themes', 'negative_themes']:
+                if sentiment_key in theme_data:
+                    result[sentiment_key] = aggregate_theme_list(
+                        theme_data[sentiment_key],
+                        total_records=total_records
+                    )
+            
+            # Preserve the 'type' field if it exists
+            if 'type' in theme_data:
+                result['type'] = theme_data['type']
+                
+            return result
+        else:
+            # Flat list - aggregate all together
+            return aggregate_theme_list(theme_data, total_records=total_records)
+    
+    def _aggregate_insights(self, insight_data: Dict[str, Any]) -> Dict[str, List[str]]:
+        """
+        Aggregate insights from multiple executions.
+        Maintains category boundaries - NEVER aggregates across categories.
+        
+        Args:
+            insight_data: Dictionary containing insights by category
+            
+        Returns:
+            Aggregated insights by category (no cross-category mixing)
+        """
+        aggregated = {}
+        
+        # Process each category independently
+        if isinstance(insight_data, dict):
+            for category, insights in insight_data.items():
+                if category not in aggregated:
+                    aggregated[category] = []
+                
+                # Handle list of insights
+                if isinstance(insights, list):
+                    aggregated[category].extend(insights)
+                elif isinstance(insights, dict):
+                    # If insights are nested, flatten them but keep within category
+                    for sub_insights in insights.values():
+                        if isinstance(sub_insights, list):
+                            aggregated[category].extend(sub_insights)
+        
+        # Deduplicate insights WITHIN each category while preserving order
+        for category in aggregated:
+            seen = set()
+            deduplicated = []
+            for insight in aggregated[category]:
+                if not isinstance(insight, str):
+                    continue
+                
+                # Normalize for comparison (strip whitespace, lowercase)
+                normalized = insight.strip().lower()
+                if normalized not in seen and normalized:
+                    seen.add(normalized)
+                    deduplicated.append(insight.strip())  # Keep original casing
+            
+            # DO NOT LIMIT - keep all unique insights
+            aggregated[category] = deduplicated
+        
+        return aggregated
+    
+    def _aggregate_sentiment_stats(self, sentiment_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Aggregate sentiment statistics from multiple executions.
+        
+        Args:
+            sentiment_data: Dictionary containing sentiment counts and percentages
+            
+        Returns:
+            Aggregated sentiment statistics with recalculated percentages
+        """
+        aggregated = {
+            'positive': 0,
+            'neutral': 0,
+            'negative': 0,
+            'total': 0
+        }
+        
+        # Sum up counts
+        for sentiment in ['positive', 'neutral', 'negative']:
+            aggregated[sentiment] = sentiment_data.get(sentiment, 0)
+        
+        aggregated['total'] = sum(aggregated[s] for s in ['positive', 'neutral', 'negative'])
+        
+        # Recalculate percentages
+        if aggregated['total'] > 0:
+            aggregated['percentages'] = {
+                sentiment: round((aggregated[sentiment] / aggregated['total']) * 100, 2)
+                for sentiment in ['positive', 'neutral', 'negative']
+            }
+        else:
+            aggregated['percentages'] = {
+                'positive': 0.0,
+                'neutral': 0.0,
+                'negative': 0.0
+            }
+        
+        # Determine dominant sentiment
+        if aggregated['total'] > 0:
+            aggregated['dominant_sentiment'] = max(
+                ['positive', 'neutral', 'negative'],
+                key=lambda s: aggregated[s]
+            )
+        else:
+            aggregated['dominant_sentiment'] = None
+        
+        return aggregated
+    
+    # ============================================================
+    # DATA AVAILABILITY CHECK
+    # ============================================================
+    
     def _check_data_availability(self, data: Dict[str, Any]) -> Dict[str, bool]:
         """
         Check what data is available for sections
@@ -300,11 +639,12 @@ class ShowResultsTool(BaseTool):
                 'has_themes': bool
             }
         """
+        theme_analysis = data.get('theme_analysis')
         return {
             'has_records': len(data.get('records', [])) > 0,
             'has_sentiment': bool(data.get('sentiment_statistics')),
             'has_insights': bool(data.get('insights')),
-            'has_themes': bool(data.get('theme_analysis'))
+            'has_themes': bool(theme_analysis) and (isinstance(theme_analysis, list) or isinstance(theme_analysis, dict))
         }
         
     # ============================================================
@@ -318,9 +658,10 @@ class ShowResultsTool(BaseTool):
         session_id: str,
         execution_id: int,
         condition: str,
-        step:Optional[int] = None,
-        total_steps:Optional[int] = None
-    ) -> Dict[str, Any]:
+        step: Optional[int] = None,
+        total_steps: Optional[int] = None,
+        language: Literal['en','de'] = 'en'
+    ) -> ExecutiveSummarySection:
         """
         Generate executive summary using LLM
         
@@ -328,43 +669,46 @@ class ShowResultsTool(BaseTool):
         """
         records = data.get('records', [])
         
-        if not availability['has_records']:
-            section = ExecutiveSummarySection(
+        if not availability.get('has_records'):
+            return ExecutiveSummarySection(
                 available=False,
                 message='No data available for summary',
                 content=None
             )
-            return section.model_dump(exclude_none=True)
         
         try:
             # Build context for LLM
             context = self._build_summary_context(data, availability)
             
+            requested_lang = 'English' if language == 'en' else 'German'
+    
+
             # Generate summary using LLM
-            system_prompt = """You are a data analyst creating executive summaries.
+            system_prompt = f"""REPLY IN {requested_lang}!
+ROLE: You are a senior data analyst creating executive summaries.
 Generate a concise, professional summary (3-5 bullet points) highlighting the key findings.
 Focus on actionable insights and important patterns."""
             
-            user_prompt = f"""Analyze this review data and provide a professional, precise and conceise executive summary:
+            user_prompt = f"""Analyze this review data and provide a professional, precise and concise executive summary:
 
 {context}
 
-# Output Format
-Provide a JSON object with this exact structure:
-- Keys: String numbers for each review (e.g., "1", "2", ...).
-- Values: Lists containing up to four arrays, each array in order: [topic string, importance integer (1-7), sentiment integer (1-7)].
-- Every input review must be present as a sequential key.
-- If a review only mentions one or two topics, include only those in its value array.
-- Example format:
-```json
-{
-  ["Highlight Title: somethign something","Highlight Title: somethign something","Highlight Title: somethign something", ... ]
-}
-```
-
-Provide 3-5 key takeaways as bullet points!"""
+Provide 3-5 key takeaways as bullet points in a JSON array format.
+Example: ["Key finding 1", "Key finding 2", "Key finding 3"]"""
             
-            response = await self._call_llm_with_streaming(
+            await self._send_tool_update(
+                session_id=session_id,
+                execution_id=execution_id,
+                condition=condition,                
+                progress=20,
+                message=f"{self.name} calling LLM for executive summary.",
+                details={
+                    'records_cnt': len(records)
+                },
+                status='LLM_handoff'
+            )
+
+            response = await self._call_llm(
                 session_id=session_id,
                 execution_id=execution_id,
                 condition=condition,
@@ -375,19 +719,32 @@ Provide 3-5 key takeaways as bullet points!"""
                 parsed=True
             )
             
-            # Validate and build content
+            # Handle response
+            if isinstance(response, dict) and 'error' in response:
+                raise ValueError(f"LLM error: {response['error']}")
+            
+            # Ensure response is a list
+            if isinstance(response, str):
+                summary = [response]
+            elif isinstance(response, list):
+                summary = response
+            elif isinstance(response, dict):
+                # Try to extract from dict if LLM returned unexpected format
+                summary = list(response.values()) if response else ["Analysis completed"]
+            else:
+                summary = ["Analysis completed successfully"]
+            
+            # Build content
             content = ExecutiveSummaryContent(
-                summary=response if isinstance(response, list) else [str(response)],
+                summary=summary,
                 record_count=len(records),
                 generated_at=time.strftime('%Y-%m-%d %H:%M:%S')
             )
             
-            section = ExecutiveSummarySection(
+            return ExecutiveSummarySection(
                 available=True,
                 content=content
             )
-            
-            return section.model_dump(exclude_none=True)
             
         except Exception as e:
             logger.error(f"Error generating executive summary: {e}")
@@ -403,268 +760,276 @@ Provide 3-5 key takeaways as bullet points!"""
                 note='Fallback summary (LLM unavailable)'
             )
             
-            section = ExecutiveSummarySection(
+            return ExecutiveSummarySection(
                 available=True,
                 content=content
             )
-            
-            return section.model_dump(exclude_none=True)
     
     def _build_summary_context(
         self,
         data: Dict[str, Any],
         availability: Dict[str, bool]
     ) -> str:
-        """Build context string for LLM summary"""
+        """Build context string for LLM summary with clear, readable formatting"""
+        context_parts = []
         records = data.get('records', [])
-        context_parts = [f"Total Reviews: {len(records)}"]
         
-        # Add rating info
+        # === REVIEW COUNT ===
+        context_parts.append(f"Dataset Overview:\n  Total Reviews Analyzed: {len(records)}")
+        
+        # === RATING STATISTICS ===
         ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
         if ratings:
             avg_rating = sum(ratings) / len(ratings)
-            context_parts.append(f"Average Rating: {avg_rating:.2f}/5.0")
             rating_dist = Counter(ratings)
-            context_parts.append(f"Rating Distribution: {dict(rating_dist)}")
+            rating_breakdown = ', '.join(f"{stars}★: {count}" for stars, count in sorted(rating_dist.items(), reverse=True))
+            context_parts.append(
+                f"\nRating Statistics:\n"
+                f"  Average Rating: {avg_rating:.2f}/5.0\n"
+                f"  Distribution: {rating_breakdown}"
+            )
         
-        # Add sentiment info
+        # === SENTIMENT ANALYSIS ===
         if availability['has_sentiment']:
-            sentiments = [r.get('sentiment') for r in records if r.get('sentiment')]
-            sent_dist = Counter(sentiments)
-            context_parts.append(f"Sentiment Distribution: {dict(sent_dist)}")
+            sentiment_stats = data.get('sentiment_statistics', {})
+            if sentiment_stats:
+                context_parts.append(
+                    f"\nSentiment Distribution:\n"
+                    f"  Positive: {sentiment_stats.get('positive', 0)} ({sentiment_stats.get('percentages', {}).get('positive', 0):.1f}%)\n"
+                    f"  Neutral: {sentiment_stats.get('neutral', 0)} ({sentiment_stats.get('percentages', {}).get('neutral', 0):.1f}%)\n"
+                    f"  Negative: {sentiment_stats.get('negative', 0)} ({sentiment_stats.get('percentages', {}).get('negative', 0):.1f}%)\n"
+                    f"  Dominant: {sentiment_stats.get('dominant_sentiment', 'N/A').capitalize()}"
+                )
         
-        # Add insights
-        if availability['has_insights']:
-            insights = data.get('insights', [])[:3]
-            context_parts.append(f"Key Insights: {'; '.join(insights)}")
-        
-        # Add themes
+        # === THEMES BY SENTIMENT ===
         if availability['has_themes']:
-            themes = data.get('themes', [])[:3]
-            context_parts.append(f"Main Themes: {', '.join(themes)}")
+            theme_analysis = data.get('theme_analysis', {})
+            theme_sections = []
+            themes_per_category = 3
+            
+            if isinstance(theme_analysis, dict):
+                sentiment_categories = [
+                    ('positive_themes', 'Positive'),
+                    ('neutral_themes', 'Neutral'),
+                    ('negative_themes', 'Negative')
+                ]
+                
+                for sentiment_type, label in sentiment_categories:
+                    theme_list = theme_analysis.get(sentiment_type, [])
+                    if theme_list:
+                        themes_formatted = []
+                        for theme_obj in theme_list[:themes_per_category]:
+                            if isinstance(theme_obj, dict):
+                                theme_name = theme_obj.get('theme', '').replace('_', ' ').title()
+                                percentage = theme_obj.get('percentage', 0)
+                                weighted_score = theme_obj.get('weighted_score', 0)
+                                review_count = theme_obj.get('review_count', 0)
+                                estimated_total = theme_obj.get('estimated_total_count', '')
+                                
+                                base_info = f"    • {theme_name}: {percentage:.1f}% ({review_count} reviews, score: {weighted_score:.1f})"
+                                if estimated_total:
+                                    base_info += f" [~{estimated_total} in full dataset]"
+                                themes_formatted.append(base_info)
+                        
+                        if themes_formatted:
+                            theme_sections.append(f"  {label}:\n" + "\n".join(themes_formatted))
+            
+            if theme_sections:
+                context_parts.append("\nMain Themes by Sentiment:\n" + "\n".join(theme_sections))
         
-        return '\n'.join(context_parts)
+        # === KEY INSIGHTS ===
+        if availability['has_insights']:
+            insights_dict = data.get('insights', {})
+            insights_formatted = []
+            target_count = 6
+            
+            if insights_dict:
+                categories = list(insights_dict.keys())
+                num_categories = len(categories)
+                
+                if num_categories <= target_count:
+                    # At least one per category, distribute remaining
+                    insights_per_category = max(1, target_count // num_categories)
+                    
+                    for category in categories:
+                        category_insights = insights_dict.get(category, [])
+                        if category_insights:
+                            category_label = category.replace('_', ' ').title()
+                            insights_formatted.append(f"  {category_label}:")
+                            for insight in category_insights[:insights_per_category]:
+                                insights_formatted.append(f"    • {insight}")
+                else:
+                    # Take top insight from each category
+                    for category in categories[:target_count]:
+                        category_insights = insights_dict.get(category, [])
+                        if category_insights:
+                            category_label = category.replace('_', ' ').title()
+                            insights_formatted.append(f"  {category_label}:")
+                            insights_formatted.append(f"    • {category_insights[0]}")
+                
+                if insights_formatted:
+                    context_parts.append("\nKey Business Insights:\n" + "\n".join(insights_formatted))
+        
+        return "\n".join(context_parts)
     
     def _generate_themes_section(
         self,
         data: Dict[str, Any],
         records: List[Dict[str, Any]],
-        themes: List[tuple[str, int, float]],
+        theme_analysis: Union[List[Dict], Dict],
         category: Literal['shoes', 'wireless'],
         availability: Dict[str, bool]
-    ) -> Dict[str, Any]:
+    ) -> ThemesSection:
         """
         Generate themes section
         
-        Requires sentiment analysis to have been run
+        Displays themes from sentiment analysis
         """
-        if not availability['has_sentiment']:
-            section = ThemesSection(
+        if not availability['has_themes']:
+            return ThemesSection(
                 available=False,
-                message='No sentiment analysis data available. Run sentiment analysis tool first.',
+                message='No theme analysis available',
                 content=None
             )
-            return section.model_dump(exclude_none=True)
         
-        
-        
-        if not themes:
-            # Generate themes from sentiment data
-            themes = self._extract_themes_from_sentiment(records, category)
-        
-        if not themes:
-            section = ThemesSection(
-                available=False,
-                message='No themes could be extracted from sentiment data',
-                content=None
-            )
-            return section.model_dump(exclude_none=True)
-        
-        # Calculate theme statistics
+        # Convert themes to ThemeStatistic objects
         theme_stats = []
-        for theme in themes:
-            # Count mentions (this is simplified - real implementation would be more sophisticated)
-            mentions = sum(1 for r in records if theme.lower() in r.get('review_body', '').lower())
-            
-            stat = ThemeStatistic(
-                theme=theme,
-                mention_count=mentions,
-                percentage=(mentions / len(records) * 100) if len(records) > 0 else 0
-            )
-            theme_stats.append(stat)
+        
+        if isinstance(theme_analysis, dict):
+            # Sentiment-split structure
+            for sentiment_key in ['positive_themes', 'neutral_themes', 'negative_themes']:
+                theme_list = theme_analysis.get(sentiment_key, [])
+                sentiment_label = sentiment_key.replace('_themes', '')
+                
+                for theme_obj in theme_list:
+                    if isinstance(theme_obj, dict):
+                        theme_stats.append(ThemeStatistic(
+                            theme=theme_obj.get('theme', ''),
+                            sentiment=sentiment_label,
+                            mention_count=theme_obj.get('review_count', 0),  # Fixed: use mention_count
+                            percentage=theme_obj.get('percentage', 0.0),
+                            weighted_score=theme_obj.get('weighted_score', 0.0),
+                            estimated_total_count=theme_obj.get('estimated_total_count')
+                        ))
+        elif isinstance(theme_analysis, list):
+            # Flat list structure
+            for theme_obj in theme_analysis:
+                if isinstance(theme_obj, dict):
+                    theme_stats.append(ThemeStatistic(
+                        theme=theme_obj.get('theme', ''),
+                        sentiment=theme_obj.get('sentiment', 'unknown'),
+                        mention_count=theme_obj.get('review_count', 0),  # Fixed: use mention_count
+                        percentage=theme_obj.get('percentage', 0.0),
+                        weighted_score=theme_obj.get('weighted_score', 0.0),
+                        estimated_total_count=theme_obj.get('estimated_total_count')
+                    ))
         
         content = ThemesContent(
             themes=theme_stats,
-            total_themes=len(themes),
+            total_themes=len(theme_stats),
             records_analyzed=len(records)
         )
         
-        section = ThemesSection(
+        return ThemesSection(
             available=True,
             content=content
         )
-        
-        return section.model_dump(exclude_none=True)
-    
-    def _extract_themes_from_sentiment(
-        self,
-        records: List[Dict[str, Any]],
-        category: Literal['shoes', 'wireless']
-    ) -> List[str]:
-        """
-        Extract common themes from sentiment-analyzed reviews
-        
-        This is a simplified implementation - real version would use NLP
-        """
-        # Common product review themes
-        theme_keywords_headphones = {
-            'Sound Quality': ['sound', 'audio', 'quality', 'bass', 'treble', 'clarity', 'crisp', 'clear', 'balanced', 'rich', 'deep', 'highs', 'lows', 'mids', 'frequency'],
-            'Comfort': ['comfortable', 'comfort', 'fit', 'ear', 'wear', 'cushion', 'padding', 'soft', 'lightweight', 'ergonomic', 'snug', 'tight', 'loose', 'pressure'],
-            'Battery Life': ['battery', 'charge', 'charging', 'power', 'hours', 'runtime', 'lifespan', 'discharge', 'usb-c', 'recharge'],
-            'Build Quality': ['build', 'quality', 'durable', 'sturdy', 'material', 'solid', 'plastic', 'metal', 'construction', 'robust', 'fragile', 'break'],
-            'Noise Cancellation': ['noise', 'cancellation', 'cancel', 'anc', 'isolation', 'ambient', 'passive', 'active', 'block', 'reduce'],
-            'Price/Value': ['price', 'value', 'worth', 'expensive', 'affordable', 'cheap', 'cost', 'money', 'budget', 'overpriced', 'deal'],
-            'Connectivity': ['bluetooth', 'connection', 'pairing', 'wireless', 'wired', 'cable', 'disconnect', 'signal', 'range', 'latency'],
-            'Design': ['design', 'look', 'style', 'appearance', 'aesthetic', 'sleek', 'modern', 'elegant', 'bulky', 'compact', 'foldable']
-        }
-
-        theme_keywords_shoes = {
-            'Comfort': ['comfortable', 'comfort', 'cushion', 'padding', 'soft', 'support', 'insole', 'footbed', 'wear', 'break-in'],
-            'Fit/Sizing': ['fit', 'size', 'sizing', 'true to size', 'narrow', 'wide', 'tight', 'loose', 'length', 'width', 'toe box', 'arch', 'ankle', 'heel', 'calf'],
-            'Durability': ['durable', 'scuff', 'wear', 'durability', 'quality', 'last', 'wear out', 'tear', 'material', 'construction', 'sturdy', 'robust'],
-            'Performance': ['performance', 'run', 'running', 'speed', 'grip', 'traction', 'stability', 'responsive', 'bounce', 'energy return'],
-            'Support': ['support', 'cushioning', 'stability', 'motion control', 'pronation'],
-            'Weight': ['weight', 'lightweight', 'heavy', 'light', 'ounces', 'grams'],
-            'Breathability': ['breathable', 'breathability', 'ventilation', 'airflow', 'mesh', 'hot', 'cool', 'sweaty'],
-            'Price/Value': ['price', 'value', 'worth', 'expensive', 'affordable', 'cheap', 'cost', 'money', 'budget', 'overpriced'],
-            'Design/Style': ['design', 'style', 'look', 'appearance', 'color', 'aesthetic', 'sleek', 'modern', 'attractive', 'ugly'],
-            'Sole/Outsole': ['sole', 'outsole', 'rubber', 'wear', 'grip', 'tread', 'traction', 'slippery']
-        }
-        
-        theme_keywords = theme_keywords_shoes if category == "shoes" else theme_keywords_headphones
-
-        # Count theme mentions
-        theme_counts = {}
-        for theme, keywords in theme_keywords.items():
-            count = 0
-            for record in records:
-                body = record.get('review_body', '').lower()
-                if any(keyword in body for keyword in keywords):
-                    count += 1
-            if count > 0:
-                theme_counts[theme] = count
-        
-        # Return themes sorted by frequency
-        sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)
-        return [theme for theme, count in sorted_themes]
     
     def _generate_recommendations_section(
         self,
         data: Dict[str, Any],
         records: List[Dict[str, Any]],
-        availability: Dict[str, bool]
-    ) -> Dict[str, Any]:
+        insights: Dict[str, List[str]],
+        availability: Dict[str, bool],
+        language: Literal['en', 'de'] = 'en'
+    ) -> RecommendationsSection:
         """
         Generate recommendations section
         
-        Requires sentiment analysis to have been run
+        Displays business insights as recommendations
         """
-        if not availability['has_sentiment']:
-            section = RecommendationsSection(
+        if not availability['has_insights']:
+            return RecommendationsSection(
                 available=False,
-                message='No sentiment analysis data available. Run sentiment analysis tool first.',
+                message='No insights available for recommendations',
                 content=None
             )
-            return section.model_dump(exclude_none=True)
         
-        
-        # Generate recommendations based on sentiment patterns
+        # Convert insights to Recommendation objects
         recommendations = []
         
-        # Sentiment distribution
-        sentiments = [r.get('sentiment') for r in records if r.get('sentiment')]
-        sent_counts = Counter(sentiments)
-        total = len(sentiments) or 1
+        for category, insight_list in insights.items():
+            for insight in insight_list:
+                # Determine priority and impact based on insight content
+                insight_lower = insight.lower()
+                
+                # Get language-specific keywords
+                high_priority_keywords, low_priority_keywords = self._get_priority_keywords(language)
+                high_impact_keywords, low_impact_keywords = self._get_impact_keywords(language)
+                
+                # Determine priority - how urgent/important is this action?
+                high_priority_count = sum(1 for keyword in high_priority_keywords if keyword in insight_lower)
+                low_priority_count = sum(1 for keyword in low_priority_keywords if keyword in insight_lower)
+                
+                if high_priority_count > low_priority_count:
+                    priority = 'high'
+                elif low_priority_count > high_priority_count:
+                    priority = 'low'
+                else:
+                    priority = 'medium'
+                
+                # Determine impact - what's the potential effect/benefit?
+                high_impact_count = sum(1 for keyword in high_impact_keywords if keyword in insight_lower)
+                low_impact_count = sum(1 for keyword in low_impact_keywords if keyword in insight_lower)
+                
+                if high_impact_count > low_impact_count:
+                    impact = 'high'
+                elif low_impact_count > high_impact_count:
+                    impact = 'low'
+                else:
+                    impact = 'medium'
+                
+                recommendations.append(Recommendation(
+                    category=category,
+                    recommendation=insight,
+                    priority=priority,
+                    impact=impact
+                ))
         
-        negative_pct = (sent_counts.get('negative', 0) / total) * 100
-        positive_pct = (sent_counts.get('positive', 0) / total) * 100
-        
-        if negative_pct > 30:
-            rec = Recommendation(
-                priority='high',
-                category='Customer Satisfaction',
-                recommendation='Address common complaints in negative reviews to improve customer satisfaction',
-                impact='Could reduce negative sentiment by targeting key pain points'
-            )
-            recommendations.append(rec)
-        
-        if positive_pct > 70:
-            rec = Recommendation(
-                priority='medium',
-                category='Marketing',
-                recommendation='Leverage positive reviews in marketing materials and testimonials',
-                impact='Capitalize on strong customer satisfaction to attract new customers'
-            )
-            recommendations.append(rec)
-        
-        # Rating-based recommendations
-        ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
-        if ratings:
-            avg_rating = sum(ratings) / len(ratings)
-            low_ratings = sum(1 for r in ratings if r <= 2)
-            low_pct = (low_ratings / len(ratings)) * 100
-            
-            if avg_rating < 3.5:
-                rec = Recommendation(
-                    priority='high',
-                    category='Product Quality',
-                    recommendation='Investigate product quality issues causing low ratings',
-                    impact='Critical for brand reputation and customer retention'
-                )
-                recommendations.append(rec)
-            
-            if low_pct > 20:
-                rec = Recommendation(
-                    priority='high',
-                    category='Customer Service',
-                    recommendation='Implement proactive customer service for 1-2 star reviewers',
-                    impact='May recover dissatisfied customers and prevent churn'
-                )
-                recommendations.append(rec)
-        
-        # Verification-based
-        verified = sum(1 for r in records if r.get('verified_purchase'))
-        verified_pct = (verified / len(records)) * 100 if records else 0
-        
-        if verified_pct < 50:
-            rec = Recommendation(
-                priority='medium',
-                category='Data Quality',
-                recommendation='Encourage verified purchases to improve review authenticity',
-                impact='Increases trust and credibility of review data'
-            )
-            recommendations.append(rec)
-        
-        # Theme-based (if available)
-        if availability['has_themes']:
-            rec = Recommendation(
-                priority='medium',
-                category='Product Development',
-                recommendation='Focus improvements on most-mentioned themes in reviews',
-                impact='Aligns product development with customer priorities'
-            )
-            recommendations.append(rec)
-        
-        # Default if no specific recommendations
-        if not recommendations:
-            rec = Recommendation(
-                priority='low',
-                category='Analysis',
-                recommendation='Continue monitoring review trends over time',
-                impact='Maintains awareness of customer sentiment changes'
-            )
-            recommendations.append(rec)
-        
+        # --- Normalize labels per category when all are identical ---
+        from collections import defaultdict
+
+        # Group recommendation indexes by category
+        by_category = defaultdict(list)
+        for idx, rec in enumerate(recommendations):
+            by_category[rec.category].append(idx)
+
+        order = ["low", "medium", "high"]
+        def bump(level: str) -> str:
+            # raise one step; cap at "high"
+            i = order.index(level)
+            return order[min(i + 1, len(order) - 1)]
+
+        for category, idx_list in by_category.items():
+            if not idx_list:
+                continue
+
+            # Check both attributes independently
+            for attr in ("priority", "impact"):
+                levels = [getattr(recommendations[i], attr) for i in idx_list]
+                unique = set(levels)
+                if len(unique) == 1:
+                    only = levels[0]
+                    if only == "high":
+                        # If all are high -> make LAST one low
+                        last_idx = idx_list[-1]
+                        setattr(recommendations[last_idx], attr, "medium")
+                    else:
+                        # If all are medium or all are low -> bump FIRST one up one level
+                        first_idx = idx_list[0]
+                        setattr(recommendations[first_idx], attr, bump(only))
+
+
         content = RecommendationsContent(
             recommendations=recommendations,
             total_recommendations=len(recommendations),
@@ -672,82 +1037,89 @@ Provide 3-5 key takeaways as bullet points!"""
             generated_at=time.strftime('%Y-%m-%d %H:%M:%S')
         )
         
-        section = RecommendationsSection(
+        return RecommendationsSection(
             available=True,
             content=content
         )
-        
-        return section.model_dump(exclude_none=True)
     
     def _generate_statistics_section(
         self,
         data: Dict[str, Any],
         sentiment_statistics: Dict[str, Any],
         availability: Dict[str, bool],
+        category: Literal['shoes', 'wireless'],
         metrics: List[str],
         show_visualizations: bool
-    ) -> Dict[str, Any]:
+    ) -> StatisticsSection:
         """
-        Generate statistics section with optional visualizations
+        Generate statistics section
         
-        Calculates requested metrics and generates charts if requested
+        Calculates requested metrics and optionally generates visualizations
         """
         if not availability['has_records']:
-            section = StatisticsSection(
+            return StatisticsSection(
                 available=False,
                 message='No data available for statistics',
                 content=None
             )
-            return section.model_dump(exclude_none=True)
         
         records = data.get('records', [])
         statistics = {}
         
-        # Calculate each requested metric
+        # Calculate requested metrics
         for metric in metrics:
             if metric == 'sentiment_distribution':
-                
-                dist = SentimentDistribution(
-                    available=False,
-                    message='No sentiment data'
-                )
-
-                if availability['has_sentiment']:                    
+                if sentiment_statistics:
                     dist = SentimentDistribution(
                         available=True,
-                        total_analyzed=len(sentiment_statistics.get('total')),
+                        total_analyzed=int(sentiment_statistics.get('total', 0)),
                         distribution={
                             'positive': SentimentDistributionData(
-                                count=sentiment_statistics.get('positive'),
-                                percentage=sentiment_statistics.get('percentage',{}).get('positive')
+                                count=int(sentiment_statistics.get('positive', 0)),
+                                percentage=float(sentiment_statistics.get('percentages', {}).get('positive', 0.0))
                             ),
                             'neutral': SentimentDistributionData(
-                                count=sentiment_statistics.get('neutral'),
-                                percentage=sentiment_statistics.get('percentage',{}).get('neutral')
+                                count=int(sentiment_statistics.get('neutral', 0)),
+                                percentage=float(sentiment_statistics.get('percentages', {}).get('neutral', 0.0))
                             ),
                             'negative': SentimentDistributionData(
-                                count=sentiment_statistics.get('negative'),
-                                percentage=sentiment_statistics.get('percentage',{}).get('negative')
+                                count=int(sentiment_statistics.get('negative', 0)),
+                                percentage=float(sentiment_statistics.get('percentages', {}).get('negative', 0.0))
                             )
                         }
                     )
+                else:
+                    # Fallback when sentiment_statistics is None/missing
+                    dist = SentimentDistribution(
+                        available=False,
+                        message='No sentiment analysis data available',
+                        total_analyzed=0,
+                        distribution={}
+                    )
 
-                statistics['sentiment_distribution']= dist.model_dump(exclude_none=True)
+                statistics['sentiment_distribution'] = dist.model_dump(exclude_none=True)
             
             elif metric == 'review_summary':
-                statistics['review_summary'] = self._calc_review_summary(records)
+                statistics['review_summary'] = self._calc_review_summary(records=records).model_dump(exclude_none=True)
             
             elif metric == 'rating_distribution':
-                statistics['rating_distribution'] = self._calc_rating_distribution(records)
+                statistics['rating_distribution'] = self._calc_rating_distribution(records=records).model_dump(exclude_none=True)
             
             elif metric == 'verified_rate':
-                statistics['verified_rate'] = self._calc_verified_rate(records)
+                statistics['verified_rate'] = self._calc_verified_rate(records=records).model_dump(exclude_none=True)
             
             elif metric == 'theme_coverage':
-                statistics['theme_coverage'] = self._calc_theme_coverage(records, availability)
+                statistics['theme_coverage'] = self._calc_theme_coverage(
+                    records=records, 
+                    category=category, 
+                    availability=availability
+                ).model_dump(exclude_none=True)
             
             elif metric == 'sentiment_consistency':
-                statistics['sentiment_consistency'] = self._calc_sentiment_consistency(records, availability)
+                statistics['sentiment_consistency'] = self._calc_sentiment_consistency(
+                    records=records, 
+                    availability=availability
+                ).model_dump(exclude_none=True)
         
         # Generate visualizations if requested
         visualizations = None
@@ -761,40 +1133,34 @@ Provide 3-5 key takeaways as bullet points!"""
             has_visualizations=show_visualizations and visualizations is not None
         )
         
-        section = StatisticsSection(
+        return StatisticsSection(
             available=True,
             content=content
         )
-        
-        return section.model_dump(exclude_none=True)
-
     
-    def _calc_review_summary(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _calc_review_summary(self, records: List[Dict[str, Any]]) -> ReviewSummary:
         """Calculate general review statistics"""
-        summary = ReviewSummary(
+        return ReviewSummary(
             available=True,
             total_reviews=len(records),
             avg_review_body_length=sum(len(r.get('review_body', '')) for r in records) / len(records) if records else 0,
             avg_review_headline_length=sum(len(r.get('review_headline', '')) for r in records) / len(records) if records else 0,
             verified_count=sum(1 for r in records if r.get('verified_purchase')),
         )
-        
-        return summary.model_dump(exclude_none=True)
     
-    def _calc_rating_distribution(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _calc_rating_distribution(self, records: List[Dict[str, Any]]) -> RatingDistribution:
         """Calculate rating distribution statistics"""
         ratings = [r.get('star_rating') for r in records if r.get('star_rating')]
         
         if not ratings:
-            dist = RatingDistribution(
+            return RatingDistribution(
                 available=False,
                 message='No rating data'
             )
-            return dist.model_dump(exclude_none=True)
         
         rating_counts = Counter(ratings)
         
-        dist = RatingDistribution(
+        return RatingDistribution(
             available=True,
             total_rated=len(ratings),
             average_rating=sum(ratings) / len(ratings),
@@ -806,65 +1172,57 @@ Provide 3-5 key takeaways as bullet points!"""
                 for rating in [1, 2, 3, 4, 5]
             }
         )
-        
-        return dist.model_dump(exclude_none=True)
     
-    def _calc_verified_rate(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _calc_verified_rate(self, records: List[Dict[str, Any]]) -> VerifiedRate:
         """Calculate verified purchase rate"""
         total = len(records)
         verified = sum(1 for r in records if r.get('verified_purchase'))
         
-        rate = VerifiedRate(
+        return VerifiedRate(
             available=True,
             total_reviews=total,
             verified_count=verified,
             verified_percentage=(verified / total * 100) if total > 0 else 0,
             non_verified_count=total - verified
         )
-        
-        return rate.model_dump(exclude_none=True)
     
     def _calc_theme_coverage(
         self,
         records: List[Dict[str, Any]],
         category: Literal['shoes', 'wireless'],
         availability: Dict[str, bool]
-    ) -> Dict[str, Any]:
+    ) -> ThemeCoverage:
         """Calculate theme coverage statistics"""
-        if not availability['has_themes'] and not availability['has_sentiment']:
-            coverage = ThemeCoverage(
+        if not availability['has_themes']:
+            return ThemeCoverage(
                 available=False,
                 message='No theme data'
             )
-            return coverage.model_dump(exclude_none=True)
         
-        themes = self._extract_themes_from_sentiment(records, category)
-        
-        coverage = ThemeCoverage(
+        # Theme coverage is calculated from theme_analysis data, not individual records
+        # This metric would need to be passed from the aggregated theme_analysis
+        return ThemeCoverage(
             available=True,
-            total_themes_identified=len(themes),
-            top_themes=themes[:3],
+            total_themes_identified=0,
+            top_themes=[],
             reviews_with_themes=len(records)
         )
-        
-        return coverage.model_dump(exclude_none=True)
     
     def _calc_sentiment_consistency(
         self,
         records: List[Dict[str, Any]],
         availability: Dict[str, bool]
-    ) -> Dict[str, Any]:
+    ) -> SentimentConsistency:
         """
         Calculate sentiment consistency
         
         Measures how well sentiment aligns with ratings
         """
         if not availability['has_sentiment']:
-            consistency = SentimentConsistency(
+            return SentimentConsistency(
                 available=False,
                 message='No sentiment data'
             )
-            return consistency.model_dump(exclude_none=True)
         
         # Count alignment between rating and sentiment
         aligned = 0
@@ -887,7 +1245,7 @@ Provide 3-5 key takeaways as bullet points!"""
         
         total = aligned + misaligned
         
-        consistency = SentimentConsistency(
+        return SentimentConsistency(
             available=True,
             total_compared=total,
             aligned_count=aligned,
@@ -895,27 +1253,24 @@ Provide 3-5 key takeaways as bullet points!"""
             consistency_percentage=(aligned / total * 100) if total > 0 else 0,
             note='Measures alignment between star ratings and sentiment'
         )
-        
-        return consistency.model_dump(exclude_none=True)
     
     def _generate_data_preview_section(
         self,
-        records:List[Dict[str, Any]],
+        records: List[Dict[str, Any]],
         availability: Dict[str, bool],
         max_items: int
-    ) -> Dict[str, Any]:
+    ) -> DataPreviewSection:
         """
         Generate data preview section
         
         Shows sample of raw records
         """
         if not availability['has_records']:
-            section = DataPreviewSection(
+            return DataPreviewSection(
                 available=False,
                 message='No data available for preview',
                 content=None
             )
-            return section.model_dump(exclude_none=True)
         
         # Limit to max_items
         preview_records = records[:max_items]
@@ -927,9 +1282,7 @@ Provide 3-5 key takeaways as bullet points!"""
             showing_all=len(records) <= max_items
         )
         
-        section = DataPreviewSection(
+        return DataPreviewSection(
             available=True,
             content=content
         )
-        
-        return section.model_dump(exclude_none=True)

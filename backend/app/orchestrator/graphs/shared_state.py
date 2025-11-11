@@ -6,8 +6,6 @@ Architecture:
 - State schema: TypedDict (required by LangGraph)
 - Internal models: Pydantic BaseModel (for validation/structure)
 - Best of both worlds: LangGraph compatibility + validation
-
-Key insight: LangGraph state uses TypedDict, but internal storage can use Pydantic!
 """
 from typing import TypedDict, List, Dict, Any, Optional, Set, Literal
 from datetime import datetime, timezone
@@ -114,10 +112,6 @@ class RecordStore(BaseModel):
         self.category = category
         self.record_index = {r['review_id']: idx for idx, r in enumerate(optimized_records)}
         
-        logger.info(
-            f"✓ RecordStore: {self.total} records, "
-            f"{len(self.product_titles)} unique products"
-        )
     
     def update_records(self, new_records: List[Dict[str, Any]]) -> RowOperation:
         """
@@ -137,8 +131,6 @@ class RecordStore(BaseModel):
         
         rows_after = self.total
         rows_removed = rows_before - rows_after
-        
-        logger.info(f"✓ Records updated: {rows_before} → {rows_after} rows ({rows_removed} removed)")
         
         return RowOperation(
             tool_id='',  # Will be set by caller
@@ -252,6 +244,12 @@ class SharedWorkflowState(TypedDict, total=False):
     # Experimental condition: determines execution paradigm
     condition: Literal['workflow_builder', 'ai_assistant']
     
+    # Dataset to use, predetermine by Task assignment for AI Assistant
+    category: Literal['shoes','wireless']
+
+    # Language selected by user
+    language: Literal['en','de']
+
     # Current step number in execution (0-indexed, increments with each node)
     step_number: int
     
@@ -365,6 +363,8 @@ class SharedWorkflowState(TypedDict, total=False):
     # Stores context from previous steps for coherent execution
     # None for Workflow Builder condition
     agent_memory: Optional[List[Dict[str, Any]]]
+
+    messages: List[Dict[str, Any]]  # LangChain message history
     
     # Smart verbosity escalation counter (AI Assistant only)
     # Tracks LLM decision retry attempts for progressive verbosity increase
@@ -403,7 +403,9 @@ class AgentDecision(TypedDict):
 def initialize_state(
     execution_id: int,
     session_id: str,
-    condition: Literal['workflow_builder', 'ai_assistant']
+    condition: Literal['workflow_builder', 'ai_assistant'],
+    category: Literal['shoes','wireless'],
+    language: Literal['en','de']
 ) -> SharedWorkflowState:
     """
     Create new state with defaults
@@ -414,6 +416,8 @@ def initialize_state(
         'execution_id': execution_id,
         'session_id': session_id,
         'condition': condition,
+        'category': category,
+        'language': language,
         'step_number': 0,
         'current_node': '',
         'status': 'running',
@@ -448,6 +452,7 @@ def initialize_state(
         'task_description': None,
         'agent_plan': [],
         'agent_memory': [],
+        'messages': [], 
         'decision_retry_count': 0,
 
         'metadata': {}
@@ -457,7 +462,7 @@ def initialize_state(
 def initialize_records(
     state: SharedWorkflowState,
     records: List[Dict[str, Any]],
-    category: str,
+    category: Optional[str] = None,
     sql_query: Optional[str] = None,
     query_params: Optional[Dict[str, Any]] = None
 ):
@@ -473,6 +478,9 @@ def initialize_records(
     
     Modifies state in-place (LangGraph pattern)
     """
+
+    category = state.get('category')
+
     # Store SQL reference (source of truth)
     if sql_query:
         data_source = DataSource(
@@ -483,7 +491,6 @@ def initialize_records(
             can_reload=True
         )
         state['data_source'] = data_source.model_dump()
-        logger.info(f"✓ SQL reference stored: {len(records)} rows from query")
     
     # Create Pydantic model for validation + deduplication
     record_store = RecordStore()
@@ -608,13 +615,6 @@ def apply_row_modification(
     # Track operation in history
     state['row_operation_history'].append(operation.model_dump())
     
-    logger.info(
-        f"✓ Row modification: {tool_name} reduced dataset from "
-        f"{operation.rows_before} to {operation.rows_after} rows "
-        f"({operation.rows_removed} removed, "
-        f"{operation.rows_after/operation.rows_before*100:.1f}% remaining)"
-    )
-
 
 def get_input_data(state: SharedWorkflowState) -> Dict[str, Any]:
     """Get input data from state"""
@@ -684,6 +684,15 @@ def get_row_operation_summary(state: SharedWorkflowState) -> Dict[str, Any]:
     """
     operations = state.get('row_operation_history', [])
     
+    # Handle case where operations might be a JSON string
+    if isinstance(operations, str):
+        import json
+        try:
+            operations = json.loads(operations) if operations else []
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse row_operation_history: {operations[:100]}")
+            operations = []
+
     if not operations:
         return {
             'total_operations': 0,
@@ -693,28 +702,38 @@ def get_row_operation_summary(state: SharedWorkflowState) -> Dict[str, Any]:
             'reduction_pct': 0.0
         }
     
-    initial_rows = operations[0]['rows_before']
-    current_rows = operations[-1]['rows_after']
-    total_removed = sum(op['rows_removed'] for op in operations)
-    reduction_pct = (total_removed / initial_rows * 100) if initial_rows > 0 else 0
-    
-    return {
-        'total_operations': len(operations),
-        'initial_rows': initial_rows,
-        'current_rows': current_rows,
-        'total_removed': total_removed,
-        'reduction_pct': reduction_pct,
-        'operations': [
-            {
-                'tool_name': op['tool_name'],
-                'operation_type': op['operation_type'],
-                'rows_before': op['rows_before'],
-                'rows_after': op['rows_after'],
-                'rows_removed': op['rows_removed']
-            }
-            for op in operations
-        ]
-    }
+    try:
+        initial_rows = operations[0]['rows_before']
+        current_rows = operations[-1]['rows_after']
+        total_removed = sum(op['rows_removed'] for op in operations)
+        reduction_pct = (total_removed / initial_rows * 100) if initial_rows > 0 else 0
+        
+        return {
+            'total_operations': len(operations),
+            'initial_rows': initial_rows,
+            'current_rows': current_rows,
+            'total_removed': total_removed,
+            'reduction_pct': reduction_pct,
+            'operations': [
+                {
+                    'tool_name': op['tool_name'],
+                    'operation_type': op['operation_type'],
+                    'rows_before': op['rows_before'],
+                    'rows_after': op['rows_after'],
+                    'rows_removed': op['rows_removed']
+                }
+                for op in operations
+            ]
+        }
+    except (KeyError, TypeError, IndexError) as e:
+        logger.warning(f"Failed to parse row_operation_history structure: {str(e)[:100]}")
+        return {
+            'total_operations': 0,
+            'initial_rows': state.get('base_record_count', 0),
+            'current_rows': state.get('base_record_count', 0),
+            'total_removed': 0,
+            'reduction_pct': 0.0
+        }
 
 
 def get_data_source_info(state: SharedWorkflowState) -> Optional[Dict[str, Any]]:
@@ -739,200 +758,3 @@ def get_data_source_info(state: SharedWorkflowState) -> Optional[Dict[str, Any]]
         'can_reload': data_source['can_reload'],
         'executed_at': data_source['executed_at']
     }
-
-
-# ============================================================
-# USAGE EXAMPLE
-# ============================================================
-
-"""
-# EXAMPLE 1: Load reviews with SQL reference
-
-async def load_reviews_node(state: SharedWorkflowState):
-    # Build SQL query
-    sql_query = '''
-        SELECT review_id, product_id, product_title,
-               star_rating, review_body, verified_purchase
-        FROM reviews
-        WHERE category = :category
-        AND star_rating >= :min_rating
-        LIMIT :limit
-    '''
-    query_params = {
-        'category': 'headphones',
-        'min_rating': 3,
-        'limit': 2000
-    }
-    
-    # Execute query
-    records = await db.execute(sql_query, query_params)
-    
-    # Initialize with SQL reference + deduplication
-    initialize_records(
-        state,
-        records=records,
-        category='headphones',
-        sql_query=sql_query,  # ← Store for reload
-        query_params=query_params
-    )
-    
-    # SQL reference now stored in state!
-    # Can reload from DB anytime: await reload_from_source(state, db)
-    
-    return state
-
-
-# EXAMPLE 2: Filter reviews (category='data' tool - can modify rows!)
-
-async def filter_reviews_node(state: SharedWorkflowState):
-    # Get current data (product titles reconstructed automatically)
-    data = get_working_data_dict(state)
-    records = data['records']
-    
-    logger.info(f"Filtering {len(records)} reviews...")
-    
-    # Apply filters
-    filtered = []
-    for record in records:
-        # Filter by rating
-        if record['star_rating'] < 4:
-            continue
-        
-        # Filter by verified purchase
-        if not record.get('verified_purchase'):
-            continue
-        
-        # Filter by review length
-        if len(record.get('review_body', '')) < 100:
-            continue
-        
-        filtered.append(record)
-    
-    # Apply row modification (DESTRUCTIVE - replaces records)
-    apply_row_modification(
-        state,
-        tool_name='Filter Reviews',
-        tool_id='filter_reviews',
-        filtered_records=filtered,
-        operation_type='filter',
-        criteria={
-            'min_rating': 4,
-            'verified_only': True,
-            'min_text_length': 100
-        },
-        execution_time_ms=50
-    )
-    
-    # Records now reduced! (e.g. 2000 → 500)
-    # Row operation tracked in state['row_operation_history']
-    
-    logger.info(f"✓ Filtered to {len(filtered)} reviews")
-    
-    return state
-
-
-# EXAMPLE 3: Clean reviews (category='data' tool - can modify rows!)
-
-async def clean_reviews_node(state: SharedWorkflowState):
-    data = get_working_data_dict(state)
-    records = data['records']
-    
-    # Remove duplicates and invalid records
-    cleaned = []
-    seen_ids = list())
-    
-    for record in records:
-        # Skip duplicates
-        if record['review_id'] in seen_ids:
-            continue
-        seen_ids.add(record['review_id'])
-        
-        # Skip empty reviews
-        if not record.get('review_body') or len(record['review_body'].strip()) < 10:
-            continue
-        
-        cleaned.append(record)
-    
-    # Apply row modification
-    apply_row_modification(
-        state,
-        tool_name='Clean Reviews',
-        tool_id='clean_reviews',
-        filtered_records=cleaned,
-        operation_type='clean',
-        criteria={'remove_duplicates': True, 'min_length': 10}
-    )
-    
-    # Records further reduced! (e.g. 500 → 450)
-    
-    return state
-
-
-# EXAMPLE 4: Sentiment analysis (category='analysis' tool - adds columns only!)
-
-async def sentiment_node(state: SharedWorkflowState):
-    # Get working data (now only 450 records after filtering!)
-    data = get_working_data_dict(state)
-    
-    # Analyze sentiment (works on filtered data = faster!)
-    column_data = {}
-    for record in data['records']:
-        sentiment = await analyze(record['review_body'])
-        column_data[record['review_id']] = {
-            'sentiment': sentiment['label'],
-            'sentiment_score': sentiment['score']
-        }
-    
-    # Apply enrichment (additive - doesn't modify rows)
-    apply_enrichment(
-        state,
-        tool_name='Sentiment Analysis',
-        tool_id='sentiment_analysis',
-        column_data=column_data,
-        columns_added=['sentiment', 'sentiment_score']
-    )
-    
-    return state
-
-
-# EXAMPLE 5: Check row operation history
-
-async def summary_node(state: SharedWorkflowState):
-    # Get operation summary
-    summary = get_row_operation_summary(state)
-    
-    print(f"Operations: {summary['total_operations']}")
-    print(f"Initial rows: {summary['initial_rows']}")
-    print(f"Current rows: {summary['current_rows']}")
-    print(f"Total removed: {summary['total_removed']}")
-    print(f"Reduction: {summary['reduction_pct']:.1f}%")
-    
-    for op in summary['operations']:
-        print(f"  - {op['tool_name']}: {op['rows_before']} → {op['rows_after']}")
-    
-    # Output:
-    # Operations: 2
-    # Initial rows: 2000
-    # Current rows: 450
-    # Total removed: 1550
-    # Reduction: 77.5%
-    #   - Filter Reviews: 2000 → 500
-    #   - Clean Reviews: 500 → 450
-    
-    return state
-
-
-# EXAMPLE 6: Check SQL reference
-
-async def info_node(state: SharedWorkflowState):
-    # Get data source info
-    source = get_data_source_info(state)
-    
-    if source:
-        print(f"SQL Query: {source['sql_query']}")
-        print(f"Parameters: {source['query_params']}")
-        print(f"Initial rows: {source['row_count_at_load']}")
-        print(f"Can reload: {source['can_reload']}")
-    
-    return state
-"""

@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field
 
 from ..degradation import graceful_degradation
 
-from .client import llm_client
+#from .client import llm_client
+from .client_langchain import get_llm_client
+
 from .tool_schemas import (
     AgentDecision, 
     ToolValidator, 
@@ -96,11 +98,11 @@ class DecisionMaker:
         self.enable_streaming = enable_streaming
         
         # Production LLM client (circuit breaker, retry, caching, metrics)
-        self.production_client = llm_client
+        self.production_client = get_llm_client()
         
         # LangChain LLM with structured output
         self.langchain_llm = ChatOpenAI(
-            model=settings.openai_model_name,
+            model=settings.llm_model,
             temperature=0.0,
             api_key=settings.openai_api_key,
             streaming=enable_streaming
@@ -228,7 +230,7 @@ class DecisionMaker:
             logger.info(f"🤔 Making decision (step {state.get('step_number', 0)})")
             
             # Get decision from LLM WITH STREAMING
-            response = await llm_client.get_structured_decision(
+            response = await self.production_client.get_structured_output(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 expected_fields=['action', 'reasoning', 'tool_name', 'confidence'],

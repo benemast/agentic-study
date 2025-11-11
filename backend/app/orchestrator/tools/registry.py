@@ -3,7 +3,7 @@
 Centralized Tool Registry - Single Source of Truth for All Tools
 
 This registry serves as the ONLY place where tools are defined.
-Both WorkflowBuilderGraph and AIAssistantGraph use this registry.
+Both WorkflowBuilderGraph and AIAssistantAgent use this registry.
 
 Adding a new tool:
 1. Create tool class in data_tools.py or analysis_tools.py
@@ -61,14 +61,15 @@ class ToolDefinition:
         description: str,
         category: str,
         requires_data: bool = False,
-        parameter_schema_name: Optional[str] = None,
+        parameter_schema_name: str | None = None,
+        output_schema_name: str | None = None,
         position_constraint: ToolPosition = ToolPosition.MIDDLE,
         # LLM Guidance Fields
-        prerequisites: Optional[List[str]] = None,
-        estimated_time: Optional[str] = None,
-        optimal_dataset_size: Optional[str] = None,
-        when_to_use: Optional[str] = None,
-        when_not_to_use: Optional[str] = None,
+        prerequisites: List[str] | None = None,
+        estimated_time: str | None = None,
+        optimal_dataset_size: str | None = None,
+        when_to_use: str | None = None,
+        when_not_to_use: str | None = None,
     ):
         """
         Define a tool with all its metadata
@@ -81,6 +82,7 @@ class ToolDefinition:
             description: What the tool does and how it works
             category: Tool category ('input', 'data', 'analysis', 'output')
             requires_data: Whether tool needs existing data to run
+            parameter_schema_name: Name of Pydantic schema in tool_schemas.py describing input parameter
             parameter_schema_name: Name of Pydantic schema in tool_schemas.py
             position_constraint: Where tool can be placed in workflow
             prerequisites: List of tool IDs that must run before this tool
@@ -97,6 +99,7 @@ class ToolDefinition:
         self.category = category
         self.requires_data = requires_data
         self.parameter_schema_name = parameter_schema_name
+        self.output_schema_name = output_schema_name
         self.position_constraint = position_constraint
         
         # Enhanced LLM Guidance
@@ -571,7 +574,7 @@ class ToolRegistry:
             self._by_workflow_id[tool_def.workflow_id] = tool_def
             self._by_ai_id[tool_def.ai_id] = tool_def
         
-        logger.info(f"✅ Tool Registry initialized with {len(TOOL_DEFINITIONS)} tools")
+        logger.info(f"Tool Registry initialized with {len(TOOL_DEFINITIONS)} tools")
     
     # ==================== WORKFLOW BUILDER ACCESS ====================
     
@@ -604,7 +607,7 @@ class ToolRegistry:
         """
         Get tool by AI Assistant ID (e.g., 'load_reviews')
         
-        Used by: AIAssistantGraph
+        Used by: AIAssistantAgent
         """
         tool_def = self._by_ai_id.get(ai_id)
         if tool_def:
@@ -616,7 +619,7 @@ class ToolRegistry:
         Get complete AI tool registry
         
         Returns: {'load_reviews': LoadReviewsTool(), ...}
-        Used by: AIAssistantGraph.AVAILABLE_TOOLS
+        Used by: AIAssistantAgent.AVAILABLE_TOOLS
         """
         return {
             tool_def.ai_id: tool_def.instance

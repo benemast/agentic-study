@@ -102,15 +102,17 @@ class WebSocketManager:
         # Graph level
         'node',
         # Tool level
-        'tool'
+        'tool',
+        # Agent level
+        'agent'
     })
 
     MESSAGE_SUBTYPES = frozenset({
-        'start','progress','end', 'error'
+        'start','progress','end', 'error', 'chat'
     })
 
     MESSAGE_STATUS = frozenset({
-        'start', 'running', 'completed', 'failed', 'exception'
+        'start', 'running', 'completed', 'failed', 'exception', 'LLM_handoff'
     })
 
     STREAMING_TYPES = frozenset({
@@ -136,6 +138,11 @@ class WebSocketManager:
         'execution_error',
         'graph_error',
         'tool_error'
+
+        'execution',
+        'node',
+        'tool',
+        'agent'
     })
     
     SEND_IMMEDIATE_SUBTYPES = frozenset({
@@ -341,7 +348,6 @@ class WebSocketManager:
             )
         else:
             await self._send_to_connections(connections, message)
-
 
 
     def _should_send_immediate(
@@ -650,22 +656,22 @@ class WebSocketManager:
     
     # ==================== ORCHESTRATOR INTEGRATION ====================
     
-    # Used by Orchestrator service
-    async def send_execution_progress(
+    async def send_progess_message(
         self,
         session_id: str,
         execution_id: int,
         condition: Literal['ai_assistant', 'workflow_builder'],
-        progress_type: Literal['start','progress','end', 'error'],
+        message_type:str,
+        subtype: Literal['start','progress','end', 'error'],
         status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
         data: Optional[Dict[str, Any]] = None,
-        priority: Literal['low', 'normla','high'] = 'normal'
-    )-> None: 
-        """Send execution progress update"""
-        
+        priority: Literal['low', 'normal','high'] = 'normal',
+        immediate: bool = False
+    ) -> None: 
+            
         message = {
-            'type': 'execution',
-            'subtype': progress_type,
+            'type': message_type,
+            'subtype': subtype,
             'execution_id': execution_id,
             'condition': condition,
             'status': status,
@@ -676,8 +682,33 @@ class WebSocketManager:
             message['data'] = data
                 
         await self.send_to_session(
+            session_id=session_id, 
+            message=message, 
+            priority=priority,
+            immediate=immediate
+        )
+
+    # Used by Orchestrator service
+    async def send_execution_progress(
+        self,
+        session_id: str,
+        execution_id: int,
+        condition: Literal['ai_assistant', 'workflow_builder'],
+        progress_type: Literal['start','progress','end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
+        data: Optional[Dict[str, Any]] = None,
+        priority: Literal['low', 'normal','high'] = 'normal'
+    )-> None: 
+        """Send execution progress update"""
+        
+        await self.send_progess_message(
             session_id=session_id,
-            message=message,
+            execution_id=execution_id,
+            condition=condition,
+            message_type='execution',
+            subtype=progress_type,
+            status=status,
+            data=data,
             priority=priority
         )
 
@@ -690,63 +721,46 @@ class WebSocketManager:
         progress_type: Literal['start','progress','end', 'error'],
         status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
         data: Optional[Dict[str, Any]] = None,
-        priority: Literal['low', 'normla', 'high'] = 'normal'
+        priority: Literal['low', 'normal', 'high'] = 'normal'
     )-> None: 
         """Send execution progress update"""
-        
-        message = {
-            'type': 'node',
-            'subtype': progress_type,
-            'status': status,
-            'execution_id': execution_id,
-            'condition': condition,
-            'timestamp': datetime.now(timezone.utc).isoformat()
-        }
-
-        if data:
-            message['data'] = data
-                
-        await self.send_to_session(
-            session_id, 
-            message, 
-            priority
+    
+        await self.send_progess_message(
+            session_id=session_id,
+            execution_id=execution_id,
+            condition=condition,
+            message_type='node',
+            subtype=progress_type,
+            status=status,
+            data=data,
+            priority=priority
         )
     
-    async def send_agent_decision(
+    # Used by Agent
+    async def send_agent_progress(
         self,
         session_id: str,
         execution_id: int,
-        step_number: int,
-        decision: Dict[str, Any]
+        progress_type: Literal['start', 'progress', 'end', 'error'],
+        status: Literal['start', 'running', 'completed', 'failed', 'exception'] | str,
+        data: Optional[Dict[str, Any]] = None,
+        priority: Literal['low', 'normal', 'high'] = 'normal',
+        immediate: bool = False
     ):
         """Send AI agent decision update"""
-        message = {
-            'type': 'agent_decision',
-            'execution_id': execution_id,
-            'step_number': step_number,
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'decision': decision
-        }
-        
-        await self.send_to_session(session_id, message, priority='normal')
-    
-    async def send_agent_thinking(
-        self,
-        session_id: str,
-        execution_id: int,
-        thinking: Dict[str, Any]
-    ):
-        """Send agent thinking/reasoning update"""
-        message = {
-            'type': 'agent_thinking',
-            'execution_id': execution_id,
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'thinking': thinking
-        }
-        
-        await self.send_to_session(session_id, message, priority='normal')
-    
 
+        await self.send_progess_message(
+            session_id=session_id,
+            execution_id=execution_id,
+            condition='ai_assistant',
+            message_type='agent',
+            subtype=progress_type,
+            status=status,
+            data=data,
+            priority=priority,
+            immediate=immediate
+        )
+    
     # ==================== BATCH CONTROL ====================
     
     async def flush_session_batches(self, session_id: str) -> int:

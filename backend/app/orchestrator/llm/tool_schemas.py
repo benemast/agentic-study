@@ -4,9 +4,11 @@ Tool schemas and validation for AI Assistant
 integrated with centralized tool registry
 """
 from typing import List, Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 import logging
+
+from app.orchestrator.graphs.shared_state import DataSource
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,6 @@ class ActionType(str, Enum):
     SORT = "sort"
     FILTER = "filter"
     ANALYZE = "analyze"
-
     GATHER = "gather"
     CLEAN = "clean"
     COMBINE = "combine"
@@ -35,30 +36,10 @@ class LoadReviewsParams(BaseModel):
     
     Used to fetch product reviews with various filters
     """
-    category: str = Field(
+    category: Literal['shoes', 'wireless'] = Field(
         ..., 
         description="Product category: 'shoes' or 'wireless'",
         pattern="^(shoes|wireless)$"
-    )
-    product_id: Optional[str] = Field(
-        None,
-        description="Specific product ID to filter by"
-    )
-    min_rating: Optional[int] = Field(
-        None,
-        ge=1,
-        le=5,
-        description="Minimum star rating (1-5)"
-    )
-    max_rating: Optional[int] = Field(
-        None,
-        ge=1,
-        le=5,
-        description="Maximum star rating (1-5)"
-    )
-    verified_only: Optional[bool] = Field(
-        None,
-        description="Only include verified purchases"
     )
     limit: Optional[int] = Field(
         None,
@@ -71,17 +52,8 @@ class LoadReviewsParams(BaseModel):
         ge=0,
         description="Pagination offset"
     )
-    
-    @field_validator('max_rating')
-    @classmethod
-    def validate_rating_range(cls, v: Optional[int], info) -> Optional[int]:
-        """Ensure max_rating >= min_rating"""
-        if v is not None and 'min_rating' in info.data:
-            min_rating = info.data['min_rating']
-            if min_rating is not None and v < min_rating:
-                raise ValueError('max_rating must be >= min_rating')
-        return v
-
+class LoadReviewsConfig(BaseModel):
+    config: LoadReviewsParams
 
 class FilterCondition(BaseModel):
     """
@@ -139,21 +111,7 @@ class FilterReviewsParams(BaseModel):
         ...,
         description="List of filter conditions to apply (AND logic)",
         min_length=1
-    )
-    
-    # Alternative: Support single filter (backward compatibility)
-    field: Optional[str] = Field(
-        None,
-        description="[Deprecated] Single field to filter - use 'filters' array instead"
-    )
-    operator: Optional[str] = Field(
-        None,
-        description="[Deprecated] Single operator - use 'filters' array instead"
-    )
-    value: Optional[Any] = Field(
-        None,
-        description="[Deprecated] Single value - use 'filters' array instead"
-    )
+    )    
     
     @field_validator('filters')
     @classmethod
@@ -243,10 +201,10 @@ class ReviewSentimentAnalysisParams(BaseModel):
     
     # Additional features (not in frontend but used internally)
     batch_size: int = Field(
-        default=10,
+        default=20,
         ge=1,
-        le=100,
-        description="Number of reviews to process per batch (internal use)"
+        le=25,
+        description="Number of reviews to process per batch"
     )
 
 
@@ -375,11 +333,117 @@ class ShowResultsParams(BaseModel):
         return v
 
 
+class ToolCallInputData(BaseModel):
+    # ==================== WORKING DATA ====================
+    records: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Current working set of records (filtered/processed)"
+    )
+    total: int = Field(
+        default=0,
+        description="Number of records in current working set"
+    )
+    category: Literal['shoes', 'wireless'] = Field(
+        ..., 
+        description="Product category: 'shoes' or 'wireless'",
+        pattern="^(shoes|wireless)$"
+    )
+    config: BaseModel
+    product_titles: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of product IDs to titles"
+    )    
+    # ==================== INTERNAL STATE ====================
+    state: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional state information"
+    )
+    # ==================== ANALYSIS OUTPUTS ====================
+    sentiment_statistics: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Sentiment analysis statistics"
+    )
+    theme_analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Theme/topic analysis results"
+    )
+    insights: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Generated insights from analysis"
+    )    
+    # ==================== STATE STRUCTURES ====================
+    record_store: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Complete record store with all data"
+    )
+    enrichment_registry: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Registry of data enrichments (columns added)"
+    )
+    results_registry: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Registry of tool execution results"
+    )
+    data_source: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Information about data source (SQL query, etc.)"
+    )
+    row_operation_history: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="History of row-level operations (filters, sorts, etc.)"
+    )
+    # ==================== BASE TRACKING ====================
+    base_record_ids: List[str] = Field(
+        default_factory=list,
+        description="Original record IDs from initial load"
+    )
+    base_record_count: int = Field(
+        default=0,
+        description="Original number of records loaded"
+    )
+    base_columns: List[str] = Field(
+        default_factory=list,
+        description="Original column names from data source"
+    )    
+    # ==================== EXECUTION CONTEXT ====================
+    session_id: str = Field(
+        ...,
+        description="Session identifier"
+    )
+    execution_id: int = Field(
+        ...,
+        description="Execution identifier"
+    )
+    
+    class Config:
+        # Allow extra fields for forward compatibility
+        extra = 'allow'
+
+class LoadReviewsInputData(ToolCallInputData):
+    config: LoadReviewsParams
+
+class FilterReviewsInputData(ToolCallInputData):
+    config: FilterCondition
+
+class SortReviewsInputData(ToolCallInputData):
+    config: SortReviewsParams
+
+class CleanReviewsInputData(ToolCallInputData):
+    config: CleanDataParams
+
+class ReviewSentimentAnalysisInputData(ToolCallInputData):
+    config:  ReviewSentimentAnalysisParams
+
+class GenerateInsightsInputData(ToolCallInputData):
+    config: GenerateInsightsParams
+
+class ShowResultsInputData(ToolCallInputData):
+    config: ShowResultsParams
+
 # ============================================================
 # PARAMETER SCHEMA MAPPING
 # ============================================================
 
-# Map parameter schemas to tool AI IDs
 PARAMETER_SCHEMAS = {
     'load_reviews': LoadReviewsParams,
     'filter_reviews': FilterReviewsParams,
@@ -401,35 +465,38 @@ class AgentDecision(BaseModel):
     This is what the LLM returns and what gets validated
     """
     action: ActionType = Field(..., description="High-level action to take")
-    tool_name: Optional[str] = Field(None, description="Specific tool AI ID to use (e.g., 'gather_data')")
+    tool_name: Optional[str] = Field(None, description="Specific tool AI ID to use")
     reasoning: str = Field(..., description="Why this decision was made")
     tool_params: Dict[str, Any] = Field(default_factory=dict, description="Parameters for the tool")
     confidence: float = Field(0.5, ge=0.0, le=1.0, description="Confidence score 0-1")
     alternatives_considered: List[str] = Field(default_factory=list, description="Other options considered")
     
-    @field_validator('tool_name')
-    def validate_tool_exists(cls, v, values):
-        """Ensure tool_name exists in registry"""
+    @model_validator(mode='after')
+    def validate_tool_exists(self):
+        """
+        Ensure tool_name exists in registry and is valid for action
+        
+        ✅ FIXED: Pydantic V2 compatible using model_validator
+        """
         from ..tools.registry import tool_registry
-
-        action = values.get('action')
         
         # If action is 'finish', tool_name should be None
-        if action == ActionType.FINISH:
-            if v is not None:
-                logger.warning(f"Action is 'finish' but tool_name is set: {v}")
-                return None
-            return v
+        if self.action == ActionType.FINISH:
+            if self.tool_name is not None:
+                logger.warning(f"Action is 'finish' but tool_name is set: {self.tool_name}")
+                self.tool_name = None
+            return self
         
         # For other actions, validate tool exists
-        if v is not None:
-            tool_def = tool_registry.get_tool_definition(ai_id=v)
+        if self.tool_name is not None:
+            tool_def = tool_registry.get_tool_definition(ai_id=self.tool_name)
             if not tool_def:
-                raise ValueError(f"Unknown tool in registry: {v}")
+                raise ValueError(f"Unknown tool in registry: {self.tool_name}")
         
-        return v
+        return self
     
     @field_validator('confidence')
+    @classmethod
     def validate_confidence_range(cls, v):
         """Ensure confidence is in valid range"""
         if not 0.0 <= v <= 1.0:
@@ -462,7 +529,7 @@ class ToolValidator:
         Validate tool parameters against schema
         
         Args:
-            tool_ai_id: Tool AI ID (e.g., 'gather_data')
+            tool_ai_id: Tool AI ID (e.g., 'load_reviews')
             params: Parameters to validate
             
         Returns:
@@ -500,11 +567,11 @@ class ToolValidator:
         Check if tool can be executed given current state
         
         Args:
-            tool_ai_id: Tool AI ID to check
+            tool_ai_id: Tool AI ID
             state: Current workflow state
             
         Returns:
-            (can_execute: bool, reason: Optional[str])
+            (can_execute, reason_if_not)
         """
         # Use registry's built-in validation
         return self.registry.can_execute_tool(
@@ -682,92 +749,29 @@ def map_action_to_tool(
     allow_fallback: bool = True
 ) -> Optional[str]:
     """
-    Infer appropriate tool AI ID from action type with optional fallback
-    
-    Maps high-level actions to specific tool IDs and validates they can be 
-    executed. If primary tool unavailable, optionally tries fallback tools.
+    Infer appropriate tool AI ID from action type
     
     Args:
-        action: High-level action (LOAD, FILTER, ANALYZE, etc.)
-        state: Current workflow state
-        allow_fallback: If True, try alternative tools when primary unavailable
+        action: High-level action
+        state: Current state
+        allow_fallback: Try fallback tools if primary unavailable
         
     Returns:
-        Tool AI ID if valid tool found, None otherwise
-        
-    Examples:
-        >>> map_action_to_tool(ActionType.LOAD, state)
-        'load_reviews'
-        
-        >>> map_action_to_tool(ActionType.ANALYZE, state)
-        'review_sentiment_analysis'
+        Tool AI ID or None
     """
-    # PRIMARY MAPPINGS
-    primary_mapping = {
+    # Direct mappings
+    action_map = {
         ActionType.LOAD: 'load_reviews',
         ActionType.FILTER: 'filter_reviews',
-        ActionType.CLEAN: 'clean_data',
         ActionType.SORT: 'sort_reviews',
+        ActionType.CLEAN: 'clean_data',
         ActionType.ANALYZE: 'review_sentiment_analysis',
         ActionType.GENERATE: 'generate_insights',
         ActionType.OUTPUT: 'show_results',
-        ActionType.FINISH: None,
+        ActionType.FINISH: None
     }
     
-    # FALLBACK MAPPINGS
-    fallback_mapping = {
-        ActionType.LOAD: [],  # No fallback - must load data
-        ActionType.FILTER: ['sort_reviews'],  # Can sort instead of filter
-        ActionType.CLEAN: [],  # No fallback
-        ActionType.SORT: ['filter_reviews'],  # Can filter instead of sort
-        ActionType.ANALYZE: [],  # No fallback for analysis
-        ActionType.GENERATE: [],  # No fallback
-        ActionType.OUTPUT: [],  # Must show results
-        ActionType.FINISH: [],
-    }
-
-    # Get primary tool
-    primary_tool_id = primary_mapping.get(action)
-    
-    # If action maps to None (e.g., FINISH), return None
-    if primary_tool_id is None:
-        logger.debug(f"Action '{action}' maps to None (no tool needed)")
-        return None
-    
-    # Use singleton validator instead of creating new instance
-    validator = get_tool_validator()
-    
-    # Try primary tool
-    can_execute, reason = validator.can_execute_tool(primary_tool_id, state)
-    if can_execute:
-        logger.debug(f"✅ Mapped action '{action}' to tool '{primary_tool_id}'")
-        return primary_tool_id
-    
-    # LOG: Primary tool cannot execute
-    logger.debug(
-        f" Primary tool '{primary_tool_id}' cannot execute for action "
-        f"'{action}': {reason}"
-    )
-    
-    # FALLBACK: Try alternative tools if enabled
-    if allow_fallback:
-        fallbacks = fallback_mapping.get(action, [])
-        for fallback_tool_id in fallbacks:
-            can_execute, _ = validator.can_execute_tool(fallback_tool_id, state)
-            if can_execute:
-                logger.info(
-                    f"Using fallback tool '{fallback_tool_id}' for action '{action}' "
-                    f"(primary '{primary_tool_id}' unavailable)"
-                )
-                return fallback_tool_id
-        
-        if fallbacks:  # Only log warning if there were fallbacks to try
-            logger.warning(
-                f"No executable tool found for action '{action}' "
-                f"(tried: {primary_tool_id}, {fallbacks})"
-            )
-    
-    return None
+    return action_map.get(action)
 
 
 def get_tool_count() -> int:
@@ -797,6 +801,24 @@ def list_all_tools() -> Dict[str, Dict[str, Any]]:
     return result
 
 
+def create_tool_input(
+    base_data: ToolCallInputData,
+    config: BaseModel
+) -> ToolCallInputData:
+    """
+    Helper to create complete tool input from base data + config
+    
+    Args:
+        base_data: Base input with all state fields
+        config: Tool-specific configuration
+    
+    Returns:
+        Complete tool input
+    """
+    input_dict = base_data.model_dump()
+    input_dict['config'] = config
+    return ToolCallInputData(**input_dict)
+
 # ============================================================
 # EXPORTS
 # ============================================================
@@ -805,13 +827,12 @@ def list_all_tools() -> Dict[str, Dict[str, Any]]:
 _tool_validator_instance = None
 
 def get_tool_validator() -> ToolValidator:
-    """Get singleton tool validator instance (lazy initialization)"""
+    """Get singleton tool validator instance"""
     global _tool_validator_instance
     if _tool_validator_instance is None:
         _tool_validator_instance = ToolValidator()
     return _tool_validator_instance
 
-# For backwards compatibility, create a property-like access
 class _ToolValidatorProxy:
     """Proxy for lazy tool_validator access"""
     def __getattr__(self, name):
@@ -819,29 +840,40 @@ class _ToolValidatorProxy:
 
 tool_validator = _ToolValidatorProxy()
 
-# Backwards compatibility exports
 __all__ = [
-    # Models
     'ActionType',
     'AgentDecision',
-    'LoadReviewsParams',
-    'FilterReviewsParams',
-    'SortReviewsParams',
-    'CleanDataParams',
-    'ReviewSentimentAnalysisParams',
-    'GenerateInsightsParams',
-    'ShowResultsParams',
+
+    # Base
+    'ToolCallInputData',
     
-    # Validator
+    # Load Reviews
+    'LoadReviewsParams',
+    'LoadReviewsInputData',
+    
+    # Filter Reviews
+    'FilterReviewsParams',
+    'FilterReviewsInputData',
+    
+    # Sentiment Analysis
+    'SentimentAnalysisParams',
+    'SentimentAnalysisInputData',
+    
+    # Generate Insights
+    'GenerateInsightsParams',
+    'GenerateInsightsInputData',
+    
+    # Show Results
+    'ShowResultsParams',
+    'ShowResultsInputData',
+    
+    # Helpers
+    'create_tool_input',
     'ToolValidator',
     'tool_validator',
     'get_tool_validator',
-    
-    # Helper functions
     'map_action_to_tool',
     'get_tool_count',
     'list_all_tools',
-    
-    # Schema mapping
     'PARAMETER_SCHEMAS',
 ]

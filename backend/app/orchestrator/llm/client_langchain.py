@@ -65,8 +65,9 @@ class CircuitBreakerProxy:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        streaming: bool = True,
-        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        streaming: bool = False,
+        verbosity: Optional[Literal["low", "medium", "high"]] = "low",
+        reasoning_effort: Optional[Literal["low", "medium", "high"]] = "low",
         **kwargs
     ):
         """
@@ -111,6 +112,9 @@ class CircuitBreakerProxy:
             # GPT-5 specific parameter
             if verbosity:
                 chat_params["verbosity"] = verbosity
+
+            if reasoning_effort:
+                chat_params["reasoning_effort"] = reasoning_effort
         
         # Create underlying ChatOpenAI instance
         self._chat = ChatOpenAI(**chat_params)
@@ -132,6 +136,7 @@ class CircuitBreakerProxy:
         self,
         messages: Union[List[BaseMessage], List[Dict[str, str]]],
         callbacks: Optional[List[AsyncCallbackHandler]] = None,
+        session_id:str = None,
         **kwargs
     ) -> AIMessage:
         """
@@ -151,9 +156,10 @@ class CircuitBreakerProxy:
         self.total_calls += 1
         start_time = time.time()
         
+        
         # Convert dict messages to BaseMessage if needed
         if messages and isinstance(messages[0], dict):
-            messages = self._convert_messages(messages)
+            messages = self._convert_messages(messages)       
         
         try:
             # Call through circuit breaker
@@ -162,6 +168,7 @@ class CircuitBreakerProxy:
                 func=self._do_invoke,
                 messages=messages,
                 callbacks=callbacks,
+                session_id=session_id,
                 **kwargs
             )
             
@@ -199,10 +206,17 @@ class CircuitBreakerProxy:
         self,
         messages: List[BaseMessage],
         callbacks: Optional[List[AsyncCallbackHandler]] = None,
+        session_id:str = None,
         **kwargs
     ) -> AIMessage:
         """Internal invoke method (protected by circuit breaker)"""
-        return await self._chat.ainvoke(messages, config={'callbacks': callbacks}, **kwargs)
+
+        from app.websocket.manager import get_ws_manager
+        if settings.langchain_stream and session_id and get_ws_manager().is_connected(session_id=session_id):
+            return await self._chat.astream (messages, config={'callbacks': callbacks}, **kwargs)
+        else:
+            return await self._chat.ainvoke(messages, config={'callbacks': callbacks}, **kwargs)
+
     
     def _convert_messages(self, messages: List[Dict[str, str]]) -> List[BaseMessage]:
         """Convert dict messages to LangChain BaseMessage objects"""
@@ -297,7 +311,8 @@ class LangChainLLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         streaming: bool = True,
-        verbosity: Optional[str] = None
+        verbosity: Optional[str] = None,
+        reasoning_effort: Optional[str] = None
     ) -> CircuitBreakerProxy:
         """
         Get or create proxy for a tool
@@ -321,6 +336,7 @@ class LangChainLLMClient:
                 max_tokens=tokens,
                 streaming=streaming,
                 verbosity=verbosity,
+                reasoning_effort=reasoning_effort,
                 **kwargs
             )
         
@@ -334,7 +350,9 @@ class LangChainLLMClient:
         max_tokens: Optional[int] = None,
         callbacks: Optional[List[AsyncCallbackHandler]] = None,
         stream: bool = True,
-        verbosity: Optional[Literal["low", "medium", "high"]] = None,
+        verbosity: Optional[Literal["low", "medium", "high"]] = "low",
+        reasoning_effort: Optional[Literal["low", "medium", "high"]] = "low",
+        session_id:str = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -364,13 +382,15 @@ class LangChainLLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             streaming=stream,
-            verbosity=verbosity
+            verbosity=verbosity,
+            reasoning_effort=reasoning_effort
         )
         
         # Invoke
         result = await proxy.ainvoke(
             messages=messages,
             callbacks=callbacks,
+            session_id=session_id,
             **kwargs
         )
         

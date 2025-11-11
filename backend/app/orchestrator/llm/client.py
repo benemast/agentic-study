@@ -367,7 +367,7 @@ class LLMClient:
             # Create streaming completion
             stream = await asyncio.wait_for(
                 self.client.chat.completions.create(**params),
-                timeout=5  # Quick timeout for stream setup
+                timeout=120  # Quick timeout for stream setup
             )
             
             # Process stream

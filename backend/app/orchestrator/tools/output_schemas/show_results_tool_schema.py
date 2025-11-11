@@ -54,6 +54,10 @@ class ThemeStatistic(BaseModel):
     theme: str = Field(..., description="Theme name/category")
     mention_count: int = Field(..., description="Number of times theme was mentioned")
     percentage: float = Field(..., description="Percentage of records mentioning this theme")
+    sentiment: Optional[str] = Field(None, description="Sentiment associated with theme (positive/neutral/negative)")
+    weighted_score: Optional[float] = Field(None, description="Weighted importance/relevance score for the theme")
+    estimated_total_count: Optional[int] = Field(None, description="Estimated total occurrences across full dataset")
+
 
 
 class ThemesContent(BaseModel):
@@ -86,8 +90,8 @@ class RecommendationsContent(BaseModel):
     """Content for recommendations section"""
     recommendations: List[Recommendation] = Field(..., description="List of business recommendations")
     total_recommendations: int = Field(..., description="Total number of recommendations generated")
-    high_priority_count: int = Field(..., description="Number of high priority recommendations")
-    generated_at: str = Field(..., description="Timestamp when recommendations were generated")
+    high_priority_count: Optional[int] = Field(None, description="Number of high priority recommendations")
+    generated_at: Optional[str] = Field(None, description="Timestamp when recommendations were generated")
 
 
 class RecommendationsSection(BaseModel):

@@ -4,7 +4,7 @@ Pydantic schemas for product reviews
 """
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date
-from typing import Optional, List, Generic, TypeVar
+from typing import Optional, List, Generic, TypeVar, Literal
 from enum import Enum
 
 
@@ -66,6 +66,16 @@ class ReviewWorkBase(ReviewStudyBase):
     is_main_product: bool
     is_malformed: bool
     malformed_type: Optional[str] = Field(None, max_length=50)
+
+class ReviewEnhancedStudyBase(ReviewStudyBase):
+    """
+    Base schema for review data as required by orchestrator tools (backend operations)
+    Includes all necessary fields including internal metadata
+
+    Inherits from ReviewStudyBase
+    """
+    sentiment: Literal['positive', 'neutral', 'negative'] | None = Field(default=None)
+    sentiment_confidence: Literal['low', 'medium', 'high'] | None = Field(default=None)
 
 class ReviewFullBase(ReviewWorkBase):
     """
@@ -218,19 +228,23 @@ def to_study_format(review) -> ReviewStudyBase:
     Returns:
         ReviewStudyBase with only participant-visible fields
     """
-    return ReviewStudyBase(
-        review_id=review.review_id,
-        product_id=review.product_id,
-        product_title=review.product_title,
-        product_category=review.product_category,
-        review_headline=review.review_headline  or "",
-        review_body=review.review_body  or "",
-        star_rating=review.star_rating,
-        verified_purchase=review.verified_purchase,
-        helpful_votes=review.helpful_votes,
-        total_votes=review.total_votes,
-        customer_id=review.customer_id
-    )
+
+    if isinstance(review, dict):
+        return ReviewStudyBase(**review)
+    else:
+        return ReviewStudyBase(
+            review_id=review.review_id,
+            product_id=review.product_id,
+            product_title=review.product_title,
+            product_category=review.product_category,
+            review_headline=review.review_headline  or "",
+            review_body=review.review_body  or "",
+            star_rating=review.star_rating,
+            verified_purchase=review.verified_purchase,
+            helpful_votes=review.helpful_votes,
+            total_votes=review.total_votes,
+            customer_id=review.customer_id
+        )
 
 
 def batch_to_study_format(reviews: List) -> List[ReviewStudyBase]:
@@ -257,22 +271,26 @@ def to_work_format(review) -> ReviewWorkBase:
     Returns:
         ReviewWorkBase with only participant-visible fields
     """
-    return ReviewWorkBase(
-        review_id=review.review_id,
-        product_id=review.product_id,
-        product_title=review.product_title,
-        product_category=review.product_category,
-        review_headline=review.review_headline  or "",
-        review_body=review.review_body  or "",
-        star_rating=review.star_rating,
-        verified_purchase=review.verified_purchase,
-        helpful_votes=review.helpful_votes,
-        total_votes=review.total_votes,
-        customer_id=review.customer_id,
-        is_main_product=review.is_main_product,
-        is_malformed=review.is_malformed,
-        malformed_type= review.malformed_type
-    )
+    
+    if isinstance(review, dict):
+        return ReviewWorkBase(**review)
+    else:
+        return ReviewWorkBase(
+            review_id=review.review_id,
+            product_id=review.product_id,
+            product_title=review.product_title,
+            product_category=review.product_category,
+            review_headline=review.review_headline  or "",
+            review_body=review.review_body  or "",
+            star_rating=review.star_rating,
+            verified_purchase=review.verified_purchase,
+            helpful_votes=review.helpful_votes,
+            total_votes=review.total_votes,
+            customer_id=review.customer_id,
+            is_main_product=review.is_main_product,
+            is_malformed=review.is_malformed,
+            malformed_type= review.malformed_type
+        )
 
 
 def batch_to_work_format(reviews: List) -> List[ReviewWorkBase]:
@@ -286,6 +304,50 @@ def batch_to_work_format(reviews: List) -> List[ReviewWorkBase]:
         List of ReviewStudyBase objects
     """
     return [to_work_format(review) for review in reviews]
+
+def to_enhanced_study_format(review) -> ReviewEnhancedStudyBase:
+    """
+    Convert full review model to study-safe format
+    Works with any review type (Shoes/Wireless)
+    
+    Args:
+        review: ShoesReview or WirelessReview SQLAlchemy model
+        
+    Returns:
+        ReviewStudyBase with only participant-visible fields
+    """
+
+    if isinstance(review, dict):
+        return ReviewStudyBase(**review)        
+    else:
+        return ReviewEnhancedStudyBase(
+            review_id=review.review_id,
+            product_id=review.product_id,
+            product_title=review.product_title,
+            product_category=review.product_category,
+            review_headline=review.review_headline  or "",
+            review_body=review.review_body  or "",
+            star_rating=review.star_rating,
+            verified_purchase=review.verified_purchase,
+            helpful_votes=review.helpful_votes,
+            total_votes=review.total_votes,
+            customer_id=review.customer_id,
+            sentiment=review.sentiment,
+            sentiment_confidence=review.sentiment_confidence
+        )
+
+
+def batch_to_enhanced_study_format(reviews: List) -> List[ReviewEnhancedStudyBase]:
+    """
+    Convert list of review models to study-safe format
+    
+    Args:
+        reviews: List of review models (any category)
+        
+    Returns:
+        List of ReviewStudyBase objects
+    """
+    return [to_enhanced_study_format(review) for review in reviews]
 
 
 def get_response_schema(category: str, study_mode: bool = False):

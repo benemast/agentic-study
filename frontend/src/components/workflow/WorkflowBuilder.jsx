@@ -1,6 +1,7 @@
 // frontend/src/components/workflow/WorkflowBuilder.jsx
 import { captureException } from '../../config/sentry';
 
+import { FileText } from 'lucide-react';
 import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import ReactFlow, {
   MiniMap,
@@ -23,6 +24,7 @@ import NodeResultsModal from './nodes/NodeResultsModal';
 import Sidebar from './WorkflowSidebar';
 import WorkflowToolbar from './WorkflowToolbar';
 import LanguageSwitcher from '../LanguageSwitcher';
+import SummaryModal from '../study/SummaryModal';
 
 // Hooks
 import { useSession } from '../../hooks/useSession';
@@ -80,10 +82,21 @@ const EDGE_TYPES = {
 // ========================================
 // Main WorkflowBuilder Component
 // ========================================
-const WorkflowBuilder = () => {
+const WorkflowBuilder = ({ summaryHook }) => {
   // ========================================
   // HOOKS
   // ========================================
+
+  // Destructure summary hook from parent (for completion guard)
+  const { 
+    markAsViewed,
+    handleExecutionComplete: notifyParentOfSummary,
+    summaryViewed,
+    createSummary,
+    fetchSummary,
+    summaryData: parentSummaryData,
+    summaryAvailable: parentSummaryAvailable
+  } = summaryHook || {};
 
   // Session identity & health
   const { sessionId, isActive, updateActivity } = useSession();
@@ -173,6 +186,7 @@ const WorkflowBuilder = () => {
     sourceHandleId: null,
     sourceHandleType: null
   });
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   // ========================================
   // CONSTANTS
@@ -198,39 +212,57 @@ const WorkflowBuilder = () => {
     nodeStates,
     toolStates,
     nodeResults,
+    summaryData,
+    summaryAvailable,
     result: executionResult,
     error: executionError   
   } = useWorkflowExecution(sessionId, 'workflow_builder');
 
+  // Use parent's summary data if available (loaded from DB), otherwise use own (from execution)
+  const effectiveSummaryData = parentSummaryData || summaryData;
+  const effectiveSummaryAvailable = parentSummaryAvailable || summaryAvailable;
+
   const handleViewNodeResults = useCallback((nodeId) => {
-    console.log('=== MODAL OPEN DEBUG ===');
-    console.log('Requested node:', nodeId);
-    console.log('All nodeResults:', nodeResults);
-    console.log('Specific result:', nodeResults?.[nodeId]);
-    console.log('Result status:', nodeResults?.[nodeId]?.status);
-    console.log('Result has results?:', nodeResults?.[nodeId]?.results !== undefined);
-    console.log('Result has result?:', nodeResults?.[nodeId]?.result !== undefined);
-    console.log('Full result data:', JSON.stringify(nodeResults?.[nodeId], null, 2));
-    
     const result = nodeResults?.[nodeId];
+    if (!result) return;
     
-    if (result) {
+    // Check if Show Results with summary
+    const isShowResults = nodeId.startsWith('show-results') || 
+                          result.node_label === 'Show Results';
+    
+    if (isShowResults && effectiveSummaryAvailable && effectiveSummaryData) {
+      setShowSummaryModal(true);
+      
+      // Mark summary as viewed in parent
+      if (markAsViewed) {
+        markAsViewed();
+      }
+    } else {
       setSelectedNodeResult(result);
       setShowResultsModal(true);
-    } else {
-      console.error('No result found!');
     }
-    console.log('=== MODAL OPEN DEBUG END ===');
-  }, [nodeResults]);
+  }, [nodeResults, effectiveSummaryAvailable, effectiveSummaryData, markAsViewed]);
 
   // ========================================
   // NOTIFICATIONS
   // ========================================
   const showNotification = useCallback((message, type = 'error') => {
-    console.log("showNotification: " + message);
     setNotification({ message, type });
     setTimeout(() => setNotification(null), UI_CONFIG.NOTIFICATION_DURATION);
   }, []);
+
+  // Notify parent and auto-save to database when summary becomes available
+  useEffect(() => {
+    if (summaryAvailable && summaryData && notifyParentOfSummary) {
+      // Notify parent for state sync
+      notifyParentOfSummary(summaryData);
+      
+      // Auto-save to database
+      if (createSummary) {
+        createSummary(summaryData, executionResult?.execution_id || `workflow_execution_${Date.now()}`);
+      }
+    }
+  }, [summaryAvailable, summaryData, notifyParentOfSummary, createSummary, executionResult]);
 
   // ========================================
   // AUTO-SAVE - Sync with Session
@@ -670,26 +702,9 @@ const WorkflowBuilder = () => {
     }
 
     try {
-      // Step 2: Debug - Check nodes before serialization
-      console.group('🚀 Workflow Execution Debug');
-      console.log('📦 Nodes on canvas:', nodes.length);
-      console.log('🔗 Edges on canvas:', edges.length);
-      console.log('📋 Node templates:', nodes.map(n => ({
-        id: n.id,
-        template: n.data?.template_id,
-        label: n.data?.label
-      })));
-
-      // Step 3: Serialize with filtering
       const serializedWorkflow = serializeWorkflowMinimal(nodes, edges);
-      
-      console.log('📤 Serialized nodes:', serializedWorkflow.nodes.length);
-      console.log('📤 Serialized edges:', serializedWorkflow.edges.length);
-      console.groupEnd();
-
       // Step 4: Check if we have nodes after serialization
       if (serializedWorkflow.nodes.length === 0) {
-        console.error('❌ No nodes after serialization! Check the debug logs above.');
         showNotification(
           'Workflow has no valid connected nodes. Make sure you have load-reviews and show-results nodes connected.',
           'error'
@@ -703,10 +718,6 @@ const WorkflowBuilder = () => {
         category: studyDataset,
         language: currentLanguage
       });
-      
-
-      console.log('✅ Execution started:', result);
-      
       trackWorkflowExecuted({ 
         nodeCount: serializedWorkflow.nodes.length,
         edgeCount: serializedWorkflow.edges.length,
@@ -720,7 +731,7 @@ const WorkflowBuilder = () => {
       );
 
     } catch (error) {
-      console.error('❌ Failed to start workflow:', error);
+      console.error('Failed to start workflow:', error);
       
       captureException(error, {
         tags: {
@@ -768,17 +779,6 @@ const WorkflowBuilder = () => {
     }
 
     try {
-      // Full send Log
-      console.group('Executing Workflow');
-      console.log('Nodes:', nodes.length);
-      console.log('Edges:', edges.length);
-      console.log('Node Configs:', nodes.map(n => ({
-        id: n.id,
-        template: n.data?.template_id,
-        config: n.data?.config
-      })));
-      console.groupEnd();
-
       // Execute workflow with full config data
       // serializeWorkflow now includes config in each node
       const result = await executeWorkflow({ nodes, edges }, {
@@ -786,8 +786,6 @@ const WorkflowBuilder = () => {
         category: studyDataset,
         language: currentLanguage
       });
-      
-      console.log('Execution started:', result);
       
       trackWorkflowExecuted({ 
         nodeCount: nodes.length, 
@@ -931,6 +929,16 @@ const WorkflowBuilder = () => {
           executionTime: nodeExecutionState.execution_time_ms,  // Time in ms
           error: nodeExecutionState.error,                      // Error message
           hasExecuted: nodeExecutionState.hasExecuted
+        },
+         summaryAvailable: effectiveSummaryAvailable && (
+          node.id.startsWith('show-results') || 
+          node.data.label === 'Show Results'
+        ),
+        onViewSummary: () => {
+          setShowSummaryModal(true);
+          if (markAsViewed) {
+            markAsViewed();
+          }
         }
       }
     };
@@ -957,7 +965,7 @@ const WorkflowBuilder = () => {
   // RENDER
   // ========================================
   return (
-    <div className="h-full flex min-h-0 bg-gray-50 dark:bg-gray-900">
+    <div data-tour="workflow-builder" className="h-full flex min-h-0 bg-gray-50 dark:bg-gray-900">
       <NotificationBanner notification={notification} />
       
       {/* Language Switcher Panel */}
@@ -1044,15 +1052,6 @@ const WorkflowBuilder = () => {
                     <p className="text-gray-600 dark:text-gray-400">
                     {t('workflow.builder.emptyState.description')}
                   </p>
-                  {/* Removed for Production clean-up
-                  <button
-                    onClick={() => setShowNodePanel(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <PlusIcon size={16} />
-                    {t('workflow.builder.emptyState.addFirstNode')}
-                  </button>
-                   */}
                 </div>
               </Panel>
             )}
@@ -1076,6 +1075,25 @@ const WorkflowBuilder = () => {
               </Panel>
             )}
 
+            {/* Summary Ready Panel */}
+            {effectiveSummaryAvailable && effectiveSummaryData && !summaryViewed && (
+              <Panel position="top-left" className="m-4" style={{ marginTop: !workflowValidation.isValid && nodes.length > 0 ? '120px' : '16px' }}>
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4 max-w-sm shadow-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full mt-2 flex-shrink-0 animate-pulse" />
+                    <div>
+                      <h4 className="font-medium text-green-800 dark:text-green-300 mb-1">
+                        {t('workflow.notifications.summaryReadyTitle')}
+                      </h4>
+                      <p className="text-sm text-green-700 dark:text-green-400">
+                        {t('workflow.notifications.summaryReadyDetails')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
             {/* Connection Helper Panel */}
             {connectionState.isConnecting && (
               <Panel position="top-center" className="m-4">
@@ -1088,48 +1106,6 @@ const WorkflowBuilder = () => {
             )}
           </ReactFlow>
         </div>
-        
-        {/* Execution Progress Panel */}
-        {/* Execution Progress Panel 
-        {executionStatus !== 'idle' && (
-          <div className="w-96 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 overflow-y-auto">
-            <ExecutionProgress
-              status={executionStatus}
-              messages={executionMessages}
-              progressPercentage={progressPercentage}
-              currentStep={currentStep}
-              nodeStates={nodeStates}
-              toolStates={toolStates}
-              condition="workflow_builder"
-              onCancel={cancelExecution}
-            />
-            
-            {/* Show results 
-            {executionResult && (
-              <div className="mt-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg p-4">
-                <h4 className="font-semibold text-green-900 dark:text-green-300 mb-2">
-                  {t('workflow.execution.results') || 'Results'}
-                </h4>
-                <pre className="text-sm text-green-800 dark:text-green-200 overflow-x-auto">
-                  {JSON.stringify(executionResult, null, 2)}
-                </pre>
-              </div>
-            )}
-            
-            {/* Show errors 
-            {executionError && executionStatus === 'failed' && (
-              <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
-                <h4 className="font-semibold text-red-900 dark:text-red-300 mb-2">
-                  {t('workflow.execution.error') || 'Error'}
-                </h4>
-                <p className="text-sm text-red-800 dark:text-red-200">
-                  {executionError}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-        */}
       </div>
 
       {/* Node Editor Modal */}
@@ -1155,7 +1131,21 @@ const WorkflowBuilder = () => {
           nodeResult={selectedNodeResult}
         />
       )}
-
+      
+      {/* Summary Modal */}
+      {showSummaryModal && effectiveSummaryData && (
+        <SummaryModal
+          isOpen={showSummaryModal}
+          onClose={() => setShowSummaryModal(false)}
+          onOpen={() => {
+            if (markAsViewed) {
+              markAsViewed();
+            }
+          }}
+          summaryData={effectiveSummaryData}
+          taskNumber={currentTaskKey}
+        />
+      )}
     </div>
   );
 };

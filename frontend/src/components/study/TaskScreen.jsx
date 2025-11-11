@@ -21,6 +21,8 @@ import ThemeSwitcher from '../ThemeSwitcher';
 import WorkflowBuilder from '../workflow/WorkflowBuilder';
 import AIChat from '../assistant/AIChat';
 import DatasetViewer from './DatasetViewer';
+import SummaryModal from './SummaryModal';
+import { Search, User, ClipboardList, Settings, Bot, Headphones, Footprints, FileText } from 'lucide-react';
 
 // Hooks
 import { useTracking } from '../../hooks/useTracking';
@@ -28,6 +30,7 @@ import { useReviewData } from '../../hooks/useReviewData';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useTheme } from '../../hooks/useTheme';
 import useTutorial from '../../hooks/useTutorial';
+import { useSummary } from '../../hooks/useSummary';
 
 // ============================================================
 // JOYRIDE STYLES
@@ -45,7 +48,7 @@ const getJoyrideStyles = (isDarkMode) => ({
     spotlightShadow: isDarkMode 
       ? '0 0 20px rgba(0, 0, 0, 0.8)' 
       : '0 0 20px rgba(0, 0, 0, 0.5)',
-    zIndex: 10002,
+    zIndex: 100000,
   },
   tooltip: {
     borderRadius: 12,
@@ -236,13 +239,13 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
             onCut={(e) => e.preventDefault()}
           >
             <div className="flex items-start gap-3">
-              <div className="text-2xl">👤</div>
+              <User className="w-8 h-8 text-blue-600 dark:text-blue-400" />
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">
-                  Your Role: {taskConfig.role}
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">                  
+                  {t('task.description.role')}
                 </h3>
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                  {taskConfig.goal}
+                  {t('task.description.goal')}
                 </p>
               </div>
             </div>
@@ -250,7 +253,12 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
             {taskConfig.focus && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded p-3 mt-3 border border-gray-200 dark:border-gray-600">
                 <p className="text-sm text-gray-700 dark:text-gray-300">
-                  <strong>Focus:</strong> {taskConfig.focus}
+                  <strong>{t('task.description.focusLabel')}</strong> 
+                  {taskConfig.dataset === 'wireless' ? (
+                        t('task.description.focusText.wireless')
+                  ) : (
+                        t('task.description.focusText.shoes')
+                  )}
                 </p>
               </div>
             )}
@@ -270,16 +278,26 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
               onCut={(e) => e.preventDefault()}
             >
               <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
-                <span>📋</span>
-                Expected Output:
+                <ClipboardList className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                {t('task.description.expectedOutputLabel')}
               </h4>
               <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1.5">
-                {taskConfig.expectedOutput.map((item, index) => (
-                  <li key={index} className="flex items-start gap-2">
+                <li className="flex items-start gap-2">
                     <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">•</span>
-                    <span>{item}</span>
+                    <span>{t('task.description.expectedOutput1')}</span>
                   </li>
-                ))}
+                  <li className="flex items-start gap-2">
+                    <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">•</span>
+                    <span>{t('task.description.expectedOutput2')}</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">•</span>
+                    <span>{t('task.description.expectedOutput3')}</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">•</span>
+                    <span>{t('task.description.expectedOutput4')}</span>
+                  </li>
               </ul>
             </div>
           )}
@@ -287,13 +305,18 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
           {/* Product Info Card */}
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 shadow-sm">
             <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2 flex items-center gap-2">
-                <span>🔍</span>
-                Product to analyse:
-              </h4>
-            <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-              <div><strong>Title:</strong> {taskConfig.product_title}</div>
+              <Search className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              {t('task.description.productCard.title')}
+            </h4>
+            <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+              <div><strong>{t('task.description.productCard.titleLable')}</strong> {taskConfig.product_title}</div>
               <div><strong>ID:</strong> {taskConfig.product_id}</div>
-              <div><strong>Category:</strong> {taskConfig.category}</div>
+              <div><strong>{t('task.description.productCard.categoryLabel')}</strong> {
+                taskConfig.dataset === 'wireless' ? (
+                  t('task.description.productCard.wireless')
+              ) : (
+                  t('task.description.productCard.shoes')
+              )}</div>
             </div>
           </div>
         </div>
@@ -371,10 +394,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
     showTaskTutorial,
   } = useTutorial(taskNumber, taskConfig.condition);
 
-  // ✅ SIMPLIFIED CALLBACK - No positioning manipulation
   const handleJoyrideCallback = useCallback((data) => {
-    // !! IMPORTANT !! 
-    // Defer original callback to avoid breaking positioning 
     if (originalCallback) {
       setTimeout(() => {
         originalCallback(data);
@@ -409,6 +429,17 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
 
   const [showCompletionPrompt, setShowCompletionPrompt] = useState(false);
   const [taskStartTime] = useState(Date.now());
+  
+  // Summary hook for completion guard - store full hook to pass to children
+  const summaryHook = useSummary(taskNumber);
+  const { summaryAvailable, summaryViewed, createSummary, summaryData, fetchSummary, openSummary, isModalOpen, isFromDatabase } = summaryHook;
+
+  // Load summary from database on mount
+  useEffect(() => {
+    if (fetchSummary) {
+      fetchSummary();
+    }
+  }, [taskNumber, fetchSummary]); // Run on mount and when task changes
 
   // ============================================================
   // EVENT HANDLERS
@@ -417,7 +448,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   const handleTaskComplete = useCallback(() => {
     const taskDuration = Math.floor((Date.now() - taskStartTime) / 1000);
     
-    track('TASK_COMPLETE_CLICKED', {
+    track('task_complete_clicked', {
       taskNumber,
       condition: taskConfig.condition,
       durationSeconds: taskDuration
@@ -427,7 +458,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   }, [taskNumber, taskConfig.condition, taskStartTime, track]);
 
   const confirmCompletion = useCallback(() => {
-    track('TASK_COMPLETED', {
+    track('task_completed', {
       taskNumber,
       condition: taskConfig.condition
     });
@@ -436,7 +467,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
   }, [taskNumber, taskConfig.condition, onComplete, track]);
 
   const cancelCompletion = useCallback(() => {
-    track('TASK_COMPLETION_CANCELLED', {
+    track('task_completion_cancelled', {
       taskNumber,
       condition: taskConfig.condition
     });
@@ -452,7 +483,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
       data-tour="task-screen-container" 
       className="task-screen-container h-screen flex flex-col bg-gray-50 dark:bg-gray-900"
     >
-      {/* ✅ BASIC JOYRIDE - No custom positioning */}
+      {/* BASIC JOYRIDE - No custom positioning */}
       <JoyridePortal
         steps={steps}
         run={run}
@@ -469,7 +500,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
         disableOverlay={false}
         debug={true}
       />
-
+      
       {/* Progress Header */}
       <div className="flex-shrink-0 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 shadow-sm">
         <div className="flex items-center justify-between">
@@ -485,17 +516,41 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
               {t('task.header.taskNumber', { number: taskNumber, total: 2 })}
             </span>
             <span className="text-gray-300 dark:text-gray-600">•</span>
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {taskConfig.condition === 'workflow_builder' 
-                ? '🔧 ' + t('task.header.workflowBuilder')
-                : '🤖 ' + t('task.header.aiAssistant')}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {taskConfig.condition === 'workflow_builder' ? (
+                <>
+                  <Settings className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('task.header.workflowBuilder')}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Bot className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('task.header.aiAssistant')}
+                  </span>
+                </>
+              )}
+            </div>
             <span className="text-gray-300 dark:text-gray-600">•</span>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {taskConfig.dataset === 'wireless' 
-                ? '🎧 ' + t('task.header.headphones')
-                : '👟 ' + t('task.header.shoes')}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {taskConfig.dataset === 'wireless' ? (
+                <>
+                  <Headphones className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {t('task.header.headphones')}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Footprints className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {t('task.header.shoes')}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           <div className="p-4">
             <div className="flex items-center gap-2"> 
@@ -511,11 +566,23 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
             </div>
           </div>
           
-          {/* Right: Complete button */}
+          {/* Right: Complete button with summary viewed guard */}
           <button
             onClick={handleTaskComplete}
-            className="complete-task-button px-5 py-2 bg-green-600 dark:bg-green-500 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors font-medium flex items-center gap-2"
-            title={t('task.header.completeTooltip')}
+            disabled={!summaryViewed}
+            data-tour="complete-task-button"
+            className={`complete-task-button px-5 py-2 text-white rounded-lg transition-colors font-medium flex items-center gap-2 ${
+              summaryViewed 
+                ? 'bg-green-600 dark:bg-green-500 hover:bg-green-700 dark:hover:bg-green-600' 
+                : 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed opacity-60'
+            }`}
+            title={
+              !summaryViewed && summaryAvailable
+                ? t('task.header.viewSummaryFirst')
+                : !summaryAvailable
+                ? t('task.header.executeFirst')
+                : t('task.header.completeTooltip')
+            }
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -525,8 +592,60 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
         </div>
       </div>
 
+      {/* Previous Summary Banner - Only shows for data loaded from DB, not fresh executions */}
+      {summaryData && summaryAvailable && isFromDatabase && (
+        <div className="flex justify-center px-6 mt-2 mb-2">
+          <div className="w-full max-w-4xl p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-medium text-blue-900 dark:text-blue-300 text-sm mb-0.5">
+                    {t('task.previousSummary.title')}
+                  </h4>
+                  <p className="text-xs text-blue-700 dark:text-blue-400">
+                    {summaryData.metadata?.processed_at ? (
+                      <>
+                        {t('task.previousSummary.savedOn')} {
+                          (() => {
+                            const date = new Date(summaryData.metadata.processed_at);
+                            const day = String(date.getDate()).padStart(2, '0');
+                            const month = date.toLocaleString('en-US', { month: 'short' });
+                            const year = date.getFullYear();
+                            return `${day}-${month}-${year}`;
+                          })()
+                        } {t('task.previousSummary.at')} {
+                          (() => {
+                            const date = new Date(summaryData.metadata.processed_at);
+                            const hours = String(date.getHours()).padStart(2, '0');
+                            const minutes = String(date.getMinutes()).padStart(2, '0');
+                            return `${hours}:${minutes}`;
+                          })()
+                        }
+                      </>
+                    ) : (
+                      t('task.previousSummary.unknownTime')
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (openSummary) {
+                    openSummary();
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition-colors flex-shrink-0"
+              >
+                {t('task.previousSummary.viewButton')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area with Resizable Split */}
-      <div className="flex-1 overflow-hidden">
+      <div data-tour="task-content-container" className="flex-1 overflow-hidden">
         <ResizableSplit
           defaultLeftWidth={40}
           onResize={(width) => setLeftPanelWidth(width)} 
@@ -565,9 +684,9 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
             /* RIGHT SIDE: Work Mode (Workflow Builder or AI Chat) */
             <div className="h-full bg-white dark:bg-gray-800">
               {taskConfig.condition === 'workflow_builder' ? (
-                <WorkflowBuilder />
+                <WorkflowBuilder summaryHook={summaryHook} />
               ) : (
-                <AIChat />
+                <AIChat summaryHook={summaryHook} />
               )}
             </div>
           }
@@ -601,6 +720,22 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Summary Modal */}
+      {isModalOpen && summaryData && (
+        <SummaryModal
+          isOpen={isModalOpen}
+          onClose={() => summaryHook.closeSummary && summaryHook.closeSummary()}
+          onOpen={() => {
+            if (summaryHook.markAsViewed) {
+              summaryHook.markAsViewed();
+            }
+            track('summary_modal_opened', {})
+          }}
+          summaryData={summaryData}
+          taskNumber={taskNumber}
+        />
       )}
     </div>
   );

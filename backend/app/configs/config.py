@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # ============================================================
     
     llm_model: str = Field(
-        default= "gpt-5-nano", #"gpt-3.5-turbo",
+        default= "gpt-5-mini", #"gpt-3.5-turbo",
         description="OpenAI model to use"
     )
     
@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     # APPLICATION SETTINGS
     # ============================================================
     
+    langchain_stream: bool = Field(
+        default=False,
+        description="Enable streaming for langchain operations"
+    )
+
     rate_limit_enabled: bool = Field(
         default=True,
         description="Enable rate limiting"

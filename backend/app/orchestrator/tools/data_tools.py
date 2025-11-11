@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Set
 import logging
 import time
 from datetime import datetime, timezone
+from typing import ClassVar, Dict
 
 from app.orchestrator.tools.base_tool import BaseTool
 from app.orchestrator.graphs.shared_state import DataSource
@@ -12,24 +13,15 @@ from app.database import get_db_context
 from app.models.reviews import get_review_model
 from app.schemas.reviews import to_work_format, ReviewFilterParams
 
-# Import Pydantic output schemas
-from app.orchestrator.tools.output_schemas.data_tools_schemas import (
-    LoadReviewsOutput,
-    LoadReviewsFiltersApplied,
-    LoadReviewsSummary,
-    FilterReviewsOutput,
-    FilterReviewsCriteria,
-    FilterCondition,
-    FilterReviewsSummary,
-    SortReviewsOutput,
-    SortReviewsCriteria,
-    SortReviewsSummary,
-    DataCleanerOutput,
-    DataCleanerCriteria,
-    DataCleanerOperations,
-    CleaningOperationResult,
-    DataCleanerSummary
+from app.orchestrator.llm.tool_schemas import (
+    LoadReviewsInputData,
+    SortReviewsInputData,
+    FilterReviewsInputData,
+    CleanReviewsInputData
 )
+
+# Import Pydantic output schemas
+from app.orchestrator.tools.output_schemas.data_tools_schemas import LoadReviewsOutput
 
 logger = logging.getLogger(__name__)
 class LoadReviewsTool(BaseTool):
@@ -50,11 +42,15 @@ class LoadReviewsTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="Load Reviews",
+            tool_id="load-reviews",
+            description="Load customer reviews. Starting point for analysis workflow!",
             timeout=300 # 5 minutes
         )
         self.websocket_manager = None  # Injected by orchestrator
-    
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+
+
+                                                        # | Dict[str, Any]
+    async def _run(self, input_data: LoadReviewsInputData ) -> LoadReviewsOutput:
         """
         Load reviews based on filter parameters
         
@@ -87,26 +83,36 @@ class LoadReviewsTool(BaseTool):
         """
         start_time = time.time()
         
+        self._log_input_to_file(input_data)
+        
+        """
+        input_data
+            config: {
+                category
+                limit
+                offset
+            }
+            state{
+                condition
+                session_id
+                execution_id
+            }
+
+        """
+
+
         try:
             # Extract parameters
             # Priority 1: config object (workflow builder - 90% case)
             if 'config' in input_data and isinstance(input_data['config'], dict):
                 config = input_data['config']
                 category = config.get('category')
-                product_id = config.get('product_id')
-                min_rating = config.get('min_rating')
-                max_rating = config.get('max_rating')
-                verified_only = config.get('verified_only')
                 limit = config.get('limit')
                 offset = config.get('offset', 0)
             
             # Priority 2: Root-level parameters (AI assistant format)
             else:
                 category = input_data.get('category')
-                product_id = input_data.get('product_id')
-                min_rating = input_data.get('min_rating')
-                max_rating = input_data.get('max_rating')
-                verified_only = input_data.get('verified_only')
                 limit = input_data.get('limit')
                 offset = input_data.get('offset', 0)
             
@@ -136,10 +142,6 @@ class LoadReviewsTool(BaseTool):
             
             # Build filter params
             filters = ReviewFilterParams(
-                product_id=product_id,
-                min_rating=min_rating,
-                max_rating=max_rating,
-                verified_only=verified_only,
                 limit=limit,
                 offset=offset
             )
@@ -260,7 +262,6 @@ class LoadReviewsTool(BaseTool):
                 'records': study_reviews_dicts,     # Direct access
                 'total': len(study_reviews_dicts),  # Count of returned records
                 'category': category,
-                'filters_applied': filters_applied_dict,
                 'limit': filters.limit,
                 'offset': filters.offset,
                 'total_available': total,           # Total in DB matching filters
@@ -270,10 +271,10 @@ class LoadReviewsTool(BaseTool):
                     'records_loaded': len(reviews),
                     'category': category,
                     'total_available': total,
-                    'filters_applied': filters_applied_dict,
                     'load_time_ms': execution_time
                 }
             }
+
 
             await self._send_tool_complete(
                 session_id=session_id, 
@@ -290,6 +291,8 @@ class LoadReviewsTool(BaseTool):
             )
 
             self._log_results_to_file(results)
+
+            #results = LoadReviewsOutput(**results)
             return results
             
         except Exception as e:
@@ -325,7 +328,7 @@ class FilterReviewsTool(BaseTool):
     """
     
     # Field type definitions for validation and operator selection
-    FIELD_TYPES = {
+    FIELD_TYPES: ClassVar[Dict[str, str]] = {
         # String fields
         'review_id': 'string',
         'product_id': 'string',
@@ -341,10 +344,13 @@ class FilterReviewsTool(BaseTool):
         # Boolean fields
         'verified_purchase': 'boolean',
     }
-    
+
     def __init__(self):
+        fields = ', '.join(sorted(set(self.FIELD_TYPES.keys())))
         super().__init__(
             name="Filter Reviews",
+            tool_id="filter-reviews",
+            description=f"Filter customer reviews in state. Options are {fields}",
             timeout=300  # 5 minutes
         )
         self.websocket_manager = None  # Injected by orchestrator
@@ -422,7 +428,7 @@ class FilterReviewsTool(BaseTool):
         
         return True
     
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run(self, input_data: FilterReviewsInputData) -> Dict[str, Any]:
         """
         Filter reviews dynamically based on field type
         
@@ -581,6 +587,12 @@ class FilterReviewsTool(BaseTool):
             
             execution_time = int((time.time() - start_time) * 1000)
 
+            if records_after == 0:
+                raise RuntimeError(
+                    f'Filter settings "{" AND ".join(filter_strings)}" returned 0 records. '
+                    f'Adjust filter settings and retry.'
+                )
+
             results = {
                 'success': True,
                 'filtered_records': filtered_records,   # Key name for row modification tracking
@@ -645,7 +657,7 @@ class SortReviewsTool(BaseTool):
     """
     
     # Mapping of user-friendly names to actual field names
-    SORT_FIELD_MAPPING = {
+    SORT_FIELD_MAPPING: ClassVar[Dict[str, str]] = {
         'rating': 'star_rating',
         'helpfulness': 'helpful_votes',
         'helpful': 'helpful_votes',
@@ -654,21 +666,29 @@ class SortReviewsTool(BaseTool):
         'id': 'review_id',
         'product': 'product_id',
         # Allow direct field names too
-        'star_rating': 'star_rating',
-        'helpful_votes': 'helpful_votes',
-        'total_votes': 'total_votes',
-        'review_id': 'review_id',
-        'product_id': 'product_id',
+        'review_id':'review_id',
+        'product_id':'product_id',
+        'customer_id':'customer_id', 
+        'product_title':'product_title',
+        'star_rating':'star_rating',
+        'review_headline':'review_headline',
+        'review_body':'review_body',
+        'helpful_votes':'helpful_votes',
+        'total_votes':'total_votes',
+        'verified_purchase':'verified_purchase',
     }
     
     def __init__(self):
+        fields = ', '.join(sorted(set(self.SORT_FIELD_MAPPING.values())))
         super().__init__(
-            name="Sort Reviews",
+            name="sort-reviews",
+            tool_id="filter-reviews",
+            description=f"Sort customer reviews in state. Options are {fields}",
             timeout=300  # 5 minutes
         )
         self.websocket_manager = None  # Injected by orchestrator
     
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run(self, input_data: SortReviewsInputData) -> Dict[str, Any]:
         """
         Sort reviews by specified field
         
@@ -769,7 +789,6 @@ class SortReviewsTool(BaseTool):
                 'criteria': {                           # How was sorted
                     'sort_by': actual_field,
                     'descending': descending,
-                    'records_processed': len(sorted_records)
                 },
                 'total': len(sorted_records),           # Pass through
                 'category': category,                   # Pass through
@@ -819,6 +838,8 @@ class DataCleanerTool(BaseTool):
     def __init__(self):
         super().__init__(
             name="Data Cleaner",
+            tool_id="clean-data",
+            description="Clean customer reviews in state from spam and malformed records",
             timeout=300  # 5 minutes
         )
         self.websocket_manager = None   # Injected by orchestrator
@@ -843,7 +864,7 @@ class DataCleanerTool(BaseTool):
         
         return missing_fields
     
-    async def _execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _run(self, input_data: CleanReviewsInputData) -> Dict[str, Any]:
         """
         Clean reviews using SQL malformed_type filter
         
@@ -1191,7 +1212,7 @@ class DataCleanerTool(BaseTool):
                             "total_steps": 5,
                             'removed': removed_count
                         },
-                        step="duplicates_complete",
+                        status="duplicates_complete",
                     )
 
                     current_progress += 20
@@ -1258,7 +1279,6 @@ class DataCleanerTool(BaseTool):
                     'remove_nulls': remove_nulls,
                     'normalize_text': normalize_text,
                     'remove_duplicates': remove_duplicates,
-                    'operations': operation_results
                 },
                 'total': len(cleaned_records),          # Updated total
                 'category': category,                   # Pass through

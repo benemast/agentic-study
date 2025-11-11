@@ -64,8 +64,15 @@ const getScreenStepsContent = (t) => [
     target: '[data-tour="pop-out-dataviewer-button"]',
     content: (
       <div>
-        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.popOutViwer.title')}</h3>
-        <p>{t('tutorial.screen.popOutViwer.description')}</p>
+
+        <div className="p-2 rounded">
+          <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.popOutViwer.title')}</h3>
+          <p>{t('tutorial.screen.popOutViwer.description')}</p>
+        </div>
+        <div className="text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+          <strong className="text-blue-700 dark:text-blue-300">{t('tutorial.screen.popOutViwer.devNote')}</strong>
+          <p className="text-blue-600 dark:text-blue-400 mt-1">{t('tutorial.screen.popOutViwer.devNoteText')}</p>
+        </div>
       </div>
     ),
     placement: 'right',
@@ -106,10 +113,10 @@ const getWorkflowBuilderStepsContent = (t) => [
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.sidebar.title')}</h3>
         <p className="mb-3">{t('tutorial.workflowBuilder.sidebar.description')}</p>
         <ul className="text-sm space-y-1 list-disc list-inside">
-          <li><strong>{t('workflow.builder.nodeCategories.input')}:</strong> {t('tutorial.workflowBuilder.categories.input')}</li>
-          <li><strong>{t('workflow.builder.nodeCategories.processing')}:</strong> {t('tutorial.workflowBuilder.categories.processing')}</li>
-          <li><strong>{t('workflow.builder.nodeCategories.analysis')}:</strong> {t('tutorial.workflowBuilder.categories.analysis')}</li>
-          <li><strong>{t('workflow.builder.nodeCategories.output')}:</strong> {t('tutorial.workflowBuilder.categories.output')}</li>
+          <li><strong>{t('workflow.builder.nodeCategories.input')}:</strong> {t('tutorial.workflowBuilder.sidebar.input')}</li>
+          <li><strong>{t('workflow.builder.nodeCategories.processing')}:</strong> {t('tutorial.workflowBuilder.sidebar.processing')}</li>
+          <li><strong>{t('workflow.builder.nodeCategories.analysis')}:</strong> {t('tutorial.workflowBuilder.sidebar.analysis')}</li>
+          <li><strong>{t('workflow.builder.nodeCategories.output')}:</strong> {t('tutorial.workflowBuilder.sidebar.output')}</li>
         </ul>
         <p className="mb-3">{t('tutorial.workflowBuilder.sidebar.finalRemark')}</p>
       </div>
@@ -125,7 +132,6 @@ const getWorkflowBuilderStepsContent = (t) => [
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.tooltips.title')}</h3>
         <p className="mb-2">{t('tutorial.workflowBuilder.tooltips.description')}</p>
         <div className="text-sm bg-purple-50 dark:bg-purple-900/20 p-2 rounded">
-          <strong className="text-purple-700 dark:text-purple-300">✨ {t('common.tryIt')}</strong>
           <p className="text-purple-600 dark:text-purple-400 mt-1">{t('tutorial.workflowBuilder.tooltips.tryText')}</p>
         </div>
       </div>
@@ -244,15 +250,21 @@ const getWorkflowBuilderStepsContent = (t) => [
           <strong className="text-blue-700 dark:text-blue-300">⚡ {t('tutorial.workflowBuilder.execute.requirementsTitle')}</strong>
           <p className="text-blue-600 dark:text-blue-400 mt-1">{t('tutorial.workflowBuilder.execute.requirementsText')}</p>
         </div>
+        <div className="text-sm bg-purple-50 dark:bg-purple-900/20 p-2 rounded">
+          <strong className="text-purple-700 dark:text-purple-300">⚡ {t('tutorial.workflowBuilder.execute.whatHappensTitle')}</strong>
+          <p className="text-purple-600 dark:text-purple-400 mt-1">{t('tutorial.workflowBuilder.execute.whatHappensBody')}</p>
+        </div>
+        <div className="text-sm bg-green-50 dark:bg-green-900/20 p-2 rounded">
+          <strong className="text-green-700 dark:text-green-300">{t('tutorial.workflowBuilder.execute.viewResultsTitle')}</strong>
+          <p className="text-green-600 dark:text-green-400 mt-1">{t('tutorial.workflowBuilder.execute.viewResultsText')}</p>
+        </div>
       </div>
     ),
-    placement: 'bottom',
+    placement: 'right',
   },
-  
-  // Tips for success
   {
-    target: 'body',
-    ccontent: (
+    target: '[data-tour="task-content-container"]',
+    content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.tips.title')}</h3>
         <ul className="list-disc list-inside space-y-2 text-sm">
@@ -264,8 +276,8 @@ const getWorkflowBuilderStepsContent = (t) => [
         </ul>
       </div>
     ),
-    placement: 'center',
-    disableBeacon: true,
+    placement: 'top-end',
+    isFixed: true,
   }
 ];
 
@@ -327,7 +339,7 @@ const getAIAssistantStepsContent = (t) => [
     placement: 'center',
   },
   {
-    target: '[data-tour="chat-messages-container"]',
+    target: '[data-tour="task-content-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.tipsForSuccess.title')}</h3>
@@ -339,11 +351,22 @@ const getAIAssistantStepsContent = (t) => [
         </ul>
       </div>
     ),
-    placement: 'center',
+    placement: 'top-end',
+    isFixed: true,
   },
 ];
 
-const getFinalStepsContent = (t) => [
+const getFinalStepsContent = (t) => [  
+  {
+    target: '[data-tour="complete-task-button"]',
+    content: (
+      <div>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.completeTaskButton.title')}</h3>
+        <p>{t('tutorial.screen.completeTaskButton.description')}</p>
+      </div>
+    ),
+    placement: 'bottom',
+  },
   {
     target: '[data-tour="tutorial-buttons"]',
     content: (
@@ -355,14 +378,14 @@ const getFinalStepsContent = (t) => [
     placement: 'bottom',
   },
   {
-    target: 'body',
+    target: '[data-tour="task-content-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.screen.final.title')}</h3>
         <p>{t('tutorial.screen.final.description')}</p>
       </div>
     ),
-    placement: 'center',
+    placement: 'top-end',
   },
 ]
 
@@ -406,7 +429,7 @@ export function getTask2Steps(condition, t) {
  * @param {function} t - Translation function
  */
 export function getScreenSteps(t) {
-  return getScreenStepsContent(t);
+  return [...getScreenStepsContent(t), ...getFinalStepsContent(t)];
 }
 
 /**

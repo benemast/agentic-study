@@ -1,36 +1,27 @@
 # backend/app/orchestrator/graphs/workflow_builder.py
 from langgraph.graph import StateGraph, END
-from typing import Dict, Any, Callable, List
+from typing import Dict, Any, Callable, List, Optional
 import logging
 import time
 from datetime import datetime, timezone
 
 from .shared_state import (
     SharedWorkflowState,
-    DataSource,
-    RowOperation,
-    get_working_data_dict,
-    apply_row_modification,
-    apply_enrichment,
-    get_row_operation_summary,
-    initialize_records,
-    ResultsRegistry,
-    ToolResult
+    ResultsRegistry
 )
 from app.database import get_db_context
 
 from ..tools.registry import ToolRegistry, tool_registry
 from app.websocket.manager import WebSocketManager
 
+from .state_utils import (
+    prepare_tool_input,
+    process_tool_result,
+    cleanup_result_for_response
+)
 from app.orchestrator.llm.client_langchain import get_llm_client
 
-
-
-# Potentially Outdated
-from app.orchestrator.llm import llm_client
-
 logger = logging.getLogger(__name__)
-
 
 class WorkflowBuilderGraph:
     """
@@ -109,18 +100,12 @@ class WorkflowBuilderGraph:
     
     def _inject_llm_client_into_tools(self):
         """
-        Inject LLM client into tools that need LLM support
+        Inject LLM client into tools that need AI capabilities
         
-        CRITICAL: Workflow Builder uses the same tools as AI Assistant.
-        Tools like sentiment analysis and insight generation need LLM
-        access for to generate output.
-        
-        Implementation notes:
-        - Tools in registry are singletons (one instance per tool type)
-        - Injecting once makes LLM client available to both graphs
-        - Uses registry to access shared tool instances
+        Similar to WebSocket injection, this makes the LLM client available
+        to tools that need it (sentiment analysis, insight generation, etc.)
         """
-        logger.info("Injecting LLM Client into Workflow Builder tools")
+        logger.info("Injecting LLM client into Workflow Builder tools")
         
         # Tool AI IDs that need WebSocket (match your TOOL_DEFINITIONS in registry.py)
         llm_tool_ids = [
@@ -177,10 +162,14 @@ class WorkflowBuilderGraph:
         node_label = node['data'].get('label', node_id)
         template_id = node['data']['template_id']
         
-        async def node_handler(state: SharedWorkflowState) -> SharedWorkflowState:
+        async def node_handler(state: SharedWorkflowState, condition: Optional[str] = 'workflow_builder') -> SharedWorkflowState:
             """Execute single workflow node"""
+            
+            start_time = time.time()
             execution_id = state['execution_id']
             step_start_time = time.time()
+
+            condition = state.get("condition",condition)
 
             # Atomic increment
             new_step = self.state_manager.increment_field(execution_id, 'step_number', 1)
@@ -209,7 +198,7 @@ class WorkflowBuilderGraph:
                 await self.websocket_manager.send_node_progress(
                     session_id=state['session_id'],
                     execution_id=execution_id,
-                    condition='workflow_builder',
+                    condition=condition,
                     progress_type='start',
                     status='start',
                     data={
@@ -224,39 +213,13 @@ class WorkflowBuilderGraph:
 
                 logger.info({'node':node, 'tool': tool})
                 # Get working data using helper
-                working_data = get_working_data_dict(state)
-                
-                input_data = {
-                    'records': working_data['records'],
-                    'total': working_data['total'],
-                    'category': working_data.get('category', ''),
-                    'product_titles': working_data.get('product_titles', {}),
-
-                    # Node specifc config, as per client
-                    'config': node.get('data', {}).get('config'),
-
-                    # State context for BaseTool
-                    'state': {
-                        'session_id': state['session_id'],
-                        'execution_id': execution_id,
-                        'condition': state['condition']
-                        
-                    },
-
-                    'sentiment_statistics': state.get('sentiment_statistics', None),
-                    'theme_analysis': state.get('theme_analysis', None),
-                    'insights': state.get('insights', None),
-                    
-                    # Data source tracking
-                    'data_source': state.get('data_source', []),
-                    
-                    # Operation history visibility
-                    'row_operation_history': state.get('row_operation_history', []),
-                    
-                    # Direct IDs for backward compatibility & WebSocket
-                    'session_id': state['session_id'],
-                    'execution_id': execution_id
-                }
+                input_data = prepare_tool_input(
+                    state=state,
+                    config=node.get('data', {}).get('config'),
+                    condition=condition,
+                    session_id=state['session_id'],
+                    execution_id=execution_id
+                )
                 
                 logger.debug(
                     f"Tool input: {input_data['total']} records, "
@@ -276,12 +239,12 @@ class WorkflowBuilderGraph:
                     'state': {'session_id': state.get('session_id', ''), 'execution_id': execution_id}
                 }
             
-            # Execute tool
+            # ==================== EXECUTE TOOL ====================
             try:
                 await self.websocket_manager.send_node_progress(
                     session_id=state['session_id'],
                     execution_id=execution_id,
-                    condition='workflow_builder',
+                    condition=condition,
                     progress_type='progress',
                     status='running',
                     data={
@@ -294,210 +257,87 @@ class WorkflowBuilderGraph:
                 # Execute tool with prepared input
                 result = await tool.run(input_data)
 
-                if result.get('state_updates'):
-                    for key, value in result['state_updates'].items():
-                        state[key] = value
-                        logger.info(f"Added {key} to state!")
-                        # Update Redis
-                        self.state_manager.update_state_field(execution_id, key, value)
-
-                # Handle result based on tool category
-                if result.get('success'):
-                    # Get tool definition to check category                    
-                    tool_def = self.registry.get_tool_definition( workflow_id = template_id )
-
-                    if tool_def and tool_def.category == 'data':
-                        # DATA TOOL (filter/clean/sort) - Track row modification
-                        if result.get('filtered_records') is not None:
-                            # Calculate rows before/after for RowOperation
-                            rows_before = len(state['record_store']['records'])
-                            rows_after = len(result['filtered_records'])
-                            rows_removed = rows_before - rows_after
-                            
-                            # Construct proper RowOperation (validates schema)
-                            row_op = RowOperation(
-                                tool_id=template_id,
-                                tool_name=node_label,
-                                operation_type=result.get('operation_type', 'filter'),
-                                tool_category='data',
-                                rows_before=rows_before,
-                                rows_after=rows_after,
-                                rows_removed=rows_removed,
-                                criteria=result.get('criteria', {}),
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                execution_time_ms=result.get('execution_time_ms', 0)
-                            )
-                            
-                            # Apply using validated RowOperation
-                            apply_row_modification(
-                                state,
-                                tool_name=row_op.tool_name,
-                                tool_id=row_op.tool_id,
-                                filtered_records=result['filtered_records'],
-                                operation_type=row_op.operation_type,
-                                criteria=row_op.criteria,
-                                execution_time_ms=row_op.execution_time_ms
-                            )
-                            
-                            logger.info(
-                                f"✓ Row modification tracked: "
-                                f"{rows_before} → {rows_after} records "
-                                f"({rows_removed} removed) after {row_op.operation_type}"
-                            )
-                            
-                            # Update Redis (only changed fields)
-                            self.state_manager.update_state_fields(execution_id, {
-                                'record_store': state['record_store'],
-                                'row_operation_history': state['row_operation_history']
-                            })
-                    
-                    elif tool_def and tool_def.category == 'analysis':
-                        # ANALYSIS TOOL (sentiment/insights) - Add enrichment
-                        #state['sentiment_statistics'] = result.get('sentiment_statistics', None)
-                        #state['theme_analysis'] = result.get('theme_analysis', None)
-
-                        if result.get('column_data'):
-                            apply_enrichment(
-                                state,
-                                tool_name=node_label,
-                                tool_id=template_id,
-                                column_data=result['column_data'],
-                                columns_added=result.get('columns_added', [])
-                            )
-                            
-                            logger.info(
-                                f"Enrichment added: "
-                                f"{len(result.get('columns_added', []))} columns from {node_label}"
-                            )
-                            
-                            # Update Redis (only enrichment registry)
-                            self.state_manager.update_state_field(
-                                execution_id,
-                                'enrichment_registry',
-                                state['enrichment_registry']
-                            )
-                    
-                    elif tool_def and template_id == 'load-reviews':
-                        # LOAD TOOL - Initialize records in state
-                        data_source = result.get('data_source', {})
-
-                        initialize_records(
-                            state,
-                            records=result['records'],
-                            category=result.get('category', ''),
-                            sql_query=data_source.get('sql_query'), 
-                            query_params=data_source.get('query_params')
-                        )
-
-                        # Prepare detailed_output with root-level metadata
-                        detailed_output = {
-                            'total': result.get('total'),
-                            'total_available': result.get('total_available'),
-                            'category': result.get('category'),
-                            'filters_applied': result.get('filters_applied'),
-                            'limit': result.get('limit'),
-                            'offset': result.get('offset')
-                        }
-                        
-                        logger.info(
-                            f"Data loaded: {len(result['records'])} records initialized, "
-                            f"data_source stored (category: {result.get('data_source', {}).get('category')}, "
-                            f"can_reload: {result.get('data_source', {}).get('can_reload')})"
-                        )
-                        
-                        # Update Redis with record_store and data_source
-                        self.state_manager.update_state_fields(execution_id, {
-                            'record_store': state['record_store'],
-                            'data_source': state['data_source']
-                        })
-                    
-                    # Store result in results_registry
-                    results_registry = ResultsRegistry(**state['results_registry'])
-                    tool_result = ToolResult(
-                        tool_id=template_id,
-                        tool_name=node_label,
-                        summary=result.get('summary', {}),
-                        detailed_output=result.get('data', {}),
-                        execution_time_ms=result.get('execution_time_ms', 0)
-                    )
-                    results_registry.add(tool_result)
-                    state['results_registry'] = results_registry.model_dump()
-                    
-                    # Update results_registry in Redis
-                    self.state_manager.update_state_field(
-                        execution_id,
-                        'results_registry',
-                        state['results_registry']
-                    )
-                    
-                    # Send success event
-                    if self.websocket_manager:
-                        await self.websocket_manager.send_node_progress(
-                            session_id = state['session_id'],
-                            execution_id = execution_id,
-                            condition = 'workflow_builder',
-                            progress_type='end',
-                            status='completed',
-                            data={
-                                'success': result.pop('success', False),
-                                'node_id': node_id,
-                                'node_label': node_label,
-                                'step_number': state['step_number'],
-                                'results': result
-                            }
-                        )
-
-                    logger.info(f"Node {node_id} completed successfully")
-                else:
-                    # Tool execution failed
+                # ==================== PROCESS RESULT ====================
+                result = await process_tool_result(
+                    state=state,
+                    result=result,
+                    tool_name=node_label,
+                    tool_id=template_id,
+                    tool_category=None,  # Will be inferred from registry
+                    condition=condition,
+                    registry=self.registry,
+                    websocket_manager= self.websocket_manager,
+                    state_manager=self.state_manager
+                )
+                
+                # Check for errors and raise immediately
+                if state['status'] == 'error' or state.get('errors'):
                     error_msg = result.get('error', 'Unknown error')
                     error_type = result.get('error_type', 'execution_error')
-                    
-                    logger.error(f"Node {node_id} failed: {error_msg} (type: {error_type})")
-                    
-                    # Append error efficiently
-                    error_entry = {
-                        'step': new_step,
-                        'node': node_id,
-                        'node_label': node_label,
-                        'error': error_msg,
-                        'error_type': error_type,
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    }
-                    
-                    self.state_manager.append_to_list_field(
-                        execution_id,
-                        'errors',
-                        error_entry
-                    )
-                    state['errors'].append(error_entry)
+                    raise RuntimeError(f"{node_label} failed: {error_type} - {error_msg}")
                 
-                    # Send error event
-                    if self.websocket_manager:
-                        await self.websocket_manager.send_node_progress(
-                            session_id = state['session_id'],
-                            execution_id = execution_id,
-                            condition = 'workflow_builder',
-                            progress_type = 'error',
-                            status = 'failed',
-                            data = {
-                                'success': result.pop('success', False),
-                                'node_id': node_id,
-                                'node_label': node_label,
-                                'step_number': state['step_number'],
-                                'error': error_msg, 
-                                'error_type': error_type
-                            }
-                        )
+                # Update Redis with modified state fields
+                # (process_tool_result already updated state dict)
+                self.state_manager.update_state_fields(execution_id, {
+                    'record_store': state.get('record_store'),
+                    'enrichment_registry': state.get('enrichment_registry'),
+                    'results_registry': state.get('results_registry'),
+                    'row_operation_history': state.get('row_operation_history'),
+                    'data_source': state.get('data_source'),
+                })
+                
+                logger.info(f"Node {node_id} completed successfully")
+                step_time = int((time.time() - step_start_time) * 1000)
 
-                    # Check if node is critical
-                    if self._is_critical_node(node_id, template_id):
-                        logger.error(f"Critical node {node_id} failed - stopping execution")
-                        state['status'] = 'error'
-                
+                # Batch field updates
+                self.state_manager.update_state_fields(execution_id, {
+                    'last_step_at': datetime.now(timezone.utc).isoformat(),
+                    'total_time_ms': state.get('total_time_ms', 0) + step_time
+                })
+
+                state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
+                state['last_step_at'] = datetime.now(timezone.utc).isoformat()            
+
+                cleaned_result = cleanup_result_for_response(result)                    
+
+                execution_time_ms = int((time.time() - start_time) * 1000)
+
+                # Send success event
+                if self.websocket_manager:
+                    await self.websocket_manager.send_node_progress(
+                        session_id = state['session_id'],
+                        execution_id = execution_id,
+                        condition = condition,
+                        progress_type='end',
+                        status='completed',
+                        data={
+                            'success': cleaned_result.pop('success', False),
+                            'node_id': node_id,
+                            'node_label': node_label,
+                            'step_number': state['step_number'],
+                            'results': cleaned_result,
+                            'execution_time_ms': execution_time_ms
+                        }
+                    )
+
+                # Checkpoint: node end
+                if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
+                    with get_db_context() as db:
+                        await self.state_manager.checkpoint_to_db(
+                            db=db,
+                            execution_id=execution_id,
+                            step_number=new_step,
+                            checkpoint_type='node_end',
+                            state=dict(state),
+                            node_id=node_id,
+                            time_since_last_ms=step_time,
+                            buffered=True 
+                        )
+                        
             except Exception as e:
+                # Handle ALL execution errors (including RuntimeError from above)
                 error_msg = str(e) 
-                error_type= type(e).__name__
+                error_type = type(e).__name__
                 logger.exception(f"Node {node_id} execution exception: {e}")
                 
                 # Append error
@@ -522,9 +362,9 @@ class WorkflowBuilderGraph:
                      await self.websocket_manager.send_node_progress(
                         session_id = state['session_id'],
                         execution_id = execution_id,
-                        condition = 'workflow_builder',
+                        condition = condition,
                         progress_type = 'error',
-                        status = 'exception',
+                        status = 'failed',
                         data = {
                             'node_id': node_id,
                             'node_label': node_label,
@@ -534,36 +374,11 @@ class WorkflowBuilderGraph:
                         }
                     )
                 
-                # Check if critical
-                if self._is_critical_node(node_id, template_id):
-                    logger.error(f"Critical node {node_id} failed - stopping execution")
-                    state['status'] = 'error'
-            
-            # Update timing
-            step_time = int((time.time() - step_start_time) * 1000)
-
-            # Batch field updates
-            self.state_manager.update_state_fields(execution_id, {
-                'last_step_at': datetime.now(timezone.utc).isoformat(),
-                'total_time_ms': state.get('total_time_ms', 0) + step_time
-            })
-
-            state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
-            state['last_step_at'] = datetime.now(timezone.utc).isoformat()
-            
-            # Checkpoint: node end
-            if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
-                with get_db_context() as db:
-                    await self.state_manager.checkpoint_to_db(
-                        db=db,
-                        execution_id=execution_id,
-                        step_number=new_step,
-                        checkpoint_type='node_end',
-                        state=dict(state),
-                        node_id=node_id,
-                        time_since_last_ms=step_time,
-                        buffered=True 
-                    )
+                # Mark execution as failed
+                state['status'] = 'error'
+                
+                # Re-raise to stop workflow execution
+                raise
         
             return state
         
@@ -591,12 +406,12 @@ class WorkflowBuilderGraph:
             edges: List of workflow edges
             
         Returns:
-            (is_valid, error_messages)
+            (is_valid, list of error messages)
         """
         errors = []
         
         if not nodes:
-            errors.append("Workflow has no nodes")
+            errors.append("Workflow must have at least one node")
             return False, errors
         
         if not edges:
@@ -741,135 +556,6 @@ class WorkflowBuilderGraph:
         # (workflow can continue with degraded functionality)
         return False
 
-    def _create_node_function(
-        self, 
-        tool: Any, 
-        node_id: str, 
-        node_data: Dict[str, Any]
-    ) -> Callable:
-        """
-        Create a function to execute a workflow node
-        
-        Args:
-            tool: Tool instance to execute
-            node_id: Unique node identifier
-            node_data: Node configuration data
-            
-        Returns:
-            Async function that executes the node
-        """
-        async def execute_node(state: SharedWorkflowState) -> SharedWorkflowState:
-            """Execute a single workflow node"""
-            step_start_time = time.time()
-            last_step_time = datetime.fromisoformat(state.get('last_step_at', datetime.now(timezone.utc).isoformat()))
-            time_since_last = int((datetime.now(timezone.utc) - last_step_time).total_seconds() * 1000)
-            
-            state['step_number'] = state.get('step_number', 0) + 1
-            state['current_node'] = node_id
-            
-            logger.info(f"Executing node: {node_id} (step {state['step_number']})")
-            
-            # Checkpoint: node start
-            if self.state_manager.should_checkpoint(state['condition'], 'node_start'):
-                with get_db_context() as db:
-                    self.state_manager.checkpoint_to_db(
-                        db=db,
-                        execution_id=state['execution_id'],
-                        step_number=state['step_number'],
-                        checkpoint_type='node_start',
-                        state=dict(state),
-                        node_id=node_id,
-                        time_since_last_ms=time_since_last,
-                        metadata={'node_label': node_data.get('label', node_id)}
-                    )
-            
-            # Send WebSocket progress update
-            if self.websocket_manager:                
-                await self.websocket_manager.send_node_progress(
-                    session_id = state['session_id'],
-                    execution_id = state['execution_id'],
-                    condition ='workflow_builder',
-                    progress_type ='progress',
-                    status = 'running',
-                    data = {
-                        'node_id': node_id,
-                        'node_label': node_data.get('label', node_id),
-                        'step_number': state['step_number']
-                    }
-                )
-            
-            try:
-                # Execute tool
-                result = await tool.run(state['working_data'])
-                
-                # Update state
-                if result['success']:
-                    state['results'][node_id] = result
-                    state['working_data'] = result.get('data', state['working_data'])
-                    logger.info(f"Node {node_id} completed successfully")
-                else:
-                    error_msg = result.get('error', 'Unknown error')
-                    state['errors'].append({
-                        'node_id': node_id,
-                        'error': error_msg,
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    })
-                    logger.error(f"Node {node_id} failed: {error_msg}")
-                
-                # Update timing
-                state['last_step_at'] = datetime.now(timezone.utc).isoformat()
-                step_time = int((time.time() - step_start_time) * 1000)
-                state['total_time_ms'] = state.get('total_time_ms', 0) + step_time
-                
-                # Update Redis state
-                self.state_manager.save_state_to_memory(state['execution_id'], dict(state))
-                
-                # Checkpoint: node end
-                if self.state_manager.should_checkpoint(state['condition'], 'node_end'):
-                    with get_db_context() as db:
-                        self.state_manager.checkpoint_to_db(
-                            db=db,
-                            execution_id=state['execution_id'],
-                            step_number=state['step_number'],
-                            checkpoint_type='node_end',
-                            state=dict(state),
-                            node_id=node_id,
-                            time_since_last_ms=step_time,
-                            metadata={
-                                'success': result['success'],
-                                'execution_time_ms': result.get('execution_time_ms', 0)
-                            }
-                        )
-                
-                # Send WebSocket progress update
-                if self.websocket_manager:
-                    await self.websocket_manager.send_node_progress(
-                        session_id=state['session_id'],
-                        execution_id=state['execution_id'],
-                        condition='workflow_builder',
-                        progress_type='end',
-                        status='completed',
-                        data= {
-                            'success': result.pop('success',False),
-                            'node_id': node_id,
-                            'step': state['step_number']
-                        }
-                    )
-                
-                return state
-                
-            except Exception as e:
-                logger.exception(f"Exception in node {node_id}: {e}")
-                state['errors'].append({
-                    'node_id': node_id,
-                    'error': str(e),
-                    'timestamp': datetime.now(timezone.utc).isoformat()
-                })
-                state['status'] = 'error'
-                return state
-        
-        return execute_node
-    
     def _build_edge_map(self, edges: list) -> Dict[str, list]:
         """
         Build a map of source -> [targets] from edge list

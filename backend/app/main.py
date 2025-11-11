@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 import logging
 import traceback
 
-from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews, monitoring
+from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews, monitoring, survey, summary
 from app.database import create_tables, check_database_connection, get_database_info
 from app.websocket.handlers import register_handlers
 
@@ -149,6 +149,8 @@ app.include_router(websocket.router)
 app.include_router(sentry.router)
 app.include_router(reviews.router)
 app.include_router(monitoring.router)
+app.include_router(survey.router)
+app.include_router(summary.router)
 
 @app.get("/")
 async def root():

@@ -16,3 +16,4 @@ http:
         average: 100                       # 100 requests
         burst: 50                          # Burst up to 50
         period: 1s                         # Per second
+        

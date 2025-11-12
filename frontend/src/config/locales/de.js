@@ -54,7 +54,7 @@ export const de = {
       label: 'Impressum',
       url: 'https://www.tu-darmstadt.de/impressum/index.de.jsp'
     },
-    note:'Die Studie dauert ca. 45-60 Minuten. Dein Fortschritt wird automatisch gespeichert.',
+    note:'Die Studie dauert ca. 30 Minuten. Dein Fortschritt wird automatisch gespeichert.',
     contact: 'Bei Fragen zur Studie oder Problemen wende dich bitte an [EMAIL].'
   },
   // ========== WELCOME ==========
@@ -85,7 +85,7 @@ export const de = {
       },
       duration: {
         label: 'Geschätzte Dauer',
-        time: '45-60 Minuten',
+        time: '30 Minuten',
         note: 'Dein Fortschritt wird automatisch gespeichert. Du kannst bei Bedarf Pausen machen.'
       }
     },

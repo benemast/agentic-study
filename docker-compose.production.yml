@@ -46,6 +46,11 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.file.directory=/etc/traefik/dynamic
+      - --metrics.prometheus=true
+      - --metrics.prometheus.addEntryPointsLabels=true
+      - --metrics.prometheus.addRoutersLabels=true
+      - --metrics.prometheus.addServicesLabels=true
+      - --metrics.prometheus.buckets=0.1,0.3,1.2,5.0
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
@@ -183,6 +188,14 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE: https://api.${DOMAIN}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+        VITE_SENTRY_ENVIRONMENT: ${VITE_SENTRY_ENVIRONMENT}
+        VITE_CONTACT_NAME: ${VITE_CONTACT_NAME}
+        VITE_CONTACT_EMAIL: ${VITE_CONTACT_EMAIL}
+        VITE_ENABLE_CLARITY: ${VITE_ENABLE_CLARITY}
+        VITE_CLARITY_PROJECT_ID: ${VITE_CLARITY_PROJECT_ID}
+        VITE_DEBUG: ${VITE_DEBUG}
+        VITE_SESSION_TIMEOUT: ${VITE_SESSION_TIMEOUT}
     depends_on:
       - backend
     networks:

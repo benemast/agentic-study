@@ -54,7 +54,7 @@ export const en = {
       label: 'Legal Note',
       url: 'https://www.tu-darmstadt.de/impressum/index.en.jsp'
     },
-    note:'The study takes approximately 45-60 minutes. Your progress is automatically saved.',
+    note:'The study takes approximately 30 minutes. Your progress is automatically saved.',
     contact: 'For study questions or issues, please contact [EMAIL]'
   },
   // ========== WELCOME ==========
@@ -85,7 +85,7 @@ export const en = {
       },
       duration: {
         label: 'Estimated Duration',
-        time: '45-60 minutes',
+        time: '30 minutes',
         note: 'Your progress is automatically saved. You can take breaks as needed.'
       }
     },

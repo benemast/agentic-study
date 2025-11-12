@@ -72,12 +72,19 @@ services:
       - web
     labels:
       - "traefik.enable=true"
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}"
+      # Dashboard UI
       - "traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && PathPrefix(\"/dashboard\")"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=le"
-      - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}"
       - "traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file"
+      # Dashboard API
+      - "traefik.http.routers.traefik-api.rule=Host(\"traefik.${DOMAIN}\") && PathPrefix(\"/api\")"
+      - "traefik.http.routers.traefik-api.entrypoints=websecure"
+      - "traefik.http.routers.traefik-api.tls.certresolver=le"
+      - "traefik.http.routers.traefik-api.service=api@internal"
+      - "traefik.http.routers.traefik-api.middlewares=dashboard-auth@docker,security-headers@file"
     restart: unless-stopped
 
   # PostgreSQL Database

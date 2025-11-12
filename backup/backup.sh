@@ -10,7 +10,7 @@ mkdir -p /backups
 BACKUP_FILE="/backups/postgres_$(date +%Y%m%d_%H%M%S).sql"
 
 # Create PostgreSQL backup
-PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h postgres -U $POSTGRES_USER $POSTGRES_DB > $BACKUP_FILE
+PGPASSWORD=$DB_PASSWORD pg_dump -h postgres -U $DB_USER $DB_NAME > $BACKUP_FILE
 
 # Compress the backup
 gzip $BACKUP_FILE

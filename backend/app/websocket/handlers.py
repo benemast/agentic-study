@@ -9,16 +9,11 @@ from sqlalchemy import null, update
 import asyncio
 import httpx
 
-from app.database import get_db_context, get_async_db_context
+from app.database import get_db_context
 from app.models.session import Session as SessionModel, Interaction
 from app.models.ai_chat import ChatMessage, ChatConversation
-from app.models.reviews import ShoesReview, WirelessReview, get_review_model
-from app.models.execution import WorkflowExecution, ExecutionCheckpoint
+from app.models.reviews import get_review_model
 
-from app.schemas.orchestrator import (
-    ExecutionRequest, ExecutionResponse, ExecutionStatusResponse, 
-    ExecutionDetailResponse, CheckpointResponse
-)
 from app.schemas.reviews import batch_to_study_format
 from app.websocket.manager import get_ws_manager, WebSocketManager
 from app.configs import settings
@@ -341,7 +336,7 @@ async def handle_session_sync(session_id: str, message: dict):
                 })
 
         # Use async context manager
-        async with get_async_db_context() as db:            
+        with get_db_context() as db:
             # Direct UPDATE query
             stmt = (
                 update(SessionModel)
@@ -355,7 +350,7 @@ async def handle_session_sync(session_id: str, message: dict):
                 .returning(SessionModel.session_metadata)
             )
             
-            result = await db.execute(stmt)
+            result = db.execute(stmt)
             row = result.first()
             
             if not row:

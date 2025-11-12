@@ -1,0 +1,18 @@
+http:
+  middlewares:
+    security-headers:
+      headers:
+        frameDeny: true                    # Prevents clickjacking
+        browserXssFilter: true             # XSS protection
+        contentTypeNosniff: true           # MIME sniffing protection
+        forceSTSHeader: true               # Force HTTPS
+        stsIncludeSubdomains: true         # HTTPS for subdomains
+        stsPreload: true                   # HSTS preload
+        stsSeconds: 31536000              # 1 year HSTS
+        customFrameOptionsValue: "SAMEORIGIN"
+        
+    rate-limit:
+      rateLimit:
+        average: 100                       # 100 requests
+        burst: 50                          # Burst up to 50
+        period: 1s                         # Per second

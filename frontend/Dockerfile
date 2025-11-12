@@ -1,3 +1,4 @@
+# Dockerfile Frontend
 # Build stage
 FROM node:22-alpine AS builder
 

@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
+# Copy wait script
+COPY wait-for-postgres.sh /wait-for-postgres.sh
+RUN chmod +x /wait-for-postgres.sh
+
 # Copy application code
 COPY . .
 
@@ -19,5 +23,5 @@ RUN mkdir -p /app/logs
 
 EXPOSE 8000
 
-# Production: Multiple workers, no reload
-CMD ["sh", "-c", "uvicorn app.main:app --host ${UVICORN_HOST:-0.0.0.0} --port ${UVICORN_PORT:-8000} --workers ${UVICORN_WORKERS:-3}"]
+# Production: Wait for postgres, then start with multiple workers
+CMD ["/wait-for-postgres.sh", "postgres", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

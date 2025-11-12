@@ -183,7 +183,7 @@ def init_sentry(settings):
             environment=settings.sentry_environment,
             
             # Release tracking (optional - set via environment variable)
-            release=os.getenv('SENTRY_RELEASE', None),
+            release=settings.sentry_release,
             
             # Sampling rates
             traces_sample_rate=settings.sentry_traces_sample_rate,

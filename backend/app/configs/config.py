@@ -12,7 +12,7 @@ import os
 class Settings(BaseSettings):
     """Application settings with validation"""
     
-    _base_dir = Path(__file__).resolve().parent.parent.parent
+    _base_dir = Path(__file__).resolve().parent.parent.parent.parent
     _api_keys: dict = PrivateAttr(default_factory=dict)
     
     # ============================================================
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
     
     use_stream: bool = Field(
-        default=True,
+        default=False,
         description="Enable streaming for LLM responses"
     )
     
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     )
     
     default_temperature: float = Field(
-        default=0.7,
+        default=1.0,
         ge=0.0, # greater than or equal
         le=2.0,  # less than or equal
         description="Default temperature for LLM"
@@ -66,12 +66,12 @@ class Settings(BaseSettings):
     )
 
     verbosity: Optional[Literal["low", "medium", "high"]] = Field(
-        default="medium",
+        default="low",
         description="GPT-5: Control output length (low=terse, medium=balanced, high=verbose)"
     )
-    
-    reasoning_effort: Optional[Literal["minimal", "medium", "high"]] = Field(
-        default="medium",
+
+    reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = Field(
+        default="low",
         description="GPT-5: Control reasoning depth (minimal=fast/simple, medium=default, high=complex)"
     )    
     # Usage recommendations:
@@ -131,17 +131,16 @@ class Settings(BaseSettings):
         description="Port used by API"
     )
 
+    environment: Literal["dev","production"] = Field(
+        description="Currently running environment type"
+    )
+
     debug: bool = Field(
         default=False,
         description="Enable debug mode"
     )
     
     # Database
-    database_url: str = Field(
-        default="postgresql://localhost/dbname",
-        description="Database connection URL"
-    )
-
     db_pool_size: int = Field(
         default=5,
         description="Standard connection pool size"
@@ -173,11 +172,27 @@ class Settings(BaseSettings):
         default=None,
         description="Database password"
     )
+    database_url:str
+
+    """
+    @computed_field
+    @property
+    def database_url(self) -> str:        
+        return (
+            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
+    """
+
     
     # Sentry (optional)
     sentry_dsn: Optional[str] = Field(
         default=None,
         description="Sentry DSN for error tracking"
+    )
+
+    sentry_release: Optional[str] = Field(
+        default=None
     )
 
     sentry_environment: str = Field(
@@ -243,7 +258,6 @@ class Settings(BaseSettings):
     )
     
     redis_url: str = Field(
-        default="redis://localhost:6379",
         description="Redis connection URL"
     )
 
@@ -310,6 +324,7 @@ class Settings(BaseSettings):
         
         # Explicitly load .env file first (Pydantic only loads defined fields)
         load_dotenv(self._base_dir / ".env")
+        print(self._base_dir)
         
         # Now load from environment
         institute_key = os.getenv('OPENAI_API_KEY_INSTITUTE', '')
@@ -318,7 +333,9 @@ class Settings(BaseSettings):
         if not institute_key or not personal_key:
             raise ValueError(
                 f"API keys missing! Institute: {bool(institute_key)}, "
-                f"Personal: {bool(personal_key)}"
+                f"Personal: {bool(personal_key)}",
+                f"Dir: {self._base_dir}"
+
             )
         
         # Store in private dict only
@@ -397,10 +414,13 @@ class Settings(BaseSettings):
             # Parse if it's a string (e.g., from .env)
             import json
             try:
-                return json.loads(self.cors_origins)
-            except:
+                parsed = json.loads(self.cors_origins)
+                # Ensure it's a list
+                return parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                # If not valid JSON, treat as single origin
                 return [self.cors_origins]
-        return self.cors_origins
+        return self.cors_origins if isinstance(self.cors_origins, list) else [self.cors_origins]
 
 
 # ============================================================
@@ -458,5 +478,5 @@ if __name__ == "__main__":
     print(f"✓ '_api_keys' in serialization: {'_api_keys' in settings.model_dump()}")
     
     print("\n" + "=" * 70)
-    print("✅ CONFIGURATION VALID!")
+    print(" CONFIGURATION VALID!")
     print("=" * 70)

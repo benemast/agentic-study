@@ -29,11 +29,11 @@ import { useTracking } from './hooks/useTracking';
 import { useTranslation } from './hooks/useTranslation';
 import { useTheme } from './hooks/useTheme';
 
-//Helpers
-import { interpolateComponents } from './utils/translationHelpers';
-
 // Config
 import { STUDY_CONFIG } from './config/constants';
+
+// Utils
+import { initClarity } from './utils/clarity';
 
 const StudyApp = () => {
   const { sessionId } = useSession();
@@ -56,6 +56,10 @@ const StudyApp = () => {
   const { theme } = useTheme();
 
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    initClarity();
+  }, []);
 
   // Initialize study configuration on mount
   useEffect(() => {

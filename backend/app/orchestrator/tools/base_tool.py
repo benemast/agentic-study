@@ -170,7 +170,7 @@ class BaseTool(LangChainBaseTool):
         step_number: int | None = None,
         parsed: bool = False,
         verbosity: Literal["low", "medium", "high"] = "low",
-        reasoning_effort: Literal["low", "medium", "high"] = "low",
+        reasoning_effort: Literal["minimal","low", "medium", "high"] = "low",
         **kwargs
     ) -> dict:
         """

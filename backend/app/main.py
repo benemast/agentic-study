@@ -54,12 +54,9 @@ async def lifespan(app: FastAPI):
         logger.error("Database connection failed during startup")
         raise Exception("Database connection failed")
     
-    # Create tables
-    try:
-        create_tables()
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        raise
+    # Database tables are created via Alembic migrations
+    # Run migrations on container startup before this
+    logger.info("Database ready - tables managed by Alembic")
 
     # Register WebSocket handlers ONCE at startup
     register_handlers()
@@ -98,10 +95,9 @@ if sentry_enabled:
 # CORS Configuration - MUST be added before routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development - be more specific in production
-    # allow_origins=settings.get_cors_origins(),
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "FETCH"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=3600,  # Cache preflight requests for 1 hour

@@ -2,10 +2,8 @@
 from sqlalchemy import Column, String, DateTime, Integer, JSON, Text, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
+from app.database import Base
 from datetime import datetime
-
-Base = declarative_base()
 
 class Session(Base):
     __tablename__ = "sessions"

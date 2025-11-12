@@ -15,6 +15,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 // Styles
 import './index.css';
 
+// Utils
+import { initClarity } from './utils/clarity';
+
+useEffect(() => {
+  initClarity();
+}, []);
+
 // Import both apps
 import StudyApp from './StudyApp';
 import App from './App';

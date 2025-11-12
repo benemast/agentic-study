@@ -4,6 +4,7 @@ import { devtools, persist, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 
 import wsClient from '../services/websocket';
+import { useSessionStore } from './sessionStore';
 import { WEBSOCKET_CONFIG } from '../config/constants';
 
 /**
@@ -803,10 +804,7 @@ if (typeof BroadcastChannel !== 'undefined') {
 // React to app visibility changes from sessionStore
 // ============================================================
 setTimeout(async () => {
-  try {
-    // ✅ Use import() not require()
-    const { useSessionStore } = await import('./sessionStore.js');
-    
+  try {    
     useSessionStore.subscribe(
       (state) => state.appLifecycle?.isVisible,
       (isVisible) => {

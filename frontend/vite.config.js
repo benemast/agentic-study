@@ -12,5 +12,16 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['reactflow', 'react-window']
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['reactflow', 'lucide-react', 'react-joyride'],
+          'zustand': ['zustand']
+        }
+      }
+    }
   }
 })

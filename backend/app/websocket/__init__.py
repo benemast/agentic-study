@@ -2,7 +2,7 @@
 """
 WebSocket Communication Module
 
-Provides real-time bidirectional communication between frontend and backend.
+Provides real-time bidirectional communication between frontend and
 
 Key Components:
 - WebSocketManager: Connection lifecycle management

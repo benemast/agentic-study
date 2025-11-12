@@ -1636,7 +1636,7 @@ async def handle_get_review_stats(session_id: str, message: dict):
         category_normalized = category.capitalize()
         
         with get_db_context() as db:
-            from backend.app.models.source_data import SourceReview
+            from app.models.source_data import SourceReview
             
             # Get all reviews for this product
             reviews = db.query(SourceReview).filter(
@@ -1709,7 +1709,7 @@ async def handle_get_review_by_id(session_id: str, message: dict):
         category_normalized = category.capitalize()
         
         with get_db_context() as db:
-            from backend.app.models.source_data import SourceReview
+            from app.models.source_data import SourceReview
             
             review = db.query(SourceReview).filter(
                 SourceReview.product_category == category_normalized,

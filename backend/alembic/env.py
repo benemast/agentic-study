@@ -10,11 +10,16 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import your app's models and config
+from app.database import Base
 from app.configs import settings
-from app.models.session import Base
+from app.models.session import Session, Interaction, SessionError
 from app.models.demographics import Demographics
 from app.models.ai_chat import ChatMessage, ChatConversation, ChatAnalytics
 from app.models.execution import WorkflowExecution, ExecutionCheckpoint, ExecutionLog
+from app.models.reviews import ReviewBase, ShoesReview, WirelessReview
+from app.models.survey import SurveyResponse
+from app.models.summary import ExecutionSummary
+from app.models.source_data import SourceReview
 
 # this is the Alembic Config object
 config = context.config

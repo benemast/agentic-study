@@ -333,7 +333,12 @@ llm_cache/
 *.llm.cache
 
 # Model files (if downloading models locally)
-models/
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.pb
+models/*.h5
+*.safetensors
 *.model
 *.pt
 *.pth

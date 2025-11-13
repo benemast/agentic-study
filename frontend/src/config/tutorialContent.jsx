@@ -94,14 +94,14 @@ const getScreenStepsContent = (t) => [
 // ============================================================
 const getWorkflowBuilderStepsContent = (t) => [
   {
-    target: 'body',
+    target: '[data-tour="task-work-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.welcome.title')}</h3>
         <p>{t('tutorial.workflowBuilder.welcome.description')}</p>
       </div>
     ),
-    placement: 'center',
+    placement: 'left',
     disableBeacon: true,
   },
   
@@ -286,14 +286,14 @@ const getWorkflowBuilderStepsContent = (t) => [
 // ============================================================
 const getAIAssistantStepsContent = (t) => [
   {
-    target: 'body',
+    target: '[data-tour="task-work-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.welcome.title')}</h3>
         <p>{t('tutorial.aiAssistant.welcome.description')}</p>
       </div>
     ),
-    placement: 'center',
+    placement: 'left',
     disableBeacon: true,
   },
   {

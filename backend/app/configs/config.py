@@ -15,6 +15,18 @@ class Settings(BaseSettings):
     _base_dir = Path(__file__).resolve().parent.parent.parent.parent
     _api_keys: dict = PrivateAttr(default_factory=dict)
     
+
+    # ============================================================
+    #     # MODEL & STREAMING CONFIGURATION
+    # ============================================================
+
+    admin_username: str = Field(
+        description="Username for access to frontend admin app"
+    )
+    admin_password: str = Field(
+        description="Password for access to frontend admin app"
+    )
+
     # ============================================================
     #     # MODEL & STREAMING CONFIGURATION
     # ============================================================
@@ -289,12 +301,6 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: list[str] = Field(
-        default=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "*"  # TEMPORARY for development - REMOVE in production!
-        ],
         description="Allowed CORS origins"
     )
     

@@ -8,9 +8,9 @@
  */
 import * as Sentry from '@sentry/react';
 
-import React from 'react';
+import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 // Styles
 import './index.css';
@@ -22,6 +22,7 @@ import App from './App';
 //Import providers
 import SessionInitializer from './components/session/SessionInitializer';
 import { WebSocketProvider } from './providers/WebSocketProvider';
+import { API_CONFIG } from './config/constants';
 
 // Error Fallback for Study Flow (participant-facing)
 const StudyErrorFallback = ({ error, resetError }) => (
@@ -153,7 +154,117 @@ const AdminAppWithErrorBoundary = Sentry.withErrorBoundary(App, {
   showDialog: import.meta.env.DEV, // Show dialog in dev mode for admins
 });
 
+const AdminLogin = () => {  
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+
+    const params = new URLSearchParams({
+      username,
+      password,
+    });
+
+    const res = await fetch(`${API_CONFIG.BASE_URL}/api/sessions/admin/login?${params.toString()}`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+      },
+      // no body needed, matches: -d '' in curl
+    });
+
+    if (!res.ok) {
+      alert('Login request failed');
+      return;
+    }
+
+    const data = await res.json();
+
+    if (data.authenticated) {
+      localStorage.setItem('adminAuth', 'true');
+      window.location.href = '/admin';
+    } else {
+      alert('Wrong username or password');
+    }
+  };
+
+  return (
+    <div
+      className="
+        min-h-screen w-full
+        flex items-center justify-center
+        overflow-hidden
+        bg-gradient-to-br 
+        from-gray-50 via-gray-400 to-gray-900
+        dark:from-gray-900 dark:via-black dark:to-black
+      "
+    >
+      <form
+        onSubmit={handleLogin}
+        className="
+          bg-white dark:bg-gray-800 
+          shadow-2xl rounded-2xl p-8 
+          w-full max-w-sm
+          transition-colors
+        "
+      >
+        <h2 className="text-2xl font-semibold text-center mb-6 text-gray-900 dark:text-gray-100">
+          Admin Login
+        </h2>
+
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Username"
+          className="
+            w-full mb-4 px-4 py-2 rounded-lg border 
+            border-gray-300 dark:border-gray-600 
+            bg-white dark:bg-gray-900 
+            text-gray-900 dark:text-gray-200
+            focus:outline-none focus:ring-2 focus:ring-inset 
+            focus:ring-blue-500
+            transition
+          "
+        />
+
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password"
+          className="
+            w-full mb-6 px-4 py-2 rounded-lg border 
+            border-gray-300 dark:border-gray-600 
+            bg-white dark:bg-gray-900 
+            text-gray-900 dark:text-gray-200
+            focus:outline-none focus:ring-2 focus:ring-inset 
+            focus:ring-blue-500
+            transition
+          "
+        />
+
+        <button
+          type="submit"
+          className="
+            w-full py-2 rounded-lg 
+            bg-blue-600 hover:bg-blue-700 
+            dark:bg-blue-500 dark:hover:bg-blue-600 
+            text-white font-medium
+            transition
+          "
+        >
+          Login
+        </button>
+      </form>
+    </div>
+  );
+};
+
 const MainApp = () => {
+  const isAdminAuthed = localStorage.getItem('adminAuth') === 'true';
+
   return (
     <BrowserRouter>
       <Routes>
@@ -161,7 +272,9 @@ const MainApp = () => {
         <Route path="/*" element={<StudyAppWithErrorBoundary />} />
         
         {/* Admin/Dev Interface */}
-        <Route path="/admin" element={<AdminAppWithErrorBoundary />} />
+        <Route path="/admin" element={
+          isAdminAuthed ? <AdminAppWithErrorBoundary /> : <AdminLogin />
+        } />
       </Routes>
     </BrowserRouter>
   );

@@ -839,3 +839,12 @@ async def session_heartbeat(session_id: str, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update heartbeat: {str(e)}"
         )
+    
+
+@router.post("/admin/login")
+async def admin_login(username: str, password: str):
+    from app.configs.config import settings
+    if username == settings.admin_username and password == settings.admin_password:
+        # Return simple token or just success
+        return {"authenticated": True}
+    raise HTTPException(status_code=401, detail="Invalid credentials")

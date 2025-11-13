@@ -10,7 +10,7 @@ import logging
 import traceback
 
 from app.routers import sessions, demographics, ai_chat, sentry, orchestrator, websocket, reviews, monitoring, survey, summary
-from app.database import create_tables, check_database_connection, get_database_info
+from app.database import check_database_connection, get_database_info
 from app.websocket.handlers import register_handlers
 
 from app.configs.config import settings
@@ -153,7 +153,7 @@ async def root():
     """Root endpoint"""
     return {
         "message": "Agentic Study API",
-        "version": "2.0.0",
+        "version": "1.2.0",
         "status": "running"
     }
 
@@ -165,7 +165,7 @@ async def health_check():
     
     return {
         "status": "healthy" if db_info.get("connected") else "unhealthy",
-        "version": "2.0.0",
+        "version": "1.2.0",
         "database": db_info,
         "sentry_enabled": settings.sentry_dsn is not None,
         "cors_configured": True,

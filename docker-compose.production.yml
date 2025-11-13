@@ -80,18 +80,19 @@ services:
       - web
     labels:
       - "traefik.enable=true"
-      # Global HTTP -> HTTPS redirect (catch-all on port 80)
+
+      # Global HTTP → HTTPS (catch-all on port 80)
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
       - "traefik.http.routers.http-catchall.rule=HostRegexp(\"{host:.+}\")"
       - "traefik.http.routers.http-catchall.entrypoints=web"
       - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
 
-      # Apex → study redirect (on HTTPS)
-      - "traefik.http.middlewares.redirect-root-to-study.redirectregex.regex=^https?://(?:www\\.)?${DOMAIN}/?(.*)"
+      # Apex → study redirect (HTTPS, apex only)
+      - "traefik.http.middlewares.redirect-root-to-study.redirectregex.regex=^https?://${DOMAIN}/?(.*)"
       - "traefik.http.middlewares.redirect-root-to-study.redirectregex.replacement=https://study.${DOMAIN}/$${1}"
       - "traefik.http.middlewares.redirect-root-to-study.redirectregex.permanent=true"
-      - "traefik.http.routers.redirect-root.rule=Host(\"${DOMAIN}\") || Host(\"www.${DOMAIN}\")"
+      - "traefik.http.routers.redirect-root.rule=Host(\"${DOMAIN}\")"
       - "traefik.http.routers.redirect-root.entrypoints=websecure"
       - "traefik.http.routers.redirect-root.tls.certresolver=le"
       - "traefik.http.routers.redirect-root.middlewares=redirect-root-to-study"

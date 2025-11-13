@@ -78,18 +78,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}"
-      # Dashboard UI
-      - "traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && PathPrefix(\"/dashboard\")"
-      - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.entrypoints=websecure"
-      - "traefik.http.routers.traefik.tls.certresolver=le"
-      - "traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file"
-      # Dashboard API
-      - "traefik.http.routers.traefik-api.rule=Host(\"traefik.${DOMAIN}\") && PathPrefix(\"/api\")"
-      - "traefik.http.routers.traefik-api.entrypoints=websecure"
-      - "traefik.http.routers.traefik-api.tls.certresolver=le"
-      - "traefik.http.routers.traefik-api.service=api@internal"
-      - "traefik.http.routers.traefik-api.middlewares=dashboard-auth@docker,security-headers@file"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+      # Catch all HTTP to HTTPS (*.yourdomain)
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(\"{host:.+}\")"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      # traefik Dashboar, API & Metrics
+      - traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && (PathPrefix(\"/dashboard\") || PathPrefix(\"/api\") || PathPrefix(\"/metrics\"))
+      - traefik.http.routers.traefik.entrypoints=websecure
+      - traefik.http.routers.traefik.tls.certresolver=le
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file
     restart: unless-stopped
 
   # PostgreSQL Database
@@ -155,8 +155,8 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}
       - SESSION_TIMEOUT_MINUTES=60
       - AUTO_SYNC_INTERVAL_MINUTES=5
-      - FRONTEND_URL=https://${DOMAIN}
-      - CORS_ORIGINS=["https://${DOMAIN}"]
+      - FRONTEND_URL=https://study.${DOMAIN}
+      - CORS_ORIGINS=["https://study.${DOMAIN}", "https://${DOMAIN}"]
     depends_on:
       - postgres
       - redis

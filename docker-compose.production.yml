@@ -46,11 +46,13 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.file.directory=/etc/traefik/dynamic
+      # Metrics
       - --metrics.prometheus=true
       - --metrics.prometheus.addEntryPointsLabels=true
       - --metrics.prometheus.addRoutersLabels=true
       - --metrics.prometheus.addServicesLabels=true
       - --metrics.prometheus.buckets=0.1,0.3,1.2,5.0
+      # Entrypoints + global redirect + timeouts
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
@@ -61,6 +63,7 @@ services:
       - --serversTransport.forwardingTimeouts.dialTimeout=30s
       - --serversTransport.forwardingTimeouts.responseHeaderTimeout=0
       - --serversTransport.forwardingTimeouts.idleConnTimeout=90s
+      # ACME + dashboard
       - --certificatesresolvers.le.acme.tlschallenge=true
       - --certificatesresolvers.le.acme.email=${LETSENCRYPT_EMAIL}
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
@@ -77,19 +80,33 @@ services:
       - web
     labels:
       - "traefik.enable=true"
-      - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}"
+      # Global HTTP -> HTTPS redirect (catch-all on port 80)
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
       - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
-      # Catch all HTTP to HTTPS (*.yourdomain)
       - "traefik.http.routers.http-catchall.rule=HostRegexp(\"{host:.+}\")"
       - "traefik.http.routers.http-catchall.entrypoints=web"
       - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
-      # traefik Dashboar, API & Metrics
+
+      # Apex → study redirect (on HTTPS)
+      - "traefik.http.middlewares.redirect-root-to-study.redirectregex.regex=^https?://(?:www\\.)?${DOMAIN}/?(.*)"
+      - "traefik.http.middlewares.redirect-root-to-study.redirectregex.replacement=https://study.${DOMAIN}/$${1}"
+      - "traefik.http.middlewares.redirect-root-to-study.redirectregex.permanent=true"
+      - "traefik.http.routers.redirect-root.rule=Host(\"${DOMAIN}\") || Host(\"www.${DOMAIN}\")"
+      - "traefik.http.routers.redirect-root.entrypoints=websecure"
+      - "traefik.http.routers.redirect-root.tls.certresolver=le"
+      - "traefik.http.routers.redirect-root.middlewares=redirect-root-to-study"
+      - "traefik.http.routers.redirect-root.service=noop@internal"
+
+      # Dashboard auth
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_USERS}"
+
+      # Dashboard UI + API + Metrics (HTTPS)
       - "traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && (PathPrefix(\"/dashboard\") || PathPrefix(\"/api\") || PathPrefix(\"/metrics\"))"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=le"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file"
+
     restart: unless-stopped
 
   # PostgreSQL Database
@@ -175,10 +192,10 @@ services:
       - "traefik.http.services.api.loadbalancer.server.port=8000"
       - "traefik.http.services.api.loadbalancer.sticky.cookie=true"
       - "traefik.http.routers.api.middlewares=security-headers@file,rate-limit@file"
-      - "traefik.http.middlewares.redirect-to-https-api.redirectscheme.scheme=https"
-      - "traefik.http.routers.api-http.rule=Host(\"api.${DOMAIN}\")"
-      - "traefik.http.routers.api-http.entrypoints=web"
-      - "traefik.http.routers.api-http.middlewares=redirect-to-https-api"
+      # healthcheck at Traefik level (skip bad pods)
+      - "traefik.http.services.api.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.api.loadbalancer.healthcheck.interval=10s"
+      - "traefik.http.services.api.loadbalancer.healthcheck.timeout=3s"
     restart: unless-stopped
 
   # Frontend
@@ -204,14 +221,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=agentic-study_web"
-      - "traefik.http.routers.web.rule=Host(\"${DOMAIN}\")"
-      - "traefik.http.routers.web.entrypoints=websecure"
-      - "traefik.http.routers.web.tls.certresolver=le"
-      - "traefik.http.services.web.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.routers.web-http.rule=Host(\"${DOMAIN}\")"
-      - "traefik.http.routers.web-http.entrypoints=web"
-      - "traefik.http.routers.web-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.web-study.rule=Host(\"study.${DOMAIN}\")"
+      - "traefik.http.routers.web-study.entrypoints=websecure"
+      - "traefik.http.routers.web-study.tls.certresolver=le"
+      - "traefik.http.services.web-study.loadbalancer.server.port=80"
     restart: unless-stopped
 
   # pgAdmin (accessible via Tailscale or with auth)

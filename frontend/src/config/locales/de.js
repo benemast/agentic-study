@@ -103,7 +103,7 @@ export const de = {
     privacyNotice: {
       title: 'Datenschutzinformation',
       mainText: 'Die Datenverarbeitung dieser Studie geschieht nach datenschutzrechtlichen Bestimmungen der Datenschutzgrundverordnung (DSGVO) sowie des Hessischen Datenschutz- und Informationsfreiheitsgesetzes (HDSIG). Die Daten werden ausschließlich für die im Aufklärungsbogen beschriebenen Zwecke verwendet. Wir versichern, dass die erhobenen Daten vollständig anonymisiert gespeichert und ausgewertet werden. Es ist nicht möglich, Rückschlüsse auf deine Identität zu ziehen.',
-      researchPurpose: 'Die Daten werden von den Forscher*innen:innen ausschließlich für nicht-kommerzielle Forschungszwecke verwendet und nicht an Dritte weitergegeben oder in andere Länder als Deutschland übertragen. Die ausgewerteten Forschungsergebnisse werden in aggregierter Form in einem wissenschaftlichen Beitrag veröffentlicht.',
+      researchPurpose: 'Die Daten werden von den Forschenden ausschließlich für nicht-kommerzielle Forschungszwecke verwendet und nicht an Dritte weitergegeben oder in andere Länder als Deutschland übertragen. Die ausgewerteten Forschungsergebnisse werden in aggregierter Form in einem wissenschaftlichen Beitrag veröffentlicht.',
       keyPoints: {
         title: 'Wichtigste Punkte:',
         anonymous: 'Vollständig anonymisierte Datenerhebung und -speicherung',
@@ -118,7 +118,7 @@ export const de = {
       title: 'Datenschutzinformation',
       content: {
         mainText: 'Die Datenverarbeitung dieser Studie geschieht nach datenschutzrechtlichen Bestimmungen der Datenschutzgrundverordnung (DSGVO) sowie des Hessischen Datenschutz- und Informationsfreiheitsgesetzes (HDSIG). Die Daten werden ausschließlich für die im Aufklärungsbogen beschriebenen Zwecke verwendet. Wir versichern, dass die erhobenen Daten vollständig anonymisiert gespeichert und ausgewertet werden. Es ist nicht möglich, Rückschlüsse auf deine Identität zu ziehen.',
-        researchPurpose: 'Die Daten werden von den Forscher*innen:innen ausschließlich für nicht-kommerzielle Forschungszwecke verwendet und nicht an Dritte weitergegeben oder in andere Länder als Deutschland übertragen. Die ausgewerteten Forschungsergebnisse werden in aggregierter Form in einem wissenschaftlichen Beitrag veröffentlicht.'
+        researchPurpose: 'Die Daten werden von den Forschenden ausschließlich für nicht-kommerzielle Forschungszwecke verwendet und nicht an Dritte weitergegeben oder in andere Länder als Deutschland übertragen. Die ausgewerteten Forschungsergebnisse werden in aggregierter Form in einem wissenschaftlichen Beitrag veröffentlicht.'
       },
       sections: {
         additionalInfo: {

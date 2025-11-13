@@ -148,12 +148,7 @@ export const NODE_TEMPLATES = [
         help: 'workflow.builder.nodes.cleanData.config.removeDuplicates.help',
         placeholder: 'workflow.builder.nodes.cleanData.config.removeDuplicates.placeholder'
       }
-    ],
-    defaultConfig: {
-      remove_nulls: true,
-      normalize_text: true,
-      remove_duplicates: false
-    }
+    ]
   },
 
   {
@@ -270,6 +265,73 @@ export const NODE_TEMPLATES = [
   // ANALYSIS TOOLS
   // ============================================
   {
+    id: 'review-sentiment-analysis',
+    label: 'workflow.builder.nodes.reviewSentimentAnalysis.label',
+    type: 'workflow.builder.nodes.reviewSentimentAnalysis.type',
+    icon: 'BarChart3',
+    color: analysisColor,
+    category: 'analysis',
+    hasInput: 1,
+    hasOutput: 1,
+    maxInputConnections: 1,
+    maxOutputConnections: 1,
+    description: 'workflow.builder.nodes.reviewSentimentAnalysis.description',
+    editable: true,
+    configSchema: [
+      {
+        key: 'extract_themes',
+        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.label',
+        type: 'boolean',
+        required: true,
+        locked: true,
+        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.help',
+        placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.placeholder'
+      },
+      {
+        key: 'theme_separation',
+        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.label',
+        type: 'select',
+        options: [
+          { 
+            value: 'combined', 
+            label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.combined'
+          },
+          { 
+            value: 'by_sentiment', 
+            label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.bySentiment'
+          }
+        ],
+        required: true,
+        locked: false,
+        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.help'
+      },
+      {
+        key: 'max_themes_per_category',
+        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.label',
+        type: 'number',
+        min: 1,
+        max: 10,
+        required: true,
+        locked: false,
+        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.help'
+      }
+      /*
+      ,
+      {
+        key: 'include_percentages',
+        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.label',
+        type: 'boolean',
+        required: true,
+        locked: false,
+        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.help',
+        placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.placeholder'
+      }*/
+    ],
+    defaultConfig: {
+      extract_themes: true
+    }
+  },
+  {
     id: 'generate-insights',
     label: 'workflow.builder.nodes.generateInsights.label',
     type: 'workflow.builder.nodes.generateInsights.type',
@@ -335,75 +397,6 @@ export const NODE_TEMPLATES = [
     defaultConfig: {
       focus_area: null,
       max_recommendations: null
-    }
-  },  
-  {
-    id: 'review-sentiment-analysis',
-    label: 'workflow.builder.nodes.reviewSentimentAnalysis.label',
-    type: 'workflow.builder.nodes.reviewSentimentAnalysis.type',
-    icon: 'BarChart3',
-    color: analysisColor,
-    category: 'analysis',
-    hasInput: 1,
-    hasOutput: 1,
-    maxInputConnections: 1,
-    maxOutputConnections: 1,
-    description: 'workflow.builder.nodes.reviewSentimentAnalysis.description',
-    editable: true,
-    configSchema: [
-      {
-        key: 'extract_themes',
-        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.label',
-        type: 'boolean',
-        required: true,
-        locked: true,
-        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.help',
-        placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.extractThemes.placeholder'
-      },
-      {
-        key: 'theme_separation',
-        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.label',
-        type: 'select',
-        options: [
-          { 
-            value: 'combined', 
-            label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.combined'
-          },
-          { 
-            value: 'by_sentiment', 
-            label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.options.bySentiment'
-          }
-        ],
-        required: true,
-        locked: false,
-        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.themeSeparation.help'
-      },
-      {
-        key: 'max_themes_per_category',
-        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.label',
-        type: 'number',
-        min: 1,
-        max: 10,
-        required: true,
-        locked: false,
-        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.maxThemesPerCategory.help'
-      }
-      /*
-      ,
-      {
-        key: 'include_percentages',
-        label: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.label',
-        type: 'boolean',
-        required: true,
-        locked: false,
-        help: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.help',
-        placeholder: 'workflow.builder.nodes.reviewSentimentAnalysis.config.includePercentages.placeholder'
-      }*/
-    ],
-    defaultConfig: {
-      extract_themes: true,
-      theme_separation: 'combined',
-      max_themes_per_category: 1
     }
   },
 
@@ -473,7 +466,7 @@ export const NODE_TEMPLATES = [
             }
           }
         ],
-        required: false,
+        required: true,
         locked: false,
         help: 'workflow.builder.nodes.showResults.config.includeSections.help'
       },
@@ -548,16 +541,12 @@ export const NODE_TEMPLATES = [
         type: 'number',
         min: 1,
         max: 500,
-        required: false,
+        required: true,
         locked: false,
         dependsOn: 'include_sections.data_preview',
         help: 'workflow.builder.nodes.showResults.config.maxDataItems.help'
       }
-    ],
-    defaultConfig: {
-      include_sections: ['data_preview'],
-      max_data_items: 50
-    }
+    ]
   },
   
   // ============================================

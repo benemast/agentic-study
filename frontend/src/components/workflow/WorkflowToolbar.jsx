@@ -1,6 +1,5 @@
 // frontend/src/components/workflow/WorkflowToolbar.jsx
-import React, { memo } from 'react';
-import { Play as PlayIcon, Save as SaveIcon, RotateCcw as RotateIcon, Settings as SettingsIcon } from 'lucide-react';
+import React, { memo, useMemo } from 'react';
 import { ICONS } from '../../config/icons';
 import { useTranslation } from '../../hooks/useTranslation';
 
@@ -8,20 +7,20 @@ const WorkflowToolbar = memo(({
   nodes = [],
   edges = [],
   workflowValidation = { isValid: false, message: '', details: '' },
+  executionStatus,
   onExecute,
   onSave,
   onClear
 }) => {
   const { t } = useTranslation();
   
-  const SaveIcon = ICONS.Save.component;
   const RotateIcon = ICONS.RotateCcw.component;
-  const SettingsIcon = ICONS.Settings.component;
   const PlayIcon = ICONS.Play.component;
 
-  // Get translated status message
-  const getStatusMessage = () => {
-    if (nodes.length === 0) return t('workflow.builder.status.emptyWorkflow');
+  // Computed + memoized status message (Option 3)
+  const statusMessage = useMemo(() => {
+    console.log('Execution status changed:', executionStatus);
+
     if (!workflowValidation.isValid) {
       // Map specific validation messages
       if (workflowValidation.message === 'Missing input node') {
@@ -38,9 +37,50 @@ const WorkflowToolbar = memo(({
       }
       return workflowValidation.message; // Fallback to original
     }
-    return t('workflow.builder.status.ready');
-  };
 
+    // 1) Execution-related messages (override validation messages)
+    if (executionStatus === 'running') {
+      return t('workflow.builder.status.running');
+    }
+
+    if (executionStatus === 'completed') {
+      return t('workflow.builder.status.completed');
+    }
+
+    if (executionStatus === 'error') {
+      return t('workflow.builder.status.error');
+    }
+
+    // 2) Fallback to original validation-based logic
+    if (nodes.length === 0) {
+      return t('workflow.builder.status.emptyWorkflow');
+    }
+
+    return t('workflow.builder.status.ready');
+  }, [executionStatus, nodes, workflowValidation, t]);
+
+  // Color config for the status indicator (red on error, else green/yellow)
+  const statusColor = executionStatus === 'error'
+    ? {
+        bg: 'bg-red-100 dark:bg-red-900/30',
+        text: 'text-red-700 dark:text-red-300',
+        border: 'border-red-200 dark:border-red-700',
+        dot: 'bg-red-500 dark:bg-red-400'
+      }
+    : workflowValidation.isValid
+      ? {
+          bg: 'bg-green-100 dark:bg-green-900/30',
+          text: 'text-green-700 dark:text-green-300',
+          border: 'border-green-200 dark:border-green-700',
+          dot: 'bg-green-500 dark:bg-green-400'
+        }
+      : {
+          bg: 'bg-yellow-100 dark:bg-yellow-900/30',
+          text: 'text-yellow-700 dark:text-yellow-300',
+          border: 'border-yellow-200 dark:border-yellow-700',
+          dot: 'bg-yellow-500 dark:bg-yellow-400'
+        };
+        
   const getStatusDetails = () => {
     if (nodes.length === 0) return t('workflow.builder.statusDetails.addNodes');
     if (!workflowValidation.isValid) {
@@ -67,6 +107,8 @@ const WorkflowToolbar = memo(({
     return t('workflow.builder.statusDetails.nodesConnected', { count: nodeCount });
   };
 
+  const isExecuteDisabled = !workflowValidation.isValid || executionStatus === 'running';
+
   return (
     <div 
       data-tour="workflow-toolbar"
@@ -75,19 +117,16 @@ const WorkflowToolbar = memo(({
       <div className="flex items-center justify-between px-4 py-3">
         {/* Status Indicator */}
         <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
-            workflowValidation.isValid 
-              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700' 
-              : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-700'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              workflowValidation.isValid 
-                ? 'bg-green-500 dark:bg-green-400' 
-                : 'bg-yellow-500 dark:bg-yellow-400'
-            }`} />
-            {getStatusMessage()}
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium
+              ${statusColor.bg} ${statusColor.text} ${statusColor.border}
+            `}
+          >
+            <div className={`w-2 h-2 rounded-full ${statusColor.dot}`} />
+            {statusMessage}
           </div>
         </div>
+
         <div className="flex items-center gap-2">  
           <button 
             onClick={onClear}
@@ -96,15 +135,16 @@ const WorkflowToolbar = memo(({
           >
             <RotateIcon size={16} />
             {t('workflow.builder.toolbar.clear')}
-          </button>   
+          </button>
+          
           <button
             data-tour="execute-workflow-button"
-            onClick={onExecute}                
-            disabled={!workflowValidation.isValid}
+            onClick={onExecute}
+            disabled={isExecuteDisabled}
             className={`execute-button flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              workflowValidation.isValid 
-                ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600' 
-                : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed'
+              isExecuteDisabled
+                ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed'
+                : 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-600'
             }`}
             title={getStatusDetails()}
           >

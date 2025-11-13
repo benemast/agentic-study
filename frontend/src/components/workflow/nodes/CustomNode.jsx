@@ -272,6 +272,8 @@ const CustomNode = memo(({ data, selected, id }) => {
           total={hasInput}
           isHighlighted={isHighlighted}
           label={hasInput > 1 ? `In ${index + 1}` : undefined}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
         />
       );
     });
@@ -301,7 +303,7 @@ const CustomNode = memo(({ data, selected, id }) => {
 
   // Node className - unchanged, no execution state styling
   const nodeClassName = useMemo(() => {
-    return `group relative bg-white dark:bg-gray-800 rounded-lg shadow-md dark:shadow-gray-900/50 border-2 transition-all duration-200 ${
+    return `group relative bg-white dark:bg-gray-800 rounded-lg shadow-md dark:shadow-gray-900/50 border-2 transition-all duration-200 py-0.5 ${
       selected 
         ? 'border-blue-500 dark:border-blue-400 shadow-lg ring-2 ring-blue-200 dark:ring-blue-500/30' 
         : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-lg'

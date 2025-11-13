@@ -17,13 +17,13 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: load-reviews
     'load-reviews': {
       'start': {
-        'default': 'Loading review data...',
-        'start':   'Loading {category} reviews...'
+        'default': 'Loading review data…',
+        'start':   'Loading {category} reviews…'
       },
       'progress': {
-        'default': 'Processing reviews...',
-        'running': 'Loading reviews...',
-        'loading': 'Loaded {records_loaded} of {total_available} reviews...'
+        'default': 'Processing reviews…',
+        'running': 'Loading reviews…',
+        'loading': 'Loaded {records_loaded} of {total_available} reviews…'
       },
       'end': {
         'default': 'Reviews loaded successfully',
@@ -39,12 +39,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: clean-data
     'clean-data': {
       'start': {
-        'default': 'Cleaning data...',
-        'start': 'Starting data cleaning...'
+        'default': 'Cleaning data…',
+        'start': 'Starting data cleaning…'
       },
       'progress': {
-        'default': 'Cleaning in progress...',
-        'running': 'Processing data...',
+        'default': 'Cleaning in progress…',
+        'running': 'Processing data…',
         'missing_data_complete': '• Removed {data.removed} reviews with missing data',
         'spam_complete': '• Removed {data.removed} reviews with malformed data',
         'duplicates_complete': '• {data.removed} dupliate reviews found'
@@ -63,12 +63,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: filter-reviews
     'filter-reviews': {
       'start': {
-        'default': 'Filtering reviews...',
-        'start': 'Applying filters...'
+        'default': 'Filtering reviews…',
+        'start': 'Applying filters…'
       },
       'progress': {
-        'default': 'Filtering in progress...',
-        'running': 'Scanning reviews...'
+        'default': 'Filtering in progress…',
+        'running': 'Scanning reviews…'
       },
       'end': {
         'default': 'Reviews filtered',
@@ -84,12 +84,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: sort-reviews
     'sort-reviews': {
       'start': {
-        'default': 'Sorting reviews...',
-        'start': 'Starting sort operation...'
+        'default': 'Sorting reviews…',
+        'start': 'Starting sort operation…'
       },
       'progress': {
-        'default': 'Sorting in progress...',
-        'running': 'Organizing reviews...'
+        'default': 'Sorting in progress…',
+        'running': 'Organizing reviews…'
       },
       'end': {
         'default': 'Reviews sorted',
@@ -114,13 +114,13 @@ export const EXECUTION_STATUS_MESSAGES = {
 
     'review-sentiment-analysis': {
       'start': {
-        'default': 'Analyzing sentiment...',
-        'start': 'Starting sentiment analysis...'
+        'default': 'Analyzing sentiment…',
+        'start': 'Starting sentiment analysis…'
       },
       'progress': {
-        'default': 'Processing reviews...',
-        'running': 'Analyzing sentiment...',
-        'LLM_handoff': '🔄 Performing sentiment and theme analysis...'
+        'default': 'Processing reviews…',
+        'running': 'Analyzing sentiment…',
+        'LLM_handoff': '🔄 Performing sentiment and theme analysis…'
       }, 
       'end': {
         'default': '✅ Sentiment analysis completed.',
@@ -136,13 +136,13 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: generate-insights
     'generate-insights': {
       'start': {
-        'default': 'Generating insights...',
-        'start': 'Starting insight generation...'
+        'default': 'Generating insights…',
+        'start': 'Starting insight generation…'
       },
       'progress': {
-        'default': 'Processing data...',
-        'running': 'Generating insights...',
-        'LLM_handoff': '🔄 Running insight analysis...'
+        'default': 'Processing data…',
+        'running': 'Generating insights…',
+        'LLM_handoff': '🔄 Running insight analysis…'
       },
       'end': {
         'default': 'Insights generated',
@@ -158,13 +158,13 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Tool: show-results
     'show-results': {
       'start': {
-        'default': 'Preparing results...',
-        'start': 'Loading results...'
+        'default': 'Preparing results…',
+        'start': 'Loading results…'
       },
       'progress': {
-        'default': 'Formatting output...',
-        'running': 'Preparing display...',
-        'LLM_handoff': '🧩 Compiling executive summary and main takeaways...'
+        'default': 'Formatting output…',
+        'running': 'Preparing display…',
+        'LLM_handoff': '🧩 Compiling executive summary and main takeaways…'
       },
       'end': {
         'default': 'Results ready',
@@ -180,12 +180,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Default tool (fallback)
     'default': {
       'start': {
-        'default': 'Starting tool...',
-        'start': 'Starting tool...'
+        'default': 'Starting tool…',
+        'start': 'Starting tool…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{tool_name} running...',
+        'default': 'Processing…',
+        'running': '{tool_name} running…',
       },
       'end': {
         'default': 'Tool completed',
@@ -205,12 +205,12 @@ export const EXECUTION_STATUS_MESSAGES = {
   'node': {
     'load-reviews': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Loading reviews...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Loading reviews…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -225,12 +225,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'clean-data': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Cleaning reviews...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Cleaning reviews…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -245,12 +245,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'filter-reviews': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Filtering reviews...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Filtering reviews…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -265,12 +265,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'sort-reviews': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Sorting reviews...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Sorting reviews…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -285,12 +285,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'review-sentiment-analysis': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Analyzing sentiment and extracting themes...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Analyzing sentiment and extracting themes…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -305,12 +305,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'generate-insights': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Generating insights...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Generating insights…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -325,12 +325,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     },
     'show-results': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. Preparing results...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. Preparing results…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -346,12 +346,12 @@ export const EXECUTION_STATUS_MESSAGES = {
     // Default node config (fallback)
     'default': {
       'start': {
-        'default': 'Starting step...',
-        'start': '{data.step_number}. {data.node_label}...'
+        'default': 'Starting step…',
+        'start': '{data.step_number}. {data.node_label}…'
       },
       'progress': {
-        'default': 'Processing...',
-        'running': '{node_label} running...'
+        'default': 'Processing…',
+        'running': '{node_label} running…'
       },
       'end': {
         'default': 'Step completed',
@@ -371,12 +371,12 @@ export const EXECUTION_STATUS_MESSAGES = {
   // ============================================
   'execution': {
     'start': {
-      'default': 'Starting execution...',
+      'default': 'Starting execution…',
       'start': 'Execution started'
     },
     'progress': {
-      'default': 'Executing...',
-      'running': 'Execution in progress...'
+      'default': 'Executing…',
+      'running': 'Execution in progress…'
     },
     'end': {
       'default': 'Execution complete',
@@ -395,13 +395,13 @@ export const EXECUTION_STATUS_MESSAGES = {
   // ============================================
   'agent': {
     'start': {
-      'default': 'Agent starting...',
-      'start': 'Agent starting...',
-      'running': 'Agent analyzing task...'
+      'default': 'Agent starting…',
+      'start': 'Agent starting…',
+      'running': 'Agent analyzing task…'
     },
     'progress': {
-      'default': 'Agent working...',
-      'running': 'Agent processing...',
+      'default': 'Agent working…',
+      'running': 'Agent processing…',
       'decision': '{data.decision}\n'
     },
     'chat': {

@@ -163,6 +163,7 @@ Before returning your output:
   - Each review's value is an array of 1 to 4 items, each being a [topic, importance, sentiment] triple.
   - All required fields are present and structured correctly; if missing, self-correct before submitting the output.
   - You are NOT returning your initial checklist!
+  - Output is in {requested_lang}!
 
 After preparing your output, validate that the extracted topics are concrete product aspects, the scoring is internally consistent, and all output follows the exact format. If validation fails, correct errors before returning the final result.
 Return ONLY the JSON array, nothing else."""
@@ -948,8 +949,6 @@ class GenerateInsightsTool(BaseTool):
         Returns:
             (system_prompt, user_prompt)
         """
-        
-        requested_lang = 'English' if language == 'en' else 'German'
 
         # Map focus areas to business context
         # Single comprehensive focus area configuration
@@ -1005,8 +1004,11 @@ class GenerateInsightsTool(BaseTool):
         focus_area_labels_list = "\n".join([f'- "{key}"' for key in FOCUS_AREA_CONFIG.keys()])
         focus_area_labels_line = ", ".join([f'"{key}"' for key in FOCUS_AREA_CONFIG.keys()])
 
+
+        requested_lang = 'English' if language == 'en' else 'German'    
+
         # System prompt """
-        system_prompt = f"""REPLY IN {requested_lang.upper()}!
+        system_prompt = f"""REPLY IN {requested_lang}!
 Role: You are a senior business analyst specializing in e-commerce product strategy and market intelligence.
 
 # Core Competencies
@@ -1044,6 +1046,7 @@ Examples:
 - The value is an object where each key corresponds to a focus area label ({focus_area_labels_line}), and each value is a list of exactly {max_insights} insight statements (strings), ordered from highest to lowest impact.
 - If insufficient data prevents identifying {max_insights} insights in a focus area, fill the remainder with: "Insufficient data for meaningful insight".
 - If a focus area label is missing or empty in the input, return an empty array for that label.
+- Output must be generate in {requested_lang}!
 
 # Example JSON Structure
 ```json
@@ -1054,6 +1057,7 @@ Examples:
 - Each insight contains explicit metrics or quantitative evidence (e.g., %, $, NPS points, review counts).
 - Output strictly conforms to the example JSON format shown above.
 - All required constraints are met and the response is only the validated JSON object—no extra commentary.
+- All outputs are generate in {requested_lang}!
 
 # Output Format
 - Structure: Valid JSON
@@ -1068,11 +1072,13 @@ Return ONLY the JSON array, nothing else.
 """
 
         # Build statistics summary
+        sentiment_summary = ""
         if sentiment_statistics:
             positive_pct = sentiment_statistics.get('percentages', {}).get('positive', 0)
             neutral_pct = sentiment_statistics.get('percentages', {}).get('neutral', 0)
             negative_pct = sentiment_statistics.get('percentages', {}).get('negative', 0)
-        
+            sentiment_summary = f'- Sentiment Distribution: {positive_pct:.1f}% positive, {neutral_pct:.1f}% neutral, {negative_pct:.1f}% negative'
+
         # Build theme summary if available
         theme_summary = ""
         if theme_analysis:
@@ -1104,7 +1110,7 @@ Return ONLY the JSON array, nothing else.
         
         # Build sample review context
         review_context = ""
-        if sample_reviews and False:
+        if sample_reviews:
             review_context = f"\n**Sample Reviews for Context:**\n"
             for i, review in enumerate(sample_reviews[:10], 1):  # Max 10 examples
                 rating = review.get('star_rating', 'N/A')
@@ -1116,10 +1122,10 @@ Return ONLY the JSON array, nothing else.
 
 **Focus Areas:** 
 {focus_area_labels_list}
+{sentiment_summary}
 
 **Dataset Overview:**
 - Total Reviews: {total_reviews}
-- Sentiment Distribution: {positive_pct:.1f}% positive, {neutral_pct:.1f}% neutral, {negative_pct:.1f}% negative
 {theme_summary}
 {review_context}
 

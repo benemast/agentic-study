@@ -476,7 +476,7 @@ export const de = {
       },
       taskDescription: {
         title: '📋 Aufgabenbeschreibung',
-        description: 'Hier finden du deine Rolle, dein Ziel und welche Ergenisse erwartet wird. Klicke auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
+        description: 'Hier findest du deine Rolle, dein Ziel und welche Ergebnisse erwartet werden. Klicke auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
       },
       datasetViewer: {
         title: '📊 Datensatz-Viewer',
@@ -492,7 +492,7 @@ export const de = {
       },
       popOutViwer:{
         title: '🔲 Viewer ausklappen',
-        description: 'Klicken auf diese Schaltfläche, um den Datensatz-Viewer in einem größeren Fenster zu öffnen. Perfekt, wenn du dich auf die Daten konzentrieren oder diese detaillierter betrachten möchten!',
+        description: 'Klicke auf diese Schaltfläche, um den Datensatz-Viewer in einem größeren Fenster zu öffnen. Perfekt, wenn du dich auf die Daten konzentrieren oder diese detaillierter betrachten möchtest!',
         devNote: 'Entwicklerhinweis:',
         devNoteText: 'Wenn der Daten-Viewer kleiner als erwartet angezeigt wird, handelt es sich lediglich um einen Darstellungsfehler, der bei einigen Browsern oder Bildschirmgrößen auftreten kann. Wechsle einfach einmal zwischen Karten- und Tabellenansicht, um das Problem zu beheben'
       },
@@ -506,7 +506,7 @@ export const de = {
       },
       completeTaskButton: {
         title: '✔️ Aufgabe abschließen',
-        description: 'Nachdem du dir den neusten Berictht angesehen hast und mit den Ergebnissen zufrieden bist kannst du die Aufgabe abschließen.',
+        description: 'Wenn du dir den neusten Berictht angesehen hast und mit den Ergebnissen zufrieden bist kannst du die Aufgabe abschließen.',
       },
       final:{
         title: "🎉 Puh, geschafft!",
@@ -622,7 +622,7 @@ export const de = {
       },
       chatInterface: {
         title: '💬 Chat-Interface',
-        description: 'Beschreibe, was du analysieren möchtest, oder stelle Fragen. Seien spezifisch für beste Ergebnisse!',
+        description: 'Beschreibe, was du analysieren möchtest, oder stelle Fragen. Sei spezifisch für die beste Ergebnisse!',
         example: 'Beispiel: "Analysiere die Stimmungsverteilung für Produkt ID XYZ"', 
         devNote: "Developer Note:",
         devNoteText: "The base dataset is pretty large, so the AI only has a very limited understanding of the specific data you’re using."
@@ -1194,7 +1194,10 @@ export const de = {
         missingOutput: 'Ausgabeknoten fehlt', 
         noConnections: 'Keine Verbindungen',
         incompleteWorkflow: 'Unvollständiger Workflow',
-        configurationIncomplete: 'Konfiguration unvollständig'
+        configurationIncomplete: 'Konfiguration unvollständig',
+        running:"Wird ausgeführt…",
+        completed:"Ausführung erfolgreich",
+        error:"Fehler bei der Ausführung",
       },
       statusDetails: {
         addNodes: 'Füge Knoten hinzu, um deinen Workflow zu erstellen',

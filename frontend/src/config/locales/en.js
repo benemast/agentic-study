@@ -783,7 +783,7 @@ export const en = {
       placeholder: 'Share your thoughts here…'
     }
   },
-  // ========== COMPLETION ==========
+  // ========== WORKFLOW ==========
   workflow: {
     validation: {
       // Status Titles
@@ -1195,7 +1195,10 @@ export const en = {
         missingOutput: 'Missing Output Node',
         noConnections: 'No Connections',
         incompleteWorkflow: 'Incomplete Workflow',
-        configurationIncomplete: 'Configuration Incomplete'
+        configurationIncomplete: 'Configuration Incomplete',
+        running:"Running…",
+        completed:"Execution successful",
+        error:"Execution failed",
       },
       statusDetails: {
         addNodes: 'Add nodes to start building your workflow',

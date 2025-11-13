@@ -180,9 +180,6 @@ const CompletionScreen = () => {
           </div>
         </div>
       </div>
-
-      {/* Study Footer */}
-      <StudyFooter />
     </div>
   );
 };

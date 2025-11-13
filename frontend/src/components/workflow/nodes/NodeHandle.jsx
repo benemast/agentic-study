@@ -48,20 +48,30 @@ const NodeHandle = memo(({
     return '0 1px 3px 0 rgb(0 0 0 / 0.1)';
   };
   
+  const HANDLE_SIZE = 18;
+
   const baseStyle = {
     // Position based on orientation
     ...(isVertical && { 
       left: offset,
       transform: `translateX(-50%) ${isHighlighted || isHovered ? 'scale(1.3)' : 'scale(1)'}`,
     }),
+    ...(position === Position.Bottom && {
+      top: '100%',         // move handle below node
+      marginTop: '-8px',   // further offset downward
+    }),
+    ...(position === Position.Top && {
+      top: '-8px',
+    }),
     ...(isHorizontal && { 
       top: offset,
       transform: `translateY(-50%) ${isHighlighted || isHovered ? 'scale(1.3)' : 'scale(1)'}`,
     }),
     
+
     // Appearance
-    width: '12px',
-    height: '12px',
+    width: HANDLE_SIZE,
+    height: HANDLE_SIZE,
     zIndex: isHighlighted ? 10 : isHovered ? 5 : 1,
     backgroundColor: getHandleColor(),
     border: '2.5px solid white',

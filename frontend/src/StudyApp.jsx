@@ -88,6 +88,7 @@ const StudyApp = () => {
   const handleWelcomeComplete = () => {
     completeWelcome();
     trackViewChange('demographics');
+    window.scrollTo(0, 0);
   };
 
   /**
@@ -96,13 +97,15 @@ const StudyApp = () => {
   const handleDemographicsComplete = (data) => {
     completeDemographics(data);
     trackViewChange('task_1');
+    window.scrollTo(0, 0);
   };
   /**
    * Handle scenario brief completion
    */
   const handleScenarioBriefComplete = () => {
     track('SCENARIO_BRIEF_COMPLETED');
-    completeScenarioBrief(); // New function in useSessionData
+    completeScenarioBrief();
+    window.scrollTo(0, 0);
   };
 
   /**
@@ -111,6 +114,7 @@ const StudyApp = () => {
   const handleTask1Complete = () => {
     completeTask1();
     trackViewChange('survey_1');
+    window.scrollTo(0, 0);
   };
 
   /**
@@ -119,6 +123,7 @@ const StudyApp = () => {
   const handleSurvey1Complete = (surveyData) => {
     completeSurvey1(surveyData);
     trackViewChange('task_2');
+    window.scrollTo(0, 0);
   };
 
   /**
@@ -127,6 +132,7 @@ const StudyApp = () => {
   const handleTask2Complete = () => {
     completeTask2();
     trackViewChange('survey_2');
+    window.scrollTo(0, 0);
   };
 
   /**
@@ -136,6 +142,7 @@ const StudyApp = () => {
     completeSurvey2(surveyData);
     completeStudy();
     trackViewChange('completion');
+    window.scrollTo(0, 0);
   };
 
   // Determine if footer should be shown (not on full-screen task views)

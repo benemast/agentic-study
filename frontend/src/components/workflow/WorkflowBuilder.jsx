@@ -686,7 +686,6 @@ const WorkflowBuilder = ({ summaryHook }) => {
   // ========================================
   // WORKFLOW EXECUTION
   // ========================================
-// ADD THIS TO WorkflowBuilder.jsx (replace your handleRunWorkflow or similar)
 
   const handleExecuteWorkflow = async () => {
     // Step 1: Check validation
@@ -700,7 +699,7 @@ const WorkflowBuilder = ({ summaryHook }) => {
       }
       return;
     }
-
+    
     try {
       const serializedWorkflow = serializeWorkflowMinimal(nodes, edges);
       // Step 4: Check if we have nodes after serialization
@@ -994,6 +993,7 @@ const WorkflowBuilder = ({ summaryHook }) => {
           nodes={nodes}
           edges={edges}
           workflowValidation={workflowValidation}
+          executionStatus={executionStatus}
           onExecute={handleExecuteWorkflow}
           onSave={saveWorkflow}
           onClear={clearWorkflow}
@@ -1004,6 +1004,7 @@ const WorkflowBuilder = ({ summaryHook }) => {
           <ReactFlow
             nodes={enhancedNodes}
             edges={edges}
+            connectionRadius={25}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}

@@ -311,16 +311,15 @@ const AIChat = ({ summaryHook }) => {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t('chat.aiAssistant')}
         </h2>
-        {hasMessages && (
-          <button
-            data-tour="chat-messages-clear-btn"
-            onClick={handleClearChat}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            {t('chat.clearChat')}
-          </button>
-        )}
+        <button
+          data-tour="chat-messages-clear-btn"
+          onClick={handleClearChat}
+          disabled={!hasMessages}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+          {t('chat.clearChat')}
+        </button>
       </div>
 
       {/* Messages */}

@@ -347,7 +347,7 @@ class BaseTool(LangChainBaseTool):
             model = model,
             max_tokens=max_tokens,
             verbosity='low',
-            reasoning_effort='low',
+            reasoning_effort='minimal',
         )
         result = await openAI.ainvoke(messages)
 

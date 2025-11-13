@@ -152,6 +152,7 @@ Return the complete tool output as a Markdown table:
             model=settings.llm_model,
             max_tokens=MAX_TOKENS,
             verbosity='low',
+            reasoning_effort='low',
             streaming=should_stream
         )
         
@@ -162,7 +163,8 @@ Return the complete tool output as a Markdown table:
                     model='gpt-5-nano',
                     api_key=settings.openai_api_key,
                     max_tokens=8192,
-                    verbosity='low'
+                    verbosity='low',
+                    reasoning_effort='minimal'
                 ),
                 max_tokens_before_summary=4000, # Trigger summarization at 4000 tokens
                 messages_to_keep=3,            # Keep last 20 messages after summary

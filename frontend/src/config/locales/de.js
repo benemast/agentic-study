@@ -348,7 +348,7 @@ export const de = {
     title: "Willkommen, Analyst*in!",
     mainContent: {
       intro: {
-        first: "In dieser Studie schlüpfst du in die Rolle einer",
+        first: "In dieser Studie schlüpfst du in die Rolle einer ",
         strong: "Produktanalyst*in bei Amerzone",
         final: ", einer führenden E-Commerce-Plattform, die dafür bekannt ist, Millionen von Kunden mit allem zu verbinden, von stilvollen Schuhen bis hin zu den neuesten technischen Geräten."
       },
@@ -411,11 +411,11 @@ export const de = {
       wireless: "Das Elektronik-Merchandising-Team von Amerzone überprüft derzeit die Lieferantenauswahl für das nächste Quartal und möchte entscheiden, ob die Mpow Cheetah-Kopfhörer weiterhin angeboten werden sollen. Das Team stützt sich auf deine Analyse, um zu verstehen, was Kunden am meisten schätzen, welche Probleme häufig auftreten und ob dieses Produkt weiterhin einen Platz im Wireless-Katalog von Amerzone verdient",
       shoes: 'Das Saisonkampagnen-Team von Amerzone plant eine neue Regenbekleidungsaktion und möchte authentische Kundenerfahrungen präsentieren. Es verlässt sich auf deine Analyse der Bewertungen zu den Kamik Jennifer Rain Boots, um herauszufinden, was Kunden am meisten schätzen, welche Bedenken sie äußern und welche Themen die Botschaften und Bilder der Kampagne inspirieren könnten.',
     },
-    expectedOutputLabel: 'Erwartete Ergebnisse:',
-    expectedOutput1: 'Management-Zusammenfassung der Kundenstimmung',
-    expectedOutput2: 'Die 3 wichtigsten positiven Themen mit Prozentangaben',
-    expectedOutput3: 'Die 3 wichtigsten negativen Themen mit Prozentangaben',
-    expectedOutput4: '3–5 umsetzbare Empfehlungen',    
+    expectedOutputLabel: 'Was in deine Analyse einfließen sollte:',
+    expectedOutput1: 'Management-Zusammenfassung der Kund*innenstimmung',
+    expectedOutput2: 'Die wichtigsten positiven Themen mit Prozentangaben',
+    expectedOutput3: 'Die wichtigsten negativen Themen mit Prozentangaben',
+    expectedOutput4: 'Umsetzbare Empfehlungen',    
     productCard:{
       title: 'Zu analysierendes Produkt:',
       titleLable: 'Name:',
@@ -476,7 +476,7 @@ export const de = {
       },
       taskDescription: {
         title: '📋 Aufgabenbeschreibung',
-        description: 'Hier finden du deine Rolle, dein Ziel und welche Ausgabe erwartet wird. Klicke auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
+        description: 'Hier finden du deine Rolle, dein Ziel und welche Ergenisse erwartet wird. Klicke auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
       },
       datasetViewer: {
         title: '📊 Datensatz-Viewer',

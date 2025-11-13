@@ -479,11 +479,11 @@ export const de = {
         description: 'Hier finden du deine Rolle, dein Ziel und welche Ausgabe erwartet wird. Klicke auf den Pfeil, um diesen Abschnitt ein-/auszuklappen.',
       },
       datasetViewer: {
-        title: 'Datensatz-Viewer',
+        title: '📊 Datensatz-Viewer',
         description: 'Dies ist deine Datenquelle - Kundenbewertungen, die du analysieren wirst. Du kannst hier durch alle verfügbaren Bewertungen scrollen.',
       },
       viewModes: {
-        title: 'Ansichtsmodi wechseln',
+        title: '📑 Ansichtsmodi wechseln',
         description: 'Wechsel zwischen Kartenansicht (einfacher zu lesen) und Tabellenansicht (kompakter). Wähle, was am besten für dich funktioniert!',
       },
       filterReviews: {
@@ -505,11 +505,11 @@ export const de = {
         description: 'Solltest du später eine Auffrischung benötigen, kannst du dieses Tutorial jederzeit neu starten. Die Schaltfläche auf der linken Seite zeigt die Funktionen dieser Seite im Überblick, während die Schaltfläche auf der rechten Seite eine Auffrischung der aufgabenspezifischen Elemente bietet!',
       },
       completeTaskButton: {
-        title: 'Aufgabe abschließen',
+        title: '✔️ Aufgabe abschließen',
         description: 'Nachdem du dir den neusten Berictht angesehen hast und mit den Ergebnissen zufrieden bist kannst du die Aufgabe abschließen.',
       },
       final:{
-        title: "Puh, geschafft! 🎉",
+        title: "🎉 Puh, geschafft!",
         description: "Das war eine ganze Menge, aber jetzt bist du startklar. Vielen Dank fürs Durchhalten! 🙌"
       }
     },
@@ -618,7 +618,7 @@ export const de = {
     aiAssistant: {
       welcome: {
         title: '🤖 KI-Assistent',
-        description: 'Chatte mit der KI, um deine Daten zu analysieren. Die KI wird autonom Aufgaben ausführen und Tools verwenden, um dir zu helfen!',
+        description: 'Chatte mit der Assistent, um deine Daten zu analysieren. Die Assistent wird autonom Aufgaben ausführen und Tools verwenden, um dir zu helfen!',
       },
       chatInterface: {
         title: '💬 Chat-Interface',
@@ -628,22 +628,26 @@ export const de = {
         devNoteText: "The base dataset is pretty large, so the AI only has a very limited understanding of the specific data you’re using."
       },
       aiTakesAction: {
-        title: 'KI handelt',
-        description: 'Die KI wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um deine Fragen zu beantworten. Du siehst im Chat, was sie tut.',
+        title: '🤖 Assistent handelt',
+        description: 'Die Assistent wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um deine Fragen zu beantworten. Du siehst im Chat, was sie tut.',
       },
       reviewResults: {
         title: '🔍 Ergebnisse überprüfen',
-        description: 'Die KI zeigt deine Analyseergebnisse, Erkenntnisse und Daten an.',
+        description: 'Die Assistent zeigt deine Analyseergebnisse, Erkenntnisse und Daten an.',
       },
       iterateRefine: {
         title: '🔁 Iterieren & Verfeinern',
         description: 'Chatte weiter, um deine Analyse zu verfeinern bis du mit dem Ergebnis zufrieden bist.',
       },
+      clearChat: {
+        title: '🗑️ Chat Löschen',
+        description: 'Wenn der Assistent einmal vom Kurs abkommt oder nicht das tut, was du erwartest, kannst du einfach den Chat löschen und eine neue Konversation beginnen.',
+      },
       tipsForSuccess: {
         title: '💡 Tipps für den Erfolg',
         tip1: 'Sei spezifisch, in der Beschreibung was du willst',
         tip2: 'Stelle jeweils eine Frage',
-        tip3: 'Überprüfen die Arbeit der KI und gib ihr Feedback',
+        tip3: 'Überprüfen die Arbeit der Assistent',
         tip4: 'Iteriere, bis du hast, was du brauchst',
       },
     },
@@ -1264,10 +1268,18 @@ export const de = {
   },
   // ========== CHAT ==========
   chat: {
-    "summaryAvailable": {
-      "title": "Analysezusammenfassung verfügbar",
-      "description": "Klicke hier, um detaillierte Ergebnisse mit Erkenntnissen, Themen, Empfehlungen und Statistiken anzuzeigen."
+    aiAssistant: "KI Assistent",
+    clearChat: "Chat Löschen",
+    processing:"Wird verarbeitet…",
+    send:"Abschicken",
+    poweredBy:"Powered by KI Assistent mit autonomer Aufgabenausführung",
+    summaryAvailable: {
+      title: "Analysezusammenfassung verfügbar",
+      description: "Klicke hier, um detaillierte Ergebnisse mit Erkenntnissen, Themen, Empfehlungen und Statistiken anzuzeigen."
     },
+    working: "Assistent arbeitet…",
+    placeholder:"Lass mich wissen, wie ich helfen kann… (Shift+Enter für eine neue Zeile)",
+    disconnected: "Warten auf Verbindung…",
     clearConfirm: "Bist du sicher, dass du alle Nachrichten aus diesem Chat löschen möchtest?"
   },
   // ========== COMPLETION ==========

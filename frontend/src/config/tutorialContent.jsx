@@ -263,7 +263,7 @@ const getWorkflowBuilderStepsContent = (t) => [
     placement: 'right',
   },
   {
-    target: '[data-tour="task-content-container"]',
+    target: '[data-tour="task-work-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.workflowBuilder.tips.title')}</h3>
@@ -276,7 +276,7 @@ const getWorkflowBuilderStepsContent = (t) => [
         </ul>
       </div>
     ),
-    placement: 'top-end',
+    placement: 'left',
     isFixed: true,
   }
 ];
@@ -336,10 +336,20 @@ const getAIAssistantStepsContent = (t) => [
         <p>{t('tutorial.aiAssistant.iterateRefine.description')}</p>
       </div>
     ),
-    placement: 'center',
+    placement: 'left',
   },
   {
-    target: '[data-tour="task-content-container"]',
+    target: '[data-tour="chat-messages-clear-btn"]',
+    content: (
+      <div>
+        <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.clearChat.title')}</h3>
+        <p>{t('tutorial.aiAssistant.clearChat.description')}</p>
+      </div>
+    ),
+    placement: 'left',
+  },
+  {
+    target: '[data-tour="task-work-container"]',
     content: (
       <div>
         <h3 className="text-lg font-bold mb-2">{t('tutorial.aiAssistant.tipsForSuccess.title')}</h3>
@@ -351,7 +361,7 @@ const getAIAssistantStepsContent = (t) => [
         </ul>
       </div>
     ),
-    placement: 'top-end',
+    placement: 'left',
     isFixed: true,
   },
 ];

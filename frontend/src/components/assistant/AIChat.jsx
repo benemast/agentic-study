@@ -309,15 +309,16 @@ const AIChat = ({ summaryHook }) => {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-          AI Assistant
+            {t('chat.aiAssistant')}
         </h2>
         {hasMessages && (
           <button
+            data-tour="chat-messages-clear-btn"
             onClick={handleClearChat}
             className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
           >
             <Trash2 className="w-4 h-4" />
-            Clear Chat
+            {t('chat.clearChat')}
           </button>
         )}
       </div>
@@ -423,10 +424,10 @@ const AIChat = ({ summaryHook }) => {
             onKeyDown={handleKeyDown}
             placeholder={
               isProcessing 
-                ? "AI is working..." 
+                ? t('chat.working')
                 : isWebSocketConnected
-                ? "Ask me anything about your data... (Shift+Enter for new line)"
-                : "Waiting for connection..."
+                ? t('chat.placeholder')
+                : t('chat.disconnected')
             }
             disabled={isProcessing || !isWebSocketConnected}
             rows={3}
@@ -440,12 +441,12 @@ const AIChat = ({ summaryHook }) => {
             {isProcessing ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Processing...</span>
+                <span>{t('chat.processing')}</span>
               </>
             ) : (
               <>
                 <Send className="w-5 h-5" />
-                <span>Send</span>
+                <span>{t('chat.send')}</span>
               </>
             )}
           </button>
@@ -453,7 +454,7 @@ const AIChat = ({ summaryHook }) => {
         
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
           <MessageSquare className="w-4 h-4" />
-          <span>Powered by AI Assistant with autonomous task execution</span>
+          <span>{t('chat.poweredBy')}</span>
         </div>
       </form>
       

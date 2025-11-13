@@ -479,11 +479,11 @@ export const en = {
         description: "Here you'll find your role, goal, and what output is expected. Click the arrow to collapse/expand this section.",
       },
       datasetViewer: {
-        title: 'Dataset Viewer',
+        title: '📊 Dataset Viewer',
         description: "This is your data source - customer reviews you'll analyze. You can scroll through all available reviews here.",
       },
       viewModes: {
-        title: 'Switch View Modes',
+        title: '📑 Switch View Modes',
         description: 'Toggle between Card view (easier to read) and Table view (more compact). Choose what works best for you.',
       },
       filterReviews: {
@@ -505,11 +505,11 @@ export const en = {
         description: 'Should you need a refresher later on you can always restart this tutorial. The button on the left will focus on the features of this page overall, while the one on the right will give a refresher on the task specific elements.',
       },
       completeTaskButton: {
-        title: 'Complete Task',
+        title: '✔️ Complete Task',
         description: 'After you viewed your latest results you will be able to complete the task, if you are happy with the contents.',
       },
       final:{
-        title: "Phew, made it to the end! 🎉",
+        title: "🎉 Phew, made it to the end!",
         description: "That was a lot to take in, but you’re all set now. Thanks for sticking with it! 🙌"
       }
     },
@@ -618,32 +618,36 @@ export const en = {
     aiAssistant: {
       welcome: {
         title: '🤖 AI Assistant',
-        description: 'Chat with the AI to analyze your data. The AI will autonomously execute tasks and use tools to help you.',
+        description: 'Chat with the Assistant to analyze your data. The Assistant will autonomously execute tasks and use tools to help you.',
       },
       chatInterface: {
         title: '💬 Chat Interface',
         description: 'Describe the task you ',
         example: 'Example: "Analyze sentiment distribution for Product ID XYZ"',
         devNote: "Developer Note:",
-        devNoteText: "The base dataset is pretty large, so the AI only has a very limited understanding of the specific data you’re using."
+        devNoteText: "The base dataset is pretty large, so the Assistant only has a very limited understanding of the specific data you’re using."
       },
       aiTakesAction: {
-        title: 'AI Takes Action',
-        description: "The AI will automatically use the right tools and process data to answer your questions. You'll see what it's doing in the chat.",
+        title: '🤖 Assistant Takes Action',
+        description: "The Assistant will automatically use the right tools and process data to answer your questions. You'll see what it's doing in the chat.",
       },
       reviewResults: {
         title: '🔍 Review Results',
-        description: 'The AI will show you analysis results, insights, and data.',
+        description: 'The Assistant will show you analysis results, insights, and data.',
       },
       iterateRefine: {
         title: '🔁 Iterate & Refine',
         description: 'Keep chatting to refine your analysis until you are satisfied with the results.',
       },
+      clearChat: {
+        title: '🗑️ Clear Chat',
+        description: 'If the Assistant ever seems off-track or not doing what you expect, just clear the chat and start fresh.',
+      },
       tipsForSuccess: {
         title: '💡 Tips for Success',
         tip1: 'Be specific about what you want',
         tip2: 'Ask one question at a time',
-        tip3: "Review AI's work and provide feedback",
+        tip3: "Review Assistant's work",
         tip4: 'Iterate until you have what you need',
       },
     },
@@ -1265,10 +1269,18 @@ export const en = {
   },
   // ========== CHAT ==========
   chat: {
-    "summaryAvailable": {
-      "title": "Analysis Summary Available",
-      "description": "Click to view detailed results with insights, themes, recommendations, and statistics."
+    aiAssistant: "AI Assistant",
+    clearChat: "Clear Chat",
+    processing:"Processing…",
+    send:"Send",
+    poweredBy:"Powered by AI Assistant with autonomous task execution",
+    summaryAvailable: {
+      title: "Analysis Summary Available",
+      description: "Click to view detailed results with insights, themes, recommendations, and statistics."
     },
+    working: "Assistant is working…",
+    placeholder:"Let me know how I can help… (Shift+Enter for new line)",
+    disconnected: "Waiting for connection…",
     clearConfirm: "Are you sure you want to clear all messages from this chat?"
   },
   // ========== COMPLETION ==========

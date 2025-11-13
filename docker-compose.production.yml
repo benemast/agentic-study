@@ -85,11 +85,11 @@ services:
       - "traefik.http.routers.http-catchall.entrypoints=web"
       - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
       # traefik Dashboar, API & Metrics
-      - traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && (PathPrefix(\"/dashboard\") || PathPrefix(\"/api\") || PathPrefix(\"/metrics\"))
-      - traefik.http.routers.traefik.entrypoints=websecure
-      - traefik.http.routers.traefik.tls.certresolver=le
-      - traefik.http.routers.traefik.service=api@internal
-      - traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file
+      - "traefik.http.routers.traefik.rule=Host(\"traefik.${DOMAIN}\") && (PathPrefix(\"/dashboard\") || PathPrefix(\"/api\") || PathPrefix(\"/metrics\"))"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=le"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=dashboard-auth@docker,security-headers@file"
     restart: unless-stopped
 
   # PostgreSQL Database

@@ -682,7 +682,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
           }
           rightContent={
             /* RIGHT SIDE: Work Mode (Workflow Builder or AI Chat) */
-            <div className="h-full bg-white dark:bg-gray-800">
+            <div data-tour="task-work-container" className="h-full bg-white dark:bg-gray-800">
               {taskConfig.condition === 'workflow_builder' ? (
                 <WorkflowBuilder summaryHook={summaryHook} />
               ) : (

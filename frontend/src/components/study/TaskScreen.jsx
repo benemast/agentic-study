@@ -1,13 +1,9 @@
 // frontend/src/components/study/TaskScreen.jsx
 /**
- * CLEANED Task Screen - Basic Joyride Integration
  * 
- * Removed:
- * - useJoyridePositionFix hook
- * - JoyridePortal component
- * - Manual positioning logic
- * - Body scroll manipulation
- * - Debug logging
+ * Main TaskScreen 
+ * Providing the split view of teask description, dataset viewer and WorkflowBuilder/AIChat
+ * 
  * 
  * Using standard Joyride with default Popper.js behavior
  */
@@ -202,7 +198,7 @@ const TaskDescription = ({ taskConfig, taskNumber, reviewCount, loading, error }
   return (
     <div 
       data-tour="task-description-section"
-      className="task-description-section flex-shrink-0 border-b-2 border-gray-200 dark:border-gray-700 bg-gradient-to-b from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-800 shadow-sm">
+      className="task-description-section border-b-2 border-gray-200 dark:border-gray-700 bg-gradient-to-b from-white to-gray-50/50 dark:from-gray-800 dark:to-gray-800 shadow-sm">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -651,7 +647,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
           onResize={(width) => setLeftPanelWidth(width)} 
           leftContent={
             /* LEFT SIDE: Task Description + Dataset Viewer */
-            <div className="h-full flex flex-col pr-1 bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50/30 dark:bg-gray-900">
+            <div className="h-full flex flex-col pr-1 bg-gradient-to-br overflow-y-auto min-h-0">
               {/* Task Description (Collapsible) */}
               <TaskDescription 
                 taskConfig={taskConfig} 
@@ -664,7 +660,7 @@ const TaskScreen = ({ taskConfig, taskNumber, onComplete }) => {
               {/* Dataset Viewer (Scrollable) */}
               <div 
                 data-tour="dataset-viewer-container"
-                className="flex-1 min-h-0 overflow-hidden"
+                className="flex-1 min-h-0 overflow-y-auto"
               >
                 <DatasetViewer 
                   category={taskConfig.category}

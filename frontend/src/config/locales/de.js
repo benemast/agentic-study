@@ -408,8 +408,8 @@ export const de = {
     goal: 'Erstelle ein Informationsbriefing zu Kundenfeedback.',
     focusLabel: 'Fokus: ',
     focusText: {
-      wireless: "Das Elektronik-Merchandising-Team von Amerzone überprüft derzeit die Lieferantenauswahl für das nächste Quartal und möchte entscheiden, ob die Mpow Cheetah-Kopfhörer weiterhin angeboten werden sollen. Das Team stützt sich auf deine Analyse, um zu verstehen, was Kunden am meisten schätzen, welche Probleme häufig auftreten und ob dieses Produkt weiterhin einen Platz im Wireless-Katalog von Amerzone verdient",
-      shoes: 'Das Saisonkampagnen-Team von Amerzone plant eine neue Regenbekleidungsaktion und möchte authentische Kundenerfahrungen präsentieren. Es verlässt sich auf deine Analyse der Bewertungen zu den Kamik Jennifer Rain Boots, um herauszufinden, was Kunden am meisten schätzen, welche Bedenken sie äußern und welche Themen die Botschaften und Bilder der Kampagne inspirieren könnten.',
+      wireless: "Das Elektronik-Merchandising-Team von Amerzone überprüft derzeit die Lieferantenauswahl für das nächste Quartal und möchte entscheiden, ob die \"Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones\" weiterhin angeboten werden sollen. Das Team stützt sich auf deine Analyse, um zu verstehen, was Kunden am meisten schätzen, welche Probleme häufig auftreten und ob dieses Produkt weiterhin einen Platz im Wireless-Katalog von Amerzone verdient",
+      shoes: "Das Saisonkampagnen-Team von Amerzone plant eine neue Regenbekleidungsaktion und möchte authentische Kundenerfahrungen präsentieren. Es verlässt sich auf deine Analyse der Bewertungen zu den \"Kamik Women's Jennifer Rain Boot\", um herauszufinden, was Kunden am meisten schätzen, welche Bedenken sie äußern und welche Themen die Botschaften und Bilder der Kampagne inspirieren könnten.",
     },
     expectedOutputLabel: 'Was in deine Analyse einfließen sollte:',
     expectedOutput1: 'Management-Zusammenfassung der Kund*innenstimmung',

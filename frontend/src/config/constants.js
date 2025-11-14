@@ -13,7 +13,7 @@ export const STUDY_CONFIG = Object.freeze({
       category: 'Wireless',
       role: 'Product Analyst',
       goal: 'Prepare an insights briefing on customer feedback',
-      focus: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the Mpow Cheetah headphones. They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
+      focus: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the \"Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones\". They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
       expectedOutput: [
         'Executive summary of customer sentiment',
         'Top 3 positive themes with percentages',
@@ -27,7 +27,7 @@ export const STUDY_CONFIG = Object.freeze({
       category: 'Shoes',
       role: 'Product Analyst',
       goal: 'Prepare an insights briefing on customer feedback',
-      focus: 'Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the Kamik Jennifer Rain Boot reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.',
+      focus: "Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the \"Kamik Women's Jennifer Rain Boot\" reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.",
       expectedOutput: [
         'Executive summary of customer sentiment',
         'Top 3 positive themes with percentages',

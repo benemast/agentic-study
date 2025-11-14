@@ -408,8 +408,8 @@ export const en = {
       goal: 'Prepare an insights briefing on customer feedback',
       focusLabel: 'Focus: ',
       focusText: {
-        wireless: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the Mpow Cheetah headphones. They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
-        shoes: 'Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the Kamik Jennifer Rain Boot reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.',
+        wireless: "Amerzone’s Electronics Merchandising Team is reviewing next quarter’s vendor lineup and wants to decide whether to continue offering the \"Mpow Cheetah Bluetooth 4.1 Wireless Sport Headphones\". They’re relying on your analysis to understand what customers appreciate most, what issues are common, and whether this product still deserves its spot in Amerzone’s wireless catalog.",
+        shoes: "Amerzone’s Seasonal Campaign Team is planning a new rainwear feature and wants to showcase authentic customer experiences. They’re counting on your analysis of the \"Kamik Women's Jennifer Rain Boot\" reviews to highlight what customers love most, what concerns they mention, and which themes might inspire the campaign’s messaging and visuals.",
       },
       expectedOutputLabel: 'What your analysis should include:',
       expectedOutput1: 'Executive Summary of Customer Sentiment',

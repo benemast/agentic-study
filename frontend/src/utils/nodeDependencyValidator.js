@@ -3,7 +3,7 @@
 /**
  * Standalone utility for validating node dependencies in NodeEditor
  * NOT part of the workflow validation cycle
- */
+*/
 
 /**
  * Get template_id from node
@@ -117,7 +117,14 @@ const buildSuccessorMap = (nodes, edges) => {
 /**
  * Check if a specific node template exists as a predecessor OR successor (for processing nodes)
  */
-const hasRelatedNode = (nodeId, requiredTemplateId, nodes, predecessorMap, successorMap, currentNodeCategory) => {
+const hasRelatedNode = (
+  nodeId,
+  requiredTemplateId,
+  nodes,
+  predecessorMap,
+  successorMap,
+  currentNodeCategory
+) => {
   const predecessors = predecessorMap[nodeId] || new Set();
   const successors = successorMap[nodeId] || new Set();
   
@@ -151,12 +158,12 @@ const hasRelatedNode = (nodeId, requiredTemplateId, nodes, predecessorMap, succe
  * @param {Object} node - Current node being edited
  * @param {Array} nodes - All workflow nodes
  * @param {Array} edges - All workflow edges
+ * @param {Function} [t] - Optional translation function (from useTranslation)
  * @returns {Object} { validations: {...}, nodeWarnings: [...] }
  */
-export const validateNodeOptionDependencies = (node, nodes, edges) => {
+export const validateNodeOptionDependencies = (node, nodes, edges, t) => {
   const validations = {};
   const nodeWarnings = [];
-  
 
   // Early return with correct structure
   if (!node || !nodes || !edges) {
@@ -183,8 +190,10 @@ export const validateNodeOptionDependencies = (node, nodes, edges) => {
     nodeWarnings.push({
       type: 'data-quality',
       severity: 'warning',
-      message: 'Data may contain noise (missing values, duplicates, inconsistencies). Consider adding a Clean Reviews node for better quality results.',
-      missingNode: 'clean-data'
+      message: t
+        ? t('workflow.builder.nodeEditor.validation.noise')
+        : 'Data may contain noise (consider adding a Clean Reviews node).',
+      missingNode: 'clean-data',
     });
   }
   
@@ -192,8 +201,10 @@ export const validateNodeOptionDependencies = (node, nodes, edges) => {
     nodeWarnings.push({
       type: 'performance',
       severity: 'info',
-      message: 'Processing entire dataset may take longer. Consider adding a Filter Reviews node to reduce processing time.',
-      missingNode: 'filter-reviews'
+      message: t
+        ? t('workflow.builder.nodeEditor.validation.performance')
+        : 'Processing the entire dataset may impact performance (consider adding a Filter Reviews node).',
+      missingNode: 'filter-reviews',
     });
   }
   

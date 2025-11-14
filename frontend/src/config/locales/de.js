@@ -472,7 +472,7 @@ export const de = {
     screen: {
       welcome: {
         title: '👋 Willkommen zum Aufgaben-Bildschirm!',
-        description: 'Dieser Bildschirm enthält alles, was du zur Erledigung deiner Aufgabe benötigen. Lassen mich dir alles zeigen!',
+        description: 'Dieser Bildschirm enthält alles, was du zur Erledigung deiner Aufgabe benötigst. Lassen mich dir alles zeigen!',
       },
       taskDescription: {
         title: '📋 Aufgabenbeschreibung',
@@ -506,7 +506,7 @@ export const de = {
       },
       completeTaskButton: {
         title: '✔️ Aufgabe abschließen',
-        description: 'Wenn du dir den neusten Berictht angesehen hast und mit den Ergebnissen zufrieden bist kannst du die Aufgabe abschließen.',
+        description: 'Wenn du dir den neusten Bericht angesehen hast und mit den Ergebnissen zufrieden bist kannst du die Aufgabe abschließen.',
       },
       final:{
         title: "🎉 Puh, geschafft!",
@@ -618,22 +618,22 @@ export const de = {
     aiAssistant: {
       welcome: {
         title: '🤖 KI-Assistent',
-        description: 'Chatte mit der Assistent, um deine Daten zu analysieren. Die Assistent wird autonom Aufgaben ausführen und Tools verwenden, um dir zu helfen!',
+        description: 'Chatte mit dem Assistent, um deine Daten zu analysieren. Der Assistent wird autonom Aufgaben ausführen und Tools verwenden, um dir zu helfen!',
       },
       chatInterface: {
         title: '💬 Chat-Interface',
-        description: 'Beschreibe, was du analysieren möchtest, oder stelle Fragen. Sei spezifisch für die beste Ergebnisse!',
+        description: 'Beschreibe, was du analysieren möchtest, oder stelle Fragen. Sei spezifisch für die besten Ergebnisse!',
         example: 'Beispiel: "Analysiere die Stimmungsverteilung für Produkt ID XYZ"', 
         devNote: "Developer Note:",
         devNoteText: "The base dataset is pretty large, so the AI only has a very limited understanding of the specific data you’re using."
       },
       aiTakesAction: {
         title: '🤖 Assistent handelt',
-        description: 'Die Assistent wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um deine Fragen zu beantworten. Du siehst im Chat, was sie tut.',
+        description: 'Der Assistent wird automatisch die richtigen Tools verwenden und Daten verarbeiten, um deine Fragen zu beantworten. Du siehst im Chat, was sie tut.',
       },
       reviewResults: {
         title: '🔍 Ergebnisse überprüfen',
-        description: 'Die Assistent zeigt deine Analyseergebnisse, Erkenntnisse und Daten an.',
+        description: 'Der Assistent zeigt deine Analyseergebnisse, Erkenntnisse und Daten an.',
       },
       iterateRefine: {
         title: '🔁 Iterieren & Verfeinern',
@@ -647,7 +647,7 @@ export const de = {
         title: '💡 Tipps für den Erfolg',
         tip1: 'Sei spezifisch, in der Beschreibung was du willst',
         tip2: 'Stelle jeweils eine Frage',
-        tip3: 'Überprüfen die Arbeit der Assistent',
+        tip3: 'Überprüfe die Arbeit des Assistenten',
         tip4: 'Iteriere, bis du hast, was du brauchst',
       },
     },
@@ -1228,7 +1228,11 @@ export const de = {
         lockedFieldsNotice: 'Einige Einstellungen sind für diese Aufgabe gesperrt und können nicht geändert werden. Diese sind vorkonfiguriert, um die korrekte Funktion der Aufgabe zu gewährleisten.',
         fixErrors: 'Bitte {{count}} Fehler beheben',
         dependencyMissing: 'Benötigt: {{nodes}}',
-        dependencyRecommended: 'Empfohlen: {{nodes}}'
+        dependencyRecommended: 'Empfohlen: {{nodes}}',
+        validation:{
+          noise: "Einige Bewertungen können Rauschen enthalten (z. B. fehlende Werte, Duplikate oder Unstimmigkeiten). Du kannst einen Bewertungen-Bereinigen-Node hinzuzufügen, um die Datenqualität zu verbessern.",
+          performance: "Die Verarbeitung des gesamten Datensatzes kann länger dauern. Füge ggf. einen Bewertungen-Filtern-Node hinzu, um die Geschwindigkeit zu erhöhen, indem die zu verarbeitende Datenmenge reduziert wird."
+        }
       }
     },
     sidebar: {
@@ -1251,8 +1255,8 @@ export const de = {
       validationFailed: 'Workflow-Validierung fehlgeschlagen',
       maxNodesReached: 'Maximale Anzahl von Knoten ({{max}}) erreicht',
       maxEdgesReached: 'Maximale Anzahl von Verbindungen ({{max}}) erreicht',
-      sourceHandleMaxReached: 'Quell-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? "" : "en"}}',
-      targetHandleMaxReached: 'Ziel-Handle hat bereits maximal {{max}} Verbindung{{max === 1 ? "" : "en"}}',
+      sourceHandleMaxReached: 'Quell-Handle hat bereits das Maximum von {{max}} Verbindungen erreicht',
+      targetHandleMaxReached: 'Ziel-Handle hat bereits das Maximum von {{max}} Verbindungen erreicht',
       workflowExecuted: 'Workflow mit {{nodes}} Knoten und {{connections}} Verbindungen ausgeführt',
       workflowSaved: 'Workflow gespeichert: {{nodes}} Knoten, {{connections}} Verbindungen',
       workflowCleared: 'Workflow gelöscht',

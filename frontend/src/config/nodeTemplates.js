@@ -61,7 +61,7 @@ export const NODE_TEMPLATES = [
     hasInput: 0,
     hasOutput: 1,
     maxInputConnections: 0,
-    maxOutputConnections: 3,
+    maxOutputConnections: 1,
     maxAllowed: 1,
     description: 'workflow.builder.nodes.loadReviews.description',
     editable: true,

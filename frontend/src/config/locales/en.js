@@ -1229,7 +1229,11 @@ export const en = {
         lockedFieldsNotice: 'Some settings are locked for this task and cannot be changed. These are pre-configured to ensure the task works correctly.',
         fixErrors: 'Please Fix {{count}} error(s)',
         dependencyMissing: 'Requires prior node: {{nodes}}',
-        dependencyRecommended: 'Recommended prior node: {{nodes}}'
+        dependencyRecommended: 'Recommended prior node: {{nodes}}',
+        validation:{
+          noise: "Data may contain noise (missing values, duplicates, inconsistencies). Consider adding a Clean Reviews node for better quality results.",
+          performance: "Processing entire dataset may take longer. Consider adding a Filter Reviews node to reduce processing time."
+        }
       },
     },
     sidebar: {
@@ -1252,8 +1256,8 @@ export const en = {
       validationFailed: 'Workflow Validation Failed',
       maxNodesReached: 'Maximum number of nodes ({{max}}) reached',
       maxEdgesReached: 'Maximum number of connections ({{max}}) reached',
-      sourceHandleMaxReached: 'Source handle already has maximum of {{max}} connection{{max === 1 ? "" : "s"}}',
-      targetHandleMaxReached: 'Target handle already has maximum of {{max}} connection{{max === 1 ? "" : "s"}}',
+      sourceHandleMaxReached: 'Source handle already has maximum of {{max}} connections',
+      targetHandleMaxReached: 'Target handle already has maximum of {{max}} connections',
       workflowSaved: 'Workflow saved: {{nodes}} nodes, {{connections}} connections',
       workflowExecuted: 'Workflow executed with {{nodes}} nodes and {{connections}} connections',
       workflowCleared: 'Workflow Cleared',

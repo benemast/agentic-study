@@ -14,7 +14,7 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
   
   // Get option dependency validations and node-level warnings
   const validationResult = useMemo(() => 
-    validateNodeOptionDependencies(node, nodes, edges),
+    validateNodeOptionDependencies(node, nodes, edges, t),
     [node, nodes, edges]
   );
   

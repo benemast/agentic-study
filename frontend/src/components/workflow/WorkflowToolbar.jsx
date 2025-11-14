@@ -19,8 +19,7 @@ const WorkflowToolbar = memo(({
 
   // Computed + memoized status message (Option 3)
   const statusMessage = useMemo(() => {
-    console.log('Execution status changed:', executionStatus);
-
+    
     if (!workflowValidation.isValid) {
       // Map specific validation messages
       if (workflowValidation.message === 'Missing input node') {
@@ -80,7 +79,7 @@ const WorkflowToolbar = memo(({
           border: 'border-yellow-200 dark:border-yellow-700',
           dot: 'bg-yellow-500 dark:bg-yellow-400'
         };
-        
+
   const getStatusDetails = () => {
     if (nodes.length === 0) return t('workflow.builder.statusDetails.addNodes');
     if (!workflowValidation.isValid) {

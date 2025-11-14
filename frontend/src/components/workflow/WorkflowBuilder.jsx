@@ -1,7 +1,6 @@
 // frontend/src/components/workflow/WorkflowBuilder.jsx
 import { captureException } from '../../config/sentry';
 
-import { FileText } from 'lucide-react';
 import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import ReactFlow, {
   MiniMap,
@@ -545,117 +544,114 @@ const WorkflowBuilder = ({ summaryHook }) => {
     return result;
   }, [edges, nodes]);
   
-  const isValidConnection = useCallback((connection) => {
-    return getConnectionValidation(connection).isValid;
-  }, [getConnectionValidation]);
+  const isValidConnection = useCallback(
+    (connection) => {
+      if (!connection?.source || !connection?.target) return false;
+      if (connection.source === connection.target) return false;
+
+      // optional: still enforce global max edges here
+      if (edges.length >= WORKFLOW_CONFIG.MAX_EDGES) return false;
+
+      return true;
+    },
+    [edges]
+  );
   
-  const onConnect = useCallback((params) => {
-    // Normalize handle IDs
-    const sourceHandle = params.sourceHandle || 'output-0';
-    const targetHandle = params.targetHandle || 'input-0';
-    
-    // Get validation
+  const isHandleAtMax = useCallback(
+    (nodeId, handleId, handleType) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return false;
+
+      const normalizedHandleId =
+        handleType === 'source'
+          ? handleId || 'output-0'
+          : handleId || 'input-0';
+
+      const limit =
+        handleType === 'source'
+          ? node.data?.maxOutputConnections || 1
+          : node.data?.maxInputConnections || 1;
+
+      const connections = edges.filter((e) =>
+        handleType === 'source'
+          ? e.source === nodeId &&
+            (e.sourceHandle || 'output-0') === normalizedHandleId
+          : e.target === nodeId &&
+            (e.targetHandle || 'input-0') === normalizedHandleId
+      );
+
+      return connections.length >= limit;
+    },
+    [nodes, edges]
+  );
+
+  const onConnect = useCallback(
+  (params) => {
+    // Run full validation (per-handle, per-node, global)
     const validation = getConnectionValidation(params);
-    
-    // Track edges to remove for auto-replace
-    const edgesToRemove = [];
-    let shouldAutoReplace = false;
-    let replacementMessage = '';
-    
-    // Check if we should auto-replace
-    if (!validation.isValid) {
-      // Auto-replace for source handle
-      if (validation.reason === 'source_handle_max_reached' && validation.sourceHandleLimit === 1) {
-        const oldConnections = edges.filter(e => 
-          e.source === params.source && 
-          (e.sourceHandle || 'output-0') === sourceHandle
-        );
-        
-        if (oldConnections.length > 0) {
-          edgesToRemove.push(...oldConnections);
-          shouldAutoReplace = true;
-          replacementMessage = 'Connection replaced (old source connection removed)';
-        }
-      } 
-      // Auto-replace for target handle
-      else if (validation.reason === 'target_handle_max_reached' && validation.targetHandleLimit === 1) {
-        const oldConnections = edges.filter(e => 
-          e.target === params.target && 
-          (e.targetHandle || 'input-0') === targetHandle
-        );
-        
-        if (oldConnections.length > 0) {
-          edgesToRemove.push(...oldConnections);
-          shouldAutoReplace = true;
-          replacementMessage = 'Connection replaced (old target connection removed)';
-        }
-      }
-    }
-    
-    // If we're auto-replacing, proceed
-    if (shouldAutoReplace) {
-      setEdges(eds => {
-        // Remove old edges
-        const filteredEdges = eds.filter(e => 
-          !edgesToRemove.some(toRemove => toRemove.id === e.id)
-        );
-        // Add new edge
-        return addEdge(params, filteredEdges);
-      });
-      
-      // Track removals
-      edgesToRemove.forEach(edge => {
-        trackEdgeDeleted(edge.id);
-      });
-      
-      // Track addition
-      trackEdgeAdded(params.source, params.target);
-      
-      // Show success message
-      showNotification(replacementMessage, 'success');
-      return;
-    }
-    
-    // If not auto-replacing and still not valid, show error
+
+    // If invalid, show a helpful message and do NOT add an edge
     if (!validation.isValid) {
       switch (validation.reason) {
         case 'max_edges_reached':
           showNotification(
-            t('workflow.notifications.maxEdgesReached', { max: WORKFLOW_CONFIG.MAX_EDGES }),
+            t('workflow.notifications.maxEdgesReached', {
+              max: WORKFLOW_CONFIG.MAX_EDGES,
+            }),
             'error'
           );
           break;
-          
+
         case 'source_handle_max_reached':
           showNotification(
-            t('workflow.notifications.sourceHandleMaxReached', { max: validation.sourceHandleLimit }) 
-            || `Source handle already has the maximum of ${validation.sourceHandleLimit} connection${validation.sourceHandleLimit > 1 ? 's' : ''}`,
+            t('workflow.notifications.sourceHandleMaxReached', {
+              max: validation.sourceHandleLimit,
+            }) ||
+              `This output already has the maximum of ${validation.sourceHandleLimit} connection${
+                validation.sourceHandleLimit > 1 ? 's' : ''
+              }. Remove an existing edge first.`,
             'error'
           );
           break;
-          
+
         case 'target_handle_max_reached':
           showNotification(
-            t('workflow.notifications.targetHandleMaxReached', { max: validation.targetHandleLimit }) 
-            || `Target handle already has the maximum of ${validation.targetHandleLimit} connection${validation.targetHandleLimit > 1 ? 's' : ''}`,
+            t('workflow.notifications.targetHandleMaxReached', {
+              max: validation.targetHandleLimit,
+            }) ||
+              `This input already has the maximum of ${validation.targetHandleLimit} connection${
+                validation.targetHandleLimit > 1 ? 's' : ''
+              }. Remove an existing edge first.`,
             'error'
           );
           break;
-          
+
+        case 'invalid_connection':
+        case 'nodes_not_found':
         default:
           showNotification(
-            t('workflow.notifications.connectionFailed') || 'Cannot create connection',
+            t('workflow.notifications.connectionFailed') ||
+              'Cannot create connection',
             'error'
           );
       }
+
+      // IMPORTANT: stop here → no edge added / replaced
       return;
     }
-    
-    // Normal connection - just add it
-    setEdges(eds => addEdge(params, eds));
+
+    // If valid → add edge as usual
+    setEdges((eds) => addEdge(params, eds));
     trackEdgeAdded(params.source, params.target);
-    showNotification(t('workflow.notifications.connectionAdded'), 'success');
-  }, [getConnectionValidation, setEdges, trackEdgeAdded, trackEdgeDeleted, showNotification, t, edges]);
+
+    showNotification(
+      t('workflow.notifications.connectionAdded') || 'Connection created',
+      'success'
+    );
+  },
+  [getConnectionValidation, setEdges, trackEdgeAdded, showNotification, t]
+);
+
 
   const onEdgesDelete = useCallback((edgesToDelete) => {
     edgesToDelete.forEach(edge => {
@@ -666,13 +662,43 @@ const WorkflowBuilder = ({ summaryHook }) => {
 
   // Connection state handlers
   const onConnectStart = useCallback((_, { nodeId, handleId, handleType }) => {
+    // 1) Block immediately if this handle is already at max
+    if (isHandleAtMax(nodeId, handleId, handleType)) {
+      // Try to stop React Flow from treating this as a "real" drag
+      if (event?.preventDefault) event.preventDefault();
+      if (event?.stopPropagation) event.stopPropagation();
+
+      const node = nodes.find((n) => n.id === nodeId);
+      const max =
+        handleType === 'source'
+          ? node?.data?.maxOutputConnections || 1
+          : node?.data?.maxInputConnections || 1;
+
+      if (handleType === 'source') {
+          showNotification(
+          t('workflow.notifications.sourceHandleMaxReached', { max }),
+          'error'
+        );
+
+      } else {
+        showNotification(
+          t('workflow.notifications.targetHandleMaxReached', { max }),
+          'error'
+        );
+      }
+
+      // Don't enter "connecting" state
+      return;
+    }
+
+
     setConnectionState({
       isConnecting: true,
       sourceNodeId: nodeId,
       sourceHandleId: handleId,
       sourceHandleType: handleType
     });
-  }, []);
+  }, [isHandleAtMax, nodes, showNotification, t]);
 
   const onConnectEnd = useCallback(() => {
     setConnectionState({
@@ -699,7 +725,7 @@ const WorkflowBuilder = ({ summaryHook }) => {
       }
       return;
     }
-    
+
     try {
       const serializedWorkflow = serializeWorkflowMinimal(nodes, edges);
       // Step 4: Check if we have nodes after serialization

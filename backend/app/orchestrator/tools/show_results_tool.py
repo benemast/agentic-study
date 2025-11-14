@@ -1049,7 +1049,7 @@ Example: ["Key finding 1", "Key finding 2", "Key finding 3"]"""
         availability: Dict[str, bool],
         category: Literal['shoes', 'wireless'],
         metrics: List[str],
-        show_visualizations: bool
+        show_visualizations: bool = False
     ) -> StatisticsSection:
         """
         Generate statistics section

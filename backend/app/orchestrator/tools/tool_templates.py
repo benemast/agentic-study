@@ -1,11 +1,12 @@
 from typing import List, Dict, Any, TypedDict
 import copy
+import logging
 
+logger = logging.getLogger(__name__)
 
 class WorkflowNode(TypedDict):
     id: str
     data: Dict[str, Any]
-
 
 class WorkflowEdge(TypedDict):
     source: str
@@ -13,18 +14,15 @@ class WorkflowEdge(TypedDict):
     sourceHandle: str
     targetHandle: str
 
-
 class Workflow(TypedDict):
     nodes: List[WorkflowNode]
     edges: List[WorkflowEdge]
-
 
 class WorkflowTemplate(TypedDict):
     id: str
     name: str
     description: str
     workflow: Workflow
-
 
 WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
     {
@@ -125,9 +123,7 @@ WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
                     "data": {
                         "template_id": "filter-reviews",
                         "config": {
-                            "field": "{filter_field}",
-                            "operator": "{filter_operator}",
-                            "value": "{filter_value}"
+                            "filters": "{filters}"
                         },
                         "label": "Filter Reviews"
                     }
@@ -202,9 +198,7 @@ WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
                     "data": {
                         "template_id": "filter-reviews",
                         "config": {
-                            "field": "{filter_field}",
-                            "operator": "{filter_operator}",
-                            "value": "{filter_value}"
+                            "filters": "{filters}"
                         },
                         "label": "Filter Reviews"
                     }
@@ -255,15 +249,8 @@ WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
                                 "themes",
                                 "statistics"
                             ],
-                            "max_data_items": "{limit}",
-                            "statistics_metrics": [
-                                "sentiment_distribution",
-                                "review_summary",
-                                "rating_distribution",
-                                "verified_rate",
-                                "theme_coverage",
-                                "sentiment_consistency"
-                            ]
+                            "statistics_metrics": "{statistics_metrics}",
+                            "max_data_items": "{limit}"
                         },
                         "label": "Show Results"
                     }
@@ -325,9 +312,7 @@ WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
                     "data": {
                         "template_id": "filter-reviews",
                         "config": {
-                            "field": "{filter_field}",
-                            "operator": "{filter_operator}",
-                            "value": "{filter_value}"
+                            "filters": "{filters}"
                         },
                         "label": "Filter Reviews"
                     }
@@ -389,22 +374,9 @@ WORKFLOW_TEMPLATES: List[WorkflowTemplate] = [
                     "data": {
                         "template_id": "show-results",
                         "config": {
-                            "include_sections": [
-                                "data_preview",
-                                "executive_summary",
-                                "themes",
-                                "recommendations",
-                                "statistics"
-                            ],
-                            "max_data_items": "{limit}",
-                            "statistics_metrics": [
-                                "sentiment_distribution",
-                                "review_summary",
-                                "rating_distribution",
-                                "verified_rate",
-                                "theme_coverage",
-                                "sentiment_consistency"
-                            ]
+                            "include_sections": "{include_sections}",
+                            "statistics_metrics": "{statistics_metrics}",
+                            "max_data_items": "{limit}"
                         },
                         "label": "Show Results"
                     }
@@ -512,13 +484,16 @@ def get_template_by_id(
     template_id: str,
     category: str = None,
     category_label: str = None,
-    limit: int = None,
+    filters: List[Dict[str, Any]] = None,
     filter_field: str = None,
     filter_operator: str = None,
     filter_value: str | bool | int = None,
     number_of_themes: int = None,
     sort_field: str = None,
-    descending: bool = None
+    descending: bool = None,
+    include_sections: List[str] = None,
+    statistics_metrics: List[str] = None,
+    limit: int = None
 ) -> WorkflowTemplate | None:
     """
     Get a workflow template by ID with placeholder replacements.
@@ -528,6 +503,7 @@ def get_template_by_id(
         category: Value to replace {category} placeholder (e.g., "shoes", "headphones")
         category_label: Value to replace {category_label} placeholder (e.g., "Shoe", "Headphone")
         limit: Value to replace {limit} placeholder (e.g., 1, "123")
+        filters: List of filter dicts wit field, operator and value (allows for multi filter setup)
         filter_field: Value to replace {filter_field} placeholder (e.g., "star_rating")
         filter_operator: Value to replace {filter_operator} placeholder (e.g., "greater", "equals")
         filter_value: Value to replace {filter_value} placeholder (e.g., 1, "123")
@@ -546,7 +522,8 @@ def get_template_by_id(
     template_copy = copy.deepcopy(template)
     
     # Build replacements dict
-    replacements = {}
+    replacements: Dict[str, Any] = {}
+
     if category is not None:
         replacements["category"] = category
     if category_label is not None:
@@ -554,14 +531,58 @@ def get_template_by_id(
     elif category is not None:
         # Auto-generate label from category if not provided
         replacements["category_label"] = category.capitalize()
-    if limit is not None:
-        replacements["limit"] = limit
+
+    # multi-filter support
+    if filters is not None:
+        normalized_filters: list[dict] = []
+
+        if isinstance(filters, list):
+            for f in filters:
+                # 1) Coerce FilterCondition / Pydantic models / other objects to dict
+                if isinstance(f, dict):
+                    f_dict = f
+                elif hasattr(f, "model_dump"):
+                    # Pydantic v2
+                    f_dict = f.model_dump()
+                elif hasattr(f, "dict"):
+                    # Pydantic v1
+                    f_dict = f.dict()
+                else:
+                    # Fallback: skip unknown types
+                    logger.warning(f"Unexpected filter type, skipping: {type(f)} -> {repr(f)}")
+                    continue
+
+                field = f_dict.get("field")
+                operator = f_dict.get("operator")
+
+                # require field, operator, and a 'value' key (even if value is None)
+                if field is None or operator is None or "value" not in f_dict:
+                    logger.warning(f"Skipping invalid filter dict: {f_dict}")
+                    continue
+
+                value = f_dict["value"]
+
+                # Optional: convert string values like "true", "5", "null"
+                if isinstance(value, str):
+                    value = _convert_value_type(value)
+
+                normalized_filters.append({
+                    "field": field,
+                    "operator": operator,
+                    "value": value,
+                })
+
+        if normalized_filters:
+            replacements["filters"] = normalized_filters
+
+    # Legacy single-filter placeholders
     if filter_field is not None:
         replacements["filter_field"] = filter_field
     if filter_operator is not None:
         replacements["filter_operator"] = filter_operator
     if filter_value is not None:
         replacements["filter_value"] = filter_value
+
     if number_of_themes is not None:
         replacements["number_of_themes"] = number_of_themes
     if sort_field is not None:
@@ -569,10 +590,17 @@ def get_template_by_id(
     if descending is not None:
         replacements["descending"] = "true" if descending else "false"
     
+    if include_sections is not None:
+        replacements["include_sections"] = include_sections
+    if statistics_metrics is not None:
+        replacements["statistics_metrics"] = statistics_metrics
+    if limit is not None:
+        replacements["limit"] = limit
+    
     # Replace placeholders
     if replacements:
         template_copy = _replace_placeholders_recursive(template_copy, replacements)
-    
+
     return template_copy
 
 

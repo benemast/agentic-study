@@ -366,11 +366,9 @@ class FilterReviewsTool(BaseTool):
         if operator == 'contains':
             return target_str in value_str
         elif operator == 'not_equals':
-            return target_str not in value_str
+            return value_str != target_str
         elif operator == 'equals':
             return value_str == target_str
-        elif operator == 'not_equals':
-            return value_str != target_str
         elif operator == 'starts_with':
             return value_str.startswith(target_str)
         elif operator == 'ends_with':
@@ -432,22 +430,27 @@ class FilterReviewsTool(BaseTool):
         """
         Filter reviews dynamically based on field type
         
-        Args:
-            input_data: {
-                'records': List[Dict],          # Direct access
-                'total': int,                   # Optional
-                'category': str,                # Optional
-                'config: Dict[str, Any]         # Node specific config, as per client
-                    'filters': List[Dict] - List of filter conditions, each with:
-                        - 'field': str - Field name to filter on
-                        - 'operator': str - Comparison operator (type-dependent)
-                        - 'value': Any - Value to compare against
+         Supports:
+        - New agent format:
+            {
+                "records": [...],
+                "config": {
+                    ""filters": [
+                        {"field": "star_rating", "operator": "greater_or_equal", "value": 4},
+                        {"field": "verified_purchase", "operator": "equals", "value": true}
+                    ]
+                }                
             }
-            
-            OR (backward compatible - single filter):
-                'field': str,
-                'operator': str,
-                'value': Any
+        
+        - Existing workflow format:
+            {
+                "records": [...],
+                "config": {
+                    "field": "{filter_field}",
+                    "operator": "{filter_operator}",
+                    "value": "{filter_value}"
+                }
+            }    
             
         Example filters:
             [
@@ -491,34 +494,26 @@ class FilterReviewsTool(BaseTool):
                     'error_type': 'no_data'
                 }
             
+            # ------------------------------------------------------------------
             # Parse filter conditions
-            filters = []
+            # root-level `filters` (agent) takes precedence over config.
+            # ------------------------------------------------------------------
+            filters = None  # None = "not provided"; [] = "provided but empty"
+           
+            config = input_data.get('config')
 
-            # Priority 1: config as SINGLE filter object (90% case)
-            if 'config' in input_data and isinstance(input_data['config'], dict):
-                config = input_data['config']
-                if 'field' in config and 'operator' in config and 'value' in config:
-                    # Single filter object - wrap in array
-                    filters = [config]
-                elif 'filters' in config and isinstance(config['filters'], list):
-                    # Nested filters array (less common)
+            # config as dict
+            if config and isinstance(config, dict):
+                # nested filters array
+                if 'filters' in config and isinstance(config['filters'], list):
                     filters = config['filters']
-
-            # Priority 2: config as array of filters (rare)
-            elif 'config' in input_data and isinstance(input_data['config'], list):
-                filters = input_data['config']
-
-            # Priority 3: Root-level 'filters' array (AI assistant format)
-            elif 'filters' in input_data and isinstance(input_data['filters'], list):
-                filters = input_data['filters']
-
-            # Priority 4: Backward compatibility - single filter at root level
-            elif 'field' in input_data and 'operator' in input_data and 'value' in input_data:
-                filters = [{
-                    'field': input_data['field'],
-                    'operator': input_data['operator'],
-                    'value': input_data['value']
-                }]
+                #  single filter object
+                elif (
+                    'field' in config
+                    and 'operator' in config
+                    and 'value' in config
+                ):
+                    filters = [config]            
 
             # No valid filter configuration found
             else:
@@ -536,7 +531,7 @@ class FilterReviewsTool(BaseTool):
                 }
             
             # State info
-            state:dict = input_data.get('state', {})
+            state: dict = input_data.get('state', {})
             condition = state.get('condition')
             session_id = state.get('session_id')
             execution_id = state.get('execution_id')
@@ -548,22 +543,33 @@ class FilterReviewsTool(BaseTool):
                 message=f"Start filtering t{total}otal {category} reviews with {len(filters)} condition(s)",
                 details={
                     'progress': 10,
-                    'total_steps':len(filters)
+                    'total_steps': len(filters)
                 }
             )
 
             logger.info(f"Filtering {total} reviews with {len(filters)} condition(s)")
             
+            # ------------------------------------------------------------------
             # Apply all filter conditions (AND logic)
+            # Skip invalid filters (agent-safe).
+            # Stop early if we hit 0 records
+            # Remember the filter that caused collapse
+            # ------------------------------------------------------------------
             filtered_records = records
-            filter_strings = []
+            filter_strings: list[str] = []
+            collapsing_filter: str | None = None
+
             for filter_condition in filters:
                 field = filter_condition.get('field')
                 operator = filter_condition.get('operator')
                 value = filter_condition.get('value')
                 
-                if not all([field, operator, value is not None]):
-                    logger.warning(f"Incomplete filter condition: {filter_condition}")
+                # Skip invalid / incomplete filters from the agent
+                if any(
+                    k not in filter_condition or filter_condition[k] is None
+                    for k in ('field', 'operator', 'value')
+                ):
+                    logger.warning(f"Skipping invalid filter: {filter_condition}")
                     continue
                 
                 filtered_records = [
@@ -574,7 +580,20 @@ class FilterReviewsTool(BaseTool):
                 value_str = f"'{value}'" if isinstance(value, str) else value
                 filter_string = f"{field} {operator} {value_str}"
                 filter_strings.append(filter_string)
-                logger.debug(f"After filtering by {filter_string}: {len(filtered_records)} records remain")
+
+                remaining = len(filtered_records)
+                logger.debug(
+                    f"After filtering by {filter_string}: {remaining} records remain"
+                )
+
+                # --- EARLY EXIT GUARD ---
+                if remaining == 0:
+                    collapsing_filter = filter_string
+                    logger.warning(
+                        f"Filtering stopped early after condition {filter_string}: "
+                        "no records remaining."
+                    )
+                    break
             
             records_before = len(records)
             records_after = len(filtered_records)
@@ -588,10 +607,17 @@ class FilterReviewsTool(BaseTool):
             execution_time = int((time.time() - start_time) * 1000)
 
             if records_after == 0:
-                raise RuntimeError(
-                    f'Filter settings "{" AND ".join(filter_strings)}" returned 0 records. '
-                    f'Adjust filter settings and retry.'
-                )
+                if collapsing_filter:
+                    raise RuntimeError(
+                        f'Filter settings "{" AND ".join(filter_strings)}" returned 0 records. '
+                        f'Try removing or relaxing the last filter: {collapsing_filter}.'
+                    )
+                else:
+                    # Fallback if, for some reason, we didn't track a specific collapsing filter
+                    raise RuntimeError(
+                        f'Filter settings "{" AND ".join(filter_strings)}" returned 0 records. '
+                        f'Adjust filter settings and retry.'
+                    )
 
             results = {
                 'success': True,

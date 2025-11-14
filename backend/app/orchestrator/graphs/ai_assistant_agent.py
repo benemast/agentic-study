@@ -1,15 +1,11 @@
-# bbackend/app/orchestrator/graphs/ai_assistant_agent.py
+# backend/app/orchestrator/graphs/ai_assistant_agent.py
 from typing import Dict, Any, Optional, List, Literal, Annotated
-from pydantic import Field
+from pydantic import BaseModel, Field, model_validator
 from dataclasses import dataclass
 import logging
 import json
 import re
-import time
 from datetime import datetime
-import inspect
-from pathlib import Path
-import asyncio
 
 from langchain.agents import create_agent, AgentState
 from langchain_openai.chat_models import ChatOpenAI
@@ -18,15 +14,128 @@ from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware
 )
-from langchain_core.messages import BaseMessage, HumanMessage, AnyMessage, message_to_dict, messages_to_dict
+from langchain_core.messages import BaseMessage, message_to_dict, messages_to_dict
 from langchain.tools import ToolRuntime, tool
 from app.websocket.manager import get_ws_manager
 
+from app.database import get_db_context
+from app.schemas.reviews import to_study_format
+from app.models.reviews import get_review_model
+from sqlalchemy import asc, desc, func
 
 from app.configs.config import settings
 from app.orchestrator.tools.tool_templates import get_template_by_id
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# PYDANTIC MODELS FOR ENAHNCED AGENT PARAMETER SETTING
+# ============================================================
+
+# Multi Filter chaining
+class FilterCondition(BaseModel):
+    """Single filter condition for selecting reviews."""
+    
+    field: Literal[
+        "review_id", "product_id", "product_title", "star_rating",
+        "review_headline", "review_body", "verified_purchase",
+        "helpful_votes", "total_votes", "customer_id"
+    ] = Field(
+        ...,
+        description=(
+            "Field name to filter on. Examples: 'star_rating', 'verified_purchase', "
+            "'product_title'."
+        ),
+    )
+
+    operator: Literal[
+        "greater", "less", "greater_or_equal", "less_or_equal",
+        "contains", "equals", "not_equals", "starts_with", "ends_with"
+    ] = Field(
+        ...,
+        description=(
+            "Comparison operator to apply. "
+            "Use comparison operators with numeric fields (star_rating, helpful_votes, total_votes), "
+            "and 'contains' / 'starts_with' / 'ends_with' with text fields."
+        ),
+    )
+
+    value: str | bool | int = Field(
+        ...,
+        description=(
+            "Value to compare against. "
+            "Use integers for numeric fields, booleans for verified_purchase, "
+            "and strings for text fields."
+        ),
+    )
+
+
+DEFAULT_INCLUDE_SECTIONS = [
+    "data_preview",
+    "executive_summary",
+    "themes",
+    "recommendations",
+    "statistics",
+]
+
+DEFAULT_STATISTICS_METRICS = [
+    "sentiment_distribution",
+    "review_summary",
+    "rating_distribution",
+    "verified_rate",
+    "theme_coverage",
+    "sentiment_consistency",
+]
+
+class ShowResultsConfig(BaseModel):
+
+    include_sections: List[
+        Literal[
+            "data_preview",
+            "executive_summary",
+            "themes",
+            "recommendations",
+            "statistics",
+        ]
+    ] = Field(
+        default_factory=lambda: DEFAULT_INCLUDE_SECTIONS.copy(),
+        description="Sections to include. Defaults to all sections.",
+    )
+
+    limit: Optional[int] = Field(
+        50,
+        ge=1,
+        le=500,
+        description="Maximum number of results to return (1-500). Required only if 'data_preview' is included.",
+    )
+
+    statistics_metrics: Optional[
+        List[
+            Literal[
+                "sentiment_distribution",
+                "review_summary",
+                "rating_distribution",
+                "verified_rate",
+                "theme_coverage",
+                "sentiment_consistency",
+            ]
+        ]
+    ] = Field(
+        default_factory=lambda: DEFAULT_STATISTICS_METRICS.copy(),
+        description="Statistics to compute (ignored unless 'statistics' is included).",
+    )
+
+    @model_validator(mode="after")
+    def validate_data_preview_requirements(self):
+        sections = set(self.include_sections)
+
+        if "data_preview" in sections and self.max_data_items is None:
+            raise ValueError(
+                "max_data_items is required when 'data_preview' is included in include_sections."
+            )
+
+        return self
+
 
 # ============================================================
 # CONTEXT SCHEMA
@@ -113,7 +222,7 @@ Assess each user request to determine if it is:
 
 # Customer Review Analysis Guidelines (Analysis Requests)
 - If mandatory inputs (e.g., product title or product ID) are missing, respond with a clear error message indicating which field(s) are needed and help the user supply them.
-- When using `theme_extraction` or `analyze_data`, remind users to filter by product title or ID for optimal outcomes if no such filter is applied.
+- When using `theme_extraction` or `analyze_data`, guide users to select from the optional parameters, remind users to filter by product title or ID for optimal outcomes if no such filter is applied.
 - After tool execution, provide an action_summary (one line) describing what was performed and confirming if it succeeded. Do not request next steps or offer data displays. Internal tool output must not be shared with the user (except for `view_data_snippet`).
 - End your response following the summary.
 
@@ -203,6 +312,7 @@ Return the complete tool output as a Markdown table:
         
         return agent
     
+
     def get_conversation_history(self, context: List[Dict[str, str]], length: int = 10) -> List[Dict[str, str]]:
         """Convert context to LangChain message format, keeping last N messages.
         
@@ -212,13 +322,36 @@ Return the complete tool output as a Markdown table:
         
         Returns:
             List of formatted messages for LangChain
+
         """
+
+        EMOJI_PATTERN = re.compile(
+            "["
+            "\U0001F600-\U0001F64F"  # emoticons
+            "\U0001F300-\U0001F5FF"  # symbols & pictographs
+            "\U0001F680-\U0001F6FF"  # transport & map symbols
+            "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            "\U00002702-\U000027B0"  # dingbats
+            "\U000024C2-\U0001F251"
+            "]+",
+            flags=re.UNICODE,
+        )
+
+        TRUNCATION_MARKER = "[... truncated for brevity ...]"
+
         # Early return for empty context
         if not context:
             return []
 
         messages = []
-        for msg in context:
+
+        # ---- Identify index of last assistant message ----
+        last_assistant_idx = max(
+            (i for i, m in enumerate(context) if m.get("role") in ASSISTANT_ROLES),
+            default=None
+        )
+
+        for idx, msg in enumerate(context):
             role = msg.get("role", "").lower()
             content = msg.get("content", "")
 
@@ -226,26 +359,50 @@ Return the complete tool output as a Markdown table:
             if not content:
                 continue
 
-            # Remove emojis and special characters
-            content = re.sub(r'[^\x00-\x7F]+', '', content).strip()
+            # Remove emojis
+            content = EMOJI_PATTERN.sub("", content).strip()
             
             # Skip if cleaning removed all content
             if not content:
                 continue
 
-            # Map to LangChain roles
+            # Map roles into LangChain
             if role in USER_ROLES:
                 messages.append({"role": "user", "content": content})
-            elif role in ASSISTANT_ROLES:
-                #if any(phrase in content for phrase in ["1. Loading reviews", "3. Cleaning reviews..."]):
+                continue
 
-                if "1. Loading reviews" in content and "# Data Snippet" not in content:
-                    # Nur erste und letzte zwei Zeilen behalten (enthält die wichtigsten LLM-Teile)
+                        
+            if role in ASSISTANT_ROLES:
+                # Don't touch the last assistant message!
+                if idx == last_assistant_idx:
+                    messages.append({"role": "assistant", "content": content})
+                    continue
+
+                # Otherwise apply  compression rule
+                if (
+                    "1. Loading reviews" in content
+                    and "# Data Snippet" not in content
+                ):
                     lines = content.splitlines()
-                    keep = [lines[0], *lines[-2:]] if len(lines) >= 3 else lines
-                    messages.append({"role": "assistant", "content": "\n".join(keep)})
+
+                    # first two + last two lines
+                    if len(lines) > 8:
+                        keep = [
+                            lines[0],
+                            lines[1],
+                            TRUNCATION_MARKER,
+                            lines[-2],
+                            lines[-1],
+                        ]
+                    else:
+                        keep = lines
+
+                    messages.append({
+                        "role": "assistant",
+                        "content": "\n".join(keep)
+                    })
                 else:
-                    messages.append({"role": "assistant", "content": content})                
+                    messages.append({"role": "assistant", "content": content})        
                 
 
             # Skip unknown roles
@@ -694,16 +851,23 @@ async def get_data(
         limit=limit
     )
 
+
 @tool
 async def filtered_data(
-    field: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"], 
-                    Field(description="Field name to filter on")],
-    operator: Annotated[Literal['greater', 'less', 'greater_or_equal', 'less_or_equal',
-                                'contains', 'equals', 'not_equals', 'starts_with', 'ends_with'],
-                    Field(description="Comparison operator to apply")],
-    value: Annotated[str | bool | int, Field(description="Value to compare against")],
+    filters: Annotated[
+        list[FilterCondition],
+        Field(
+            description=(
+                "List of filter conditions to apply. "
+                "Combine all filters with logical AND. "
+                "Example: "
+                "["
+                "  {\"field\": \"star_rating\", \"operator\": \"greater_or_equal\", \"value\": 4}, "
+                "  {\"field\": \"verified_purchase\", \"operator\": \"equals\", \"value\": true}"
+                "]"
+            )
+        )
+    ],
     runtime: Annotated[ToolRuntime, Field(description="Runtime context for tool execution")],
     sort_by: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
                             "review_headline", "review_body", "verified_purchase",
@@ -722,9 +886,7 @@ async def filtered_data(
         tool_id="filtered_data",
         runtime=runtime,
         template_params={
-            "filter_field":field,
-            "filter_operator": operator,
-            "filter_value": value,
+            "filters":filters,
             "sort_field": sort_by, 
             "descending": descending
         },
@@ -733,22 +895,74 @@ async def filtered_data(
 
 @tool
 async def theme_extraction(
-    field: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"], 
-                    Field(description="Field name to filter on")],
-    operator: Annotated[Literal['greater', 'less', 'greater_or_equal', 'less_or_equal',
-                                'contains', 'equals', 'not_equals', 'starts_with', 'ends_with'],
-                    Field(description="Comparison operator to apply")],
-    value: Annotated[str | bool | int, Field(description="Value to compare against")],
+    filters: Annotated[
+        list[FilterCondition],
+        Field(
+            description=(
+                "List of filter conditions to apply. "
+                "Combine all filters with logical AND. "
+                "Example: "
+                "["
+                "  {\"field\": \"star_rating\", \"operator\": \"greater_or_equal\", \"value\": 4}, "
+                "  {\"field\": \"verified_purchase\", \"operator\": \"equals\", \"value\": true}"
+                "]"
+            )
+        )
+    ],
     runtime: Annotated[ToolRuntime, Field(description="Runtime context for tool execution")],
-    number_of_themes: Annotated[int, Field(ge=1, le=5, description="Number of themes and insights/recommendations to extract (1-5)")] = 5,
-    sort_by: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"],
-                    Field(description="Field to sort results by")] = 'star_rating',
-    descending: Annotated[bool, Field(description="Sort in descending order if True, else ascending")] = True,
-    limit: Annotated[int, Field(ge=1, le=500, description="Maximum number of results to return (1-500)")] = 50
+    number_of_themes: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=5,
+            description="Number of themes and insights/recommendations to extract (1–5).",
+        ),
+    ] = 5,
+    statistics_metrics: Annotated[
+        list[
+            Literal[
+                "sentiment_distribution",
+                "review_summary",
+                "rating_distribution",
+                "verified_rate",
+                "theme_coverage",
+                "sentiment_consistency",
+            ]
+        ],
+        Field(
+            description=(
+                "Statistics to compute. Only used if 'statistics' is included in "
+                "include_sections. Defaults to all available metrics."
+            )
+        ),
+    ] = DEFAULT_STATISTICS_METRICS,
+    limit: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=500,
+            description=(
+                "Maximum number of rows to show in the data preview. "
+                "Required when 'data_preview' is included in include_sections."
+            ),
+        ),
+    ] = 50,
+    sort_by: Annotated[
+        Literal[
+            "review_id",
+            "product_id",
+            "product_title",
+            "star_rating",
+            "review_headline",
+            "review_body",
+            "verified_purchase",
+            "helpful_votes",
+            "total_votes",
+            "customer_id",
+        ],
+        Field(description="Field to sort results by"),
+    ] = "star_rating",
+    descending: Annotated[bool, Field(description="Sort in descending order")] = True
 ) -> dict[str, Any]:
     """
     Extract common themes among reviews of the selected category, also provides some basic statistical overviews. 
@@ -764,34 +978,104 @@ async def theme_extraction(
         tool_id="theme_extraction",
         runtime=runtime,
         template_params={
-            "filter_field":field,
-            "filter_operator": operator,
-            "filter_value": value,
+            "filters": filters,
             "number_of_themes": number_of_themes,
             "sort_field": sort_by, 
-            "descending": descending
+            "descending": descending,
+            "statistics_metrics": statistics_metrics
         },
         limit=limit
     )
 
 @tool
 async def analyze_data(
-    field: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"], 
-                    Field(description="Field name to filter on")],
-    operator: Annotated[Literal['greater', 'less', 'greater_or_equal', 'less_or_equal',
-                                'contains', 'equals', 'not_equals', 'starts_with', 'ends_with'],
-                    Field(description="Comparison operator to apply")],
-    value: Annotated[str | bool | int, Field(description="Value to compare against")],
+    filters: Annotated[
+        list[FilterCondition],
+        Field(
+            description=(
+                "List of filter conditions to apply. "
+                "Combine all filters with logical AND. "
+                "Example: "
+                "["
+                "  {\"field\": \"star_rating\", \"operator\": \"greater_or_equal\", \"value\": 4}, "
+                "  {\"field\": \"verified_purchase\", \"operator\": \"equals\", \"value\": true}"
+                "]"
+            )
+        )
+    ],
     runtime: Annotated[ToolRuntime, Field(description="Runtime context for tool execution")],
-    number_of_themes: Annotated[int, Field(ge=1, le=5, description="Number of themes and insights/recommendations to extract (1-5)")] = 5,
-    sort_by: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"],
-                    Field(description="Field to sort results by")] = 'star_rating',
-    descending: Annotated[bool, Field(description="Sort in descending order")] = True,
-    limit: Annotated[int, Field(ge=1, le=500, description="Maximum number of results to return (1-500)")] = 50
+    number_of_themes: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=5,
+            description="Number of themes and insights/recommendations to extract (1–5).",
+        ),
+    ] = 5,
+    # 🔹 NEW: show-results section config
+    include_sections: Annotated[
+        list[
+            Literal[
+                "data_preview",
+                "executive_summary",
+                "themes",
+                "recommendations",
+                "statistics",
+            ]
+        ],
+        Field(
+            description=(
+                "Sections to include in the final report. "
+                "Defaults to all sections: "
+                "data_preview, executive_summary, themes, recommendations, statistics."
+            )
+        ),
+    ] = DEFAULT_INCLUDE_SECTIONS,
+    statistics_metrics: Annotated[
+        list[
+            Literal[
+                "sentiment_distribution",
+                "review_summary",
+                "rating_distribution",
+                "verified_rate",
+                "theme_coverage",
+                "sentiment_consistency",
+            ]
+        ],
+        Field(
+            description=(
+                "Statistics to compute. Only used if 'statistics' is included in "
+                "include_sections. Defaults to all available metrics."
+            )
+        ),
+    ] = DEFAULT_STATISTICS_METRICS,
+    limit: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=500,
+            description=(
+                "Maximum number of rows to show in the data preview. "
+                "Required when 'data_preview' is included in include_sections."
+            ),
+        ),
+    ] = 50,
+    sort_by: Annotated[
+        Literal[
+            "review_id",
+            "product_id",
+            "product_title",
+            "star_rating",
+            "review_headline",
+            "review_body",
+            "verified_purchase",
+            "helpful_votes",
+            "total_votes",
+            "customer_id",
+        ],
+        Field(description="Field to sort results by"),
+    ] = "star_rating",
+    descending: Annotated[bool, Field(description="Sort in descending order")] = True
 ) -> dict[str, Any]:
     """
     Complete end-to-end analysis pipeline: Load reviews for a specific product, clean the data, perform comprehensive sentiment analysis with theme extraction, generate strategic insights across competitive positioning, customer experience, marketing, and product improvements, then display a detailed report including executive summary, themes, recommendations, and statistical metrics (sentiment distribution, rating patterns, verified purchase rates, theme coverage, and sentiment consistency).
@@ -803,32 +1087,32 @@ async def analyze_data(
         tool_id="analyze_data",
         runtime=runtime,
         template_params={
-            "filter_field":field,
-            "filter_operator": operator,
-            "filter_value": value,
+            "filters": filters,
             "number_of_themes": number_of_themes,
             "sort_field": sort_by, 
-            "descending": descending
+            "descending": descending,
+            "include_sections": include_sections,
+            "statistics_metrics": statistics_metrics
         },
         limit=limit
     )
 
-from app.database import get_db_context
-from app.schemas.reviews import to_study_format
-from app.models.reviews import get_review_model
-from sqlalchemy import asc, desc, func
-
-TRUNCATE_PRODUCT = 50
-TRUNCATE_HEAD = 100
-TRUNCATE_BODY = 400
 
 def build_query(
-    db, model,
-    *, field, operator, value,
-    sort_by, descending,
-    always_filter=None
+    db,
+    model,
+    *,
+    filters: list[dict[str, Any]] | None,
+    sort_by: str,
+    descending: bool,
+    always_filter: dict[str, Any] | None = None,
 ):
-    """Compact filtered/sorted query builder for PostgreSQL."""
+    """
+    Build a PostgreSQL query with multiple filter conditions (AND-combined).
+
+    `filters` is a list of dicts:
+      { "field": str, "operator": str, "value": Any }
+    """
     FIELDS = [
         "review_id", "product_id", "product_title", "star_rating",
         "review_headline", "review_body", "verified_purchase",
@@ -836,53 +1120,19 @@ def build_query(
     ]
     C = {f: getattr(model, f) for f in FIELDS}
 
-    col = C[field]
-    sort_col = C[sort_by]
-
-    def is_text(c):
+    def is_text(c) -> bool:
         try:
             return c.property.columns[0].type.python_type is str
         except Exception:
             return False
 
-    def ilike(c, pattern):
+    def ilike(c, pattern: str):
         return c.ilike(pattern, escape="\\")
 
-    # --- WHERE predicate ---
-    if operator in {"greater", "less", "greater_or_equal", "less_or_equal"}:
-        if is_text(col):
-            raise ValueError(f"'{operator}' not valid for text column {field}")
-        expr = {
-            "greater": col.__gt__,
-            "less": col.__lt__,
-            "greater_or_equal": col.__ge__,
-            "less_or_equal": col.__le__,
-        }[operator](value)
+    # Start from base query
+    q = db.query(model)
 
-    elif operator in {"equals", "not_equals"}:
-        if is_text(col) and isinstance(value, str):
-            left, right = func.lower(col), value.lower()
-            expr = (left == right) if operator == "equals" else (left != right)
-        else:
-            expr = (col == value) if operator == "equals" else (col != value)
-
-    elif operator in {"contains", "starts_with", "ends_with"}:
-        if not is_text(col):
-            raise ValueError(f"'{operator}' requires a text column ({field})")
-        s = str(value)
-        pattern = (
-            f"%{s}%" if operator == "contains"
-            else f"{s}%" if operator == "starts_with"
-            else f"%{s}"
-        )
-        expr = ilike(col, pattern)
-    else:
-        raise ValueError(f"Unsupported operator: {operator}")
-
-    # Base query
-    q = db.query(model).filter(expr)
-
-    # Always-on filters
+    # Always-on filters first
     if always_filter:
         for k, v in always_filter.items():
             kc = C.get(k)
@@ -893,27 +1143,102 @@ def build_query(
             else:
                 q = q.filter(kc == v)
 
-    # Sorting (Postgres NULL-safe)
+    # Normalize filters list
+    filters = filters or []
+
+    # Apply each filter with AND semantics
+    for f in filters:
+        field = f.get("field")
+        operator = f.get("operator")
+        value = f.get("value")
+
+        # Skip invalid filters defensively
+        if field is None or operator is None:
+            continue
+
+        col = C.get(field)
+        if col is None:
+            # Unknown column: skip rather than crash
+            continue
+
+        # --- WHERE predicate for this filter ---
+        if operator in {"greater", "less", "greater_or_equal", "less_or_equal"}:
+            if is_text(col):
+                raise ValueError(f"'{operator}' not valid for text column {field}")
+            expr = {
+                "greater": col.__gt__,
+                "less": col.__lt__,
+                "greater_or_equal": col.__ge__,
+                "less_or_equal": col.__le__,
+            }[operator](value)
+
+        elif operator in {"equals", "not_equals"}:
+            if is_text(col) and isinstance(value, str):
+                left, right = func.lower(col), value.lower()
+                expr = (left == right) if operator == "equals" else (left != right)
+            else:
+                expr = (col == value) if operator == "equals" else (col != value)
+
+        elif operator in {"contains", "starts_with", "ends_with"}:
+            if not is_text(col):
+                raise ValueError(f"'{operator}' requires a text column ({field})")
+            s = str(value)
+            pattern = (
+                f"%{s}%" if operator == "contains"
+                else f"{s}%" if operator == "starts_with"
+                else f"%{s}"
+            )
+            expr = ilike(col, pattern)
+
+        else:
+            # Unsupported operator: skip
+            continue
+
+        q = q.filter(expr)
+
+    # Sorting (Postgres NULL-safe, stable on review_id)
+    sort_col = C.get(sort_by)
+    if sort_col is None:
+        raise ValueError(f"Unsupported sort column: {sort_by}")
     order = desc(sort_col).nulls_last() if descending else asc(sort_col).nulls_first()
     return q.order_by(order, asc(model.review_id))
+
+
+TRUNCATE_PRODUCT = 50
+TRUNCATE_HEAD = 100
+TRUNCATE_BODY = 400
+
+# assuming FilterCondition is a Pydantic model defined elsewhere
+# class FilterCondition(BaseModel): field, operator, value ...
     
 @tool 
 async def get_data_overview_snippet(
-    field: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"], 
-                    Field(description="Field name to filter on")],
-    operator: Annotated[Literal['greater', 'less', 'greater_or_equal', 'less_or_equal',
-                                'contains', 'equals', 'not_equals', 'starts_with', 'ends_with'],
-                    Field(description="Comparison operator to apply")],
-    value: Annotated[str | bool | int, Field(description="Value to compare against")],
+    filters: Annotated[
+        list[FilterCondition],
+        Field(
+            description=(
+                "List of filter conditions to apply. "
+                "Combine all filters with logical AND. "
+                "Example: "
+                "["
+                "  {\"field\": \"star_rating\", \"operator\": \"greater_or_equal\", \"value\": 4}, "
+                "  {\"field\": \"verified_purchase\", \"operator\": \"equals\", \"value\": true}"
+                "]"
+            )
+        )
+    ],
     runtime: ToolRuntime,
-    sort_by: Annotated[Literal["review_id", "product_id", "product_title", "star_rating",
-                            "review_headline", "review_body", "verified_purchase",
-                            "helpful_votes", "total_votes", "customer_id"],
-                    Field(description="Field to sort results by")] = 'star_rating',
+    sort_by: Annotated[
+        str,
+        Field(
+            description="Field to sort results by. "
+                        "Valid options: review_id, product_id, product_title, star_rating, "
+                        "review_headline, review_body, verified_purchase, helpful_votes, "
+                        "total_votes, customer_id."
+        )
+    ] = "star_rating",
     descending: Annotated[bool, Field(description="Sort in descending order")] = True,
-    limit: Annotated[int, Field(ge=1, le=10, description="Maximum number of results to return (1-10)")] = 5
+    limit: Annotated[int, Field(ge=1, le=10, description="Maximum number of results to return (1-10)")] = 5,
 ) -> dict[str, Any]:
     """
     View a brief data sample showing the dataset structure. This data needs to be passed to the user to be valuable!
@@ -933,18 +1258,38 @@ async def get_data_overview_snippet(
         context: AIAssistantAgent = runtime.context  # type: ignore[name-defined]
         category = context.category
 
+        # Normalize FilterCondition models → plain dicts
+        # (LangChain / Pydantic guarantees basic validity, but we still keep it defensive)
+        normalized_filters: list[dict[str, Any]] = []
+        for f in filters:
+            fd = f.model_dump() if hasattr(f, "model_dump") else dict(f)
+            field = fd.get("field")
+            operator = fd.get("operator")
+            # allow "value" even if None, some operators might not need it
+            if field is None or operator is None or "value" not in fd:
+                continue
+            normalized_filters.append(
+                {
+                    "field": field,
+                    "operator": operator,
+                    "value": fd["value"],
+                }
+            )
+
         with get_db_context() as db:
             model = get_review_model(category)
 
             # total (entire table)
             total_available = db.query(model).count()
 
-            # build query
+            # build query with multi-filter AND logic
             query = build_query(
-                db, model,
-                field=field, operator=operator, value=value,
-                sort_by=sort_by, descending=descending,
-                always_filter={"is_malformed": False}
+                db,
+                model,
+                filters=normalized_filters,
+                sort_by=sort_by,
+                descending=descending,
+                always_filter={"is_malformed": False},
             )
 
             # count filtered (without pagination)
@@ -961,13 +1306,16 @@ async def get_data_overview_snippet(
         rest = study_dicts[1:] if len(study_dicts) > 1 else []
 
         # truncated snippet
-        snippet = [{
-            "product_id": r.get("product_id"),
-            "product_title": (r.get("product_title") or "")[:TRUNCATE_PRODUCT],
-            "star_rating": r.get("star_rating"),
-            "review_headline": (r.get("review_headline") or "")[:TRUNCATE_HEAD],
-            "review_body": (r.get("review_body") or "")[:TRUNCATE_BODY],
-        } for r in rest]
+        snippet = [
+            {
+                "product_id": r.get("product_id"),
+                "product_title": (r.get("product_title") or "")[:TRUNCATE_PRODUCT],
+                "star_rating": r.get("star_rating"),
+                "review_headline": (r.get("review_headline") or "")[:TRUNCATE_HEAD],
+                "review_body": (r.get("review_body") or "")[:TRUNCATE_BODY],
+            }
+            for r in rest
+        ]
 
         return {
             "full_row": full_row,
@@ -977,12 +1325,11 @@ async def get_data_overview_snippet(
         }
 
     except Exception as e:
+        # In case of operator/field issues etc.
         return {
             "error": str(e),
             "params": {
-                "field": field,
-                "operator": operator,
-                "value": value,
+                "filters": [f.model_dump() if hasattr(f, "model_dump") else dict(f) for f in filters],
                 "sort_by": sort_by,
                 "descending": descending,
                 "limit": limit,
@@ -995,7 +1342,6 @@ LANGCHAIN_TOOLS = [get_data, filtered_data, theme_extraction, analyze_data, get_
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
-
 class InputDataManager:
     def __init__(self, key: Optional[str] = None):
         import redis
@@ -1064,49 +1410,6 @@ class CustomJSONEncoder(json.JSONEncoder):
         
         # Fallback to string representation
         return str(obj)
-
-def _log_to_file(data: dict | str, filename: str = None):
-    """
-    Log to a JSON file
-    
-    Args:
-        data: Dictionary or JSON string to log
-        filename: Optional custom filename (without .json extension)
-    
-    Returns:
-        Path: Filepath where data was logged
-    """
-    from pathlib import Path
-    from datetime import datetime
-
-    try:
-        # Create logs directory if it doesn't exist
-        log_dir = Path("logs/tools_data")
-        log_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate filename with timestamp if not provided
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"data_{timestamp}"
-            
-        if not filename.endswith('.json'):
-            filename = f"{filename}.json"
-        
-        filepath = log_dir / filename
-        
-        # Write results to file
-        with open(filepath, 'w', encoding='utf-8') as f:
-            if isinstance(data, str):
-                f.write(data)
-            else:
-                import json
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        return filepath
-    
-    except Exception as e:
-        logger.error(f"Failed to log data to file: {e}")
-        return None
 
 def get_last_tool_message(messages):
     """Get the last ToolMessage from a list of messages"""

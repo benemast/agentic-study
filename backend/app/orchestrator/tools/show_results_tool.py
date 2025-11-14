@@ -510,24 +510,61 @@ class ShowResultsTool(BaseTool):
         
         # Check structure and aggregate accordingly
         if isinstance(theme_data, dict):
-            # Sentiment-split structure - aggregate each sentiment separately
-            # CRITICAL: Keep sentiment boundaries - do NOT mix positive/neutral/negative
-            result = {}
-            for sentiment_key in ['positive_themes', 'neutral_themes', 'negative_themes']:
-                if sentiment_key in theme_data:
-                    result[sentiment_key] = aggregate_theme_list(
-                        theme_data[sentiment_key],
+            # 1) COMBINED structure: {"type": "combined", "themes": [...]}
+            if theme_data.get("type") == "combined" and isinstance(theme_data.get("themes"), list):
+                aggregated_list = aggregate_theme_list(
+                    theme_data["themes"],
+                    total_records=total_records
+                )
+                return {
+                    "type": theme_data.get("type", "combined"),
+                    "themes": aggregated_list,
+                }
+
+            # 2) SENTIMENT-SPLIT structure: {..., "positive_themes": [...], ...}
+            has_sentiment_keys = any(
+                key in theme_data
+                for key in ["positive_themes", "neutral_themes", "negative_themes"]
+            )
+
+            if has_sentiment_keys:
+                # Sentiment-split structure - aggregate each sentiment separately
+                # CRITICAL: Keep sentiment boundaries - do NOT mix positive/neutral/negative
+                result = {}
+                for sentiment_key in ["positive_themes", "neutral_themes", "negative_themes"]:
+                    if sentiment_key in theme_data:
+                        result[sentiment_key] = aggregate_theme_list(
+                            theme_data[sentiment_key],
+                            total_records=total_records
+                        )
+                
+                # Preserve the 'type' field if it exists
+                if "type" in theme_data:
+                    result["type"] = theme_data["type"]
+                    
+                return result
+
+            # 3) Fallback: dict wrapper with a "themes" list but no sentiment keys
+            if isinstance(theme_data.get("themes"), list):
+                return aggregate_theme_list(
+                    theme_data["themes"],
+                    total_records=total_records
+                )
+
+            # 4) Last resort: treat any list-like value as themes
+            for value in theme_data.values():
+                if isinstance(value, list):
+                    return aggregate_theme_list(
+                        value,
                         total_records=total_records
                     )
-            
-            # Preserve the 'type' field if it exists
-            if 'type' in theme_data:
-                result['type'] = theme_data['type']
-                
-            return result
-        else:
-            # Flat list - aggregate all together
-            return aggregate_theme_list(theme_data, total_records=total_records)
+
+            # If we get here, there was no usable list → no themes
+            return []
+
+        # FLAT LIST: aggregate all together
+        return aggregate_theme_list(theme_data, total_records=total_records)
+    
     
     def _aggregate_insights(self, insight_data: Dict[str, Any]) -> Dict[str, List[str]]:
         """
@@ -896,32 +933,52 @@ Example: ["Key finding 1", "Key finding 2", "Key finding 3"]"""
         theme_stats = []
         
         if isinstance(theme_analysis, dict):
-            # Sentiment-split structure
-            for sentiment_key in ['positive_themes', 'neutral_themes', 'negative_themes']:
-                theme_list = theme_analysis.get(sentiment_key, [])
-                sentiment_label = sentiment_key.replace('_themes', '')
-                
+            # CASE A: sentiment-split structure
+            has_sentiment_keys = any(
+                key in theme_analysis
+                for key in ["positive_themes", "neutral_themes", "negative_themes"]
+            )
+
+            if has_sentiment_keys:
+                for sentiment_key in ["positive_themes", "neutral_themes", "negative_themes"]:
+                    theme_list = theme_analysis.get(sentiment_key, [])
+                    sentiment_label = sentiment_key.replace("_themes", "")
+                    
+                    for theme_obj in theme_list:
+                        if isinstance(theme_obj, dict):
+                            theme_stats.append(ThemeStatistic(
+                                theme=theme_obj.get("theme", ""),
+                                sentiment=sentiment_label,
+                                mention_count=theme_obj.get("review_count", 0),
+                                percentage=theme_obj.get("percentage", 0.0),
+                                weighted_score=theme_obj.get("weighted_score", 0.0),
+                                estimated_total_count=theme_obj.get("estimated_total_count"),
+                            ))
+            else:
+                # CASE B: combined structure: {"type": "combined", "themes": [...]}
+                theme_list = theme_analysis.get("themes", [])
                 for theme_obj in theme_list:
                     if isinstance(theme_obj, dict):
                         theme_stats.append(ThemeStatistic(
-                            theme=theme_obj.get('theme', ''),
-                            sentiment=sentiment_label,
-                            mention_count=theme_obj.get('review_count', 0),  # Fixed: use mention_count
-                            percentage=theme_obj.get('percentage', 0.0),
-                            weighted_score=theme_obj.get('weighted_score', 0.0),
-                            estimated_total_count=theme_obj.get('estimated_total_count')
+                            theme=theme_obj.get("theme", ""),
+                            sentiment=theme_obj.get("sentiment", "unknown"),
+                            mention_count=theme_obj.get("review_count", 0),
+                            percentage=theme_obj.get("percentage", 0.0),
+                            weighted_score=theme_obj.get("weighted_score", 0.0),
+                            estimated_total_count=theme_obj.get("estimated_total_count"),
                         ))
+
         elif isinstance(theme_analysis, list):
             # Flat list structure
             for theme_obj in theme_analysis:
                 if isinstance(theme_obj, dict):
                     theme_stats.append(ThemeStatistic(
-                        theme=theme_obj.get('theme', ''),
-                        sentiment=theme_obj.get('sentiment', 'unknown'),
-                        mention_count=theme_obj.get('review_count', 0),  # Fixed: use mention_count
-                        percentage=theme_obj.get('percentage', 0.0),
-                        weighted_score=theme_obj.get('weighted_score', 0.0),
-                        estimated_total_count=theme_obj.get('estimated_total_count')
+                        theme=theme_obj.get("theme", ""),
+                        sentiment=theme_obj.get("sentiment", "unknown"),
+                        mention_count=theme_obj.get("review_count", 0),
+                        percentage=theme_obj.get("percentage", 0.0),
+                        weighted_score=theme_obj.get("weighted_score", 0.0),
+                        estimated_total_count=theme_obj.get("estimated_total_count"),
                     ))
         
         content = ThemesContent(

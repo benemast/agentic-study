@@ -18,10 +18,19 @@ const StreamingMessage = ({
     : String(content || '');
 
   return (
-    <div className={`whitespace-pre-wrap break-words ${className}`}>
+    <div 
+    className={`whitespace-pre-wrap break-words min-h-[1.5em] ${className}`}
+    style={{
+      willChange: 'contents',
+      contain: 'layout style'
+    }}
+    >
       {contentString}
       {isStreaming && (
-        <span className="inline-block w-0.5 h-4 bg-current animate-pulse ml-1 align-middle" />
+        <span 
+          className="inline-block w-0.5 h-4 bg-current animate-pulse ml-1 align-middle"
+          style={{ willChange: 'opacity' }} 
+        />
       )}
     </div>
   );

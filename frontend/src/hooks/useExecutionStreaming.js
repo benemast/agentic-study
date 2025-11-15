@@ -20,8 +20,8 @@ import { getExecutionStatusMessage } from '../config/executionStatusMessages';
  */
 
 export const useExecutionStreaming = (sessionId, executionId, condition = 'ai_assistant', options = {}) => {
-  const { onExecutionIdReceived, onCleanupComplete } = options;
-  const MESSAGE_DELAY = 120
+  const { onExecutionIdReceived, onCleanupComplete, onExecutionError } = options; // ADD onExecutionError
+  const MESSAGE_DELAY = 200; // CHANGE from 120
 
   // State
   const [streamedContent, setStreamedContent] = useState('');
@@ -31,6 +31,7 @@ export const useExecutionStreaming = (sessionId, executionId, condition = 'ai_as
   const messageQueueRef = useRef([]);
   const processingRef = useRef(false);
   const executionEndedRef = useRef(false);
+  const errorInfoRef = useRef(null);
 
   /**
    * Format a single message into display text
@@ -104,7 +105,17 @@ export const useExecutionStreaming = (sessionId, executionId, condition = 'ai_as
         // Check if execution ended and queue is empty
         if (executionEndedRef.current) {
           setIsStreaming(false);
-          onCleanupComplete?.();
+        
+          // Check if this was an error or normal completion
+          if (errorInfoRef.current) {
+            // Error completion - call error callback
+            const { errorMsg, errorType } = errorInfoRef.current;
+            errorInfoRef.current = null;
+            onExecutionError?.(errorMsg, errorType);
+          } else {
+            // Normal completion - call regular cleanup
+            onCleanupComplete?.();
+          }
         }
         return;
       }
@@ -126,58 +137,72 @@ export const useExecutionStreaming = (sessionId, executionId, condition = 'ai_as
     processNext();
   }, [onCleanupComplete]);
 
-  /**
-   * Handle new message from useExecutionProgress
-   * Called directly by useExecutionProgress when message is added
-   */
-  const handleNewMessage = useCallback((message) => {
+
+const isErrorMessage = (msg) => {
+  return msg.subtype === 'error' || 
+         msg.status === 'failed' || 
+         msg.status === 'exception' || 
+         msg.type === 'error' || 
+         msg.type === 'execution_error';
+};
+
+const handleNewMessage = useCallback((message) => {
+  
+  // EARLY RAISE: Handle error messages first (before type checking)
+  if (isErrorMessage(message)) {
+    // Mark execution as ended so queue processing will trigger cleanup
+    executionEndedRef.current = true;
     
-    // Handle execution lifecycle
-    if (message.type === 'execution') {
-      if (message.subtype === 'start') {
-        setIsStreaming(true);
-        executionEndedRef.current = false;
-        setStreamedContent(''); // Clear content on new execution
-      } else if (message.subtype === 'end') {
-        executionEndedRef.current = true;
-        // Don't set isStreaming false here - wait for queue to empty
-      }
+    const errorMsg = message.data?.error || 'Execution failed';
+    const errorType = message.data?.error_type || 'Unknown';
+    
+    // Store error info - will be used by cleanup instead of normal completion
+    errorInfoRef.current = { errorMsg, errorType };
+  }
+  
+  // Handle execution lifecycle
+  if (message.type === 'execution') {
+    if (message.subtype === 'start') {
+      setIsStreaming(true);
+      executionEndedRef.current = false;
+      errorInfoRef.current = null;  // Clear any previous error
+      setStreamedContent('');
+    } else if (message.subtype === 'end') {
+      executionEndedRef.current = true;
+    }
+    return;
+  }
+  
+  // === FILTER OUT NOISE ===
+  // Skip agent start messages (not informative)
+  if (message.type === 'agent' && message.subtype === 'start') {
+    return;
+  }
+  
+  // Skip node progress
+  if (message.type === 'node' && message.subtype === 'progress') {
+    return;
+  }
+  
+  // Manage tool skips
+  if (message.type === 'tool') {
+    if (message.subtype === 'start' || message.subtype === 'end') {
+      return;
+    } else if (message.subtype === 'progress' 
+      && !(['missing_data_complete', 'spam_complete', 'duplicates_complete', 'LLM_handoff'].includes(message.status))
+    ) {
       return;
     }
+  }
 
-    // === FILTER OUT NOISE ===    
-    // Skip agent start messages (not informative)
-    if (message.type === 'agent' && message.subtype === 'start') {
-      return;
-    }
-    
-    // Skip node progress
-    if (message.type === 'node' && message.subtype === 'progress') {    
-      return;    
-    }
-
-    // Manage tool skips
-    if (message.type === 'tool') {
-      if(message.subtype === 'start' || message.subtype === 'end'){
-        return;
-
-      }else if(message.subtype === 'progress' 
-        && !(['missing_data_complete', 'spam_complete', 'duplicates_complete', 'LLM_handoff'].includes(message.status))
-      ){
-        return;
-      }
-    }
-
-
-    // Format and queue displayable messages
-    const formatted = formatMessage(message);
-    
-    if (formatted) {
-      messageQueueRef.current.push(formatted);
-      // Start processing queue
-      processQueue();
-    } 
-  }, [formatMessage, processQueue]);
+  // Format and queue displayable messages
+  const formatted = formatMessage(message);
+  if (formatted) {
+    messageQueueRef.current.push(formatted);
+    processQueue();
+  }
+  
+}, [formatMessage, processQueue]);
 
   // Get raw execution progress with message callback
   const executionProgress = useExecutionProgress(sessionId, executionId, condition, {

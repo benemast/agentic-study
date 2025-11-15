@@ -92,14 +92,17 @@ const AIChat = ({ summaryHook }) => {
   // EXECUTION STREAMING
   // ========================================
   
-  const handleCleanupComplete = useCallback(() => {
-    console.log('Cleanup complete - finalizing message');
+  const handleExecutionCleanup = useCallback(async (isError = false, errorMessage = null, errorType = null) => {
+    console.log('Execution cleanup:', { isError, errorMessage, errorType });
     console.log('Current streamedContent:', streamedContentRef.current);
     
     if (streamingMessageIndexRef.current !== null) {
+      // Use current streamed content (which includes error if it was queued)
+      const finalContent = streamedContentRef.current || (isError ? `Error: ${errorMessage}` : '');
+      
       // Update message with final content
       updateMessage(streamingMessageIndexRef.current, {
-        content: streamedContentRef.current,
+        content: finalContent,
         isStreaming: false,
         isExecutionMessage: true,
         executionComplete: true,
@@ -107,13 +110,35 @@ const AIChat = ({ summaryHook }) => {
         timestamp: new Date().toISOString()
       });
       
-      trackMessageReceived(streamedContentRef.current.length, {
-        content: streamedContentRef.current,
-        isStreaming: false,
-        isExecutionMessage: true,
-        executionComplete: true,
-        executionId: executionId
-      });
+      // Persist to database
+      try {
+        await chatAPI.saveMessage(sessionId, {
+          role: 'assistant',
+          content: finalContent,
+          condition: 'ai_assistant',
+          execution_id: executionId,
+          metadata: isError ? { 
+            error: true, 
+            error_message: errorMessage,
+            error_type: errorType 
+          } : {}
+        });
+        
+        trackMessageReceived(finalContent.length, {
+          content: finalContent,
+          isStreaming: false,
+          isExecutionMessage: true,
+          executionComplete: true,
+          executionId: executionId,
+          error: isError
+        });
+      } catch (err) {
+        console.error('Failed to persist message:', err);
+        captureException(err, {
+          tags: { error_type: 'message_persist_failed' },
+          extra: { isError, errorMessage, executionId, sessionId }
+        });
+      }
       
       // Reset state
       streamingMessageIndexRef.current = null;
@@ -123,7 +148,7 @@ const AIChat = ({ summaryHook }) => {
       
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [executionId, updateMessage, trackMessageReceived]);
+  }, [sessionId, executionId, updateMessage, trackMessageReceived]);
 
   // Execution streaming - handles all WebSocket processing
   const {
@@ -144,7 +169,8 @@ const AIChat = ({ summaryHook }) => {
         });
       }
     },
-    onCleanupComplete: handleCleanupComplete
+    onCleanupComplete: () => handleExecutionCleanup(false),  // Normal completion
+    onExecutionError: (errorMsg, errorType) => handleExecutionCleanup(true, errorMsg, errorType)  // Error completion
   });
   
   // Use parent's summary data if available (loaded from DB), otherwise use own (from execution)
@@ -258,16 +284,36 @@ useEffect(() => {
       
       // Update placeholder with error
       if (streamingMessageIndexRef.current !== null) {
+        const errorContent = 'Error: Failed to process your request. Please try again.';
+
         updateMessage(streamingMessageIndexRef.current, {
-          content: 'Error: Failed to process your request. Please try again.',
+          content: errorContent,
           isStreaming: false,
           isExecutionMessage: false,
           timestamp: new Date().toISOString()
         });
         streamingMessageIndexRef.current = null;
       }
+    
+      // Persist error message to database
+      try {
+        await chatAPI.addMessage(sessionId, {
+          role: 'assistant',
+          content: errorContent,
+          condition: 'ai_assistant',
+          metadata: { 
+            error: true, 
+            error_message: errorMessage 
+          }
+        });
+      } catch (persistErr) {
+        console.error('Failed to persist error:', persistErr);
+      }
       
+      streamingMessageIndexRef.current = null;
+      streamedContentRef.current = '';
       setIsLoading(false);
+      setExecutionId(null);
       
       trackError('MESSAGE_SEND_FAILED', {
         content: userMessage,
@@ -316,7 +362,7 @@ useEffect(() => {
   // ========================================
 
   const isProcessing = isLoading || isExecutionStreaming;
-
+  
   return (
     <div data-tour="chat-messages-container" className="flex flex-col h-full bg-white dark:bg-gray-900">
       {/* Header */}
@@ -336,7 +382,10 @@ useEffect(() => {
       </div>
 
       {/* Messages */}
-      <div data-tour="chat-messages" className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div 
+        data-tour="chat-messages" 
+        className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth"
+      >
         {chatMessages.map((message, index) => (
           <div
             key={index}
@@ -351,7 +400,7 @@ useEffect(() => {
             )}
 
             <div
-              className={`max-w-[70%] rounded-2xl px-4 py-3 shadow-sm ${
+              className={`max-w-[75%] rounded-2xl px-5 py-3.5 shadow-sm ${
                 message.role === 'user'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
@@ -428,32 +477,51 @@ useEffect(() => {
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <div data-tour="chat-input" className="flex gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isProcessing 
-                ? t('chat.working')
-                : isWebSocketConnected
-                ? t('chat.placeholder')
-                : t('chat.disconnected')
-            }
-            disabled={isProcessing || !isWebSocketConnected}
-            rows={3}
-            className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 rounded-xl focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed transition-all resize-none"
-          />
+        <div data-tour="chat-input" className="flex gap-3 items-center">
+          <div className="flex-1 relative">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Auto-expand - minimum 2 rows
+                e.target.style.height = 'auto';
+                const minHeight = 70; // ~2 rows with padding
+                const maxHeight = 144; // ~5 rows with padding
+                const newHeight = Math.max(minHeight, Math.min(e.target.scrollHeight, maxHeight));
+                e.target.style.height = newHeight + 'px';
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isProcessing 
+                  ? t('chat.working')
+                  : isWebSocketConnected
+                  ? t('chat.placeholder')
+                  : t('chat.disconnected')
+              }
+              disabled={isProcessing || !isWebSocketConnected}
+              rows={2}
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 rounded-xl focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed transition-all overflow-hidden leading-relaxed"
+              style={{ 
+                height: '70px',
+                minHeight: '70px',
+                maxHeight: '144px',
+                resize: 'none'
+              }}
+            />
+          </div>
+          
           <button
             type="submit"
             disabled={!input.trim() || isProcessing || !isWebSocketConnected}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-700 dark:to-indigo-700 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 dark:hover:from-blue-600 dark:hover:to-indigo-600 disabled:from-gray-400 disabled:to-gray-400 dark:disabled:from-gray-600 dark:disabled:to-gray-600 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl self-end"
+            className="h-[52px] px-6 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-700 dark:to-indigo-700 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 dark:hover:from-blue-600 dark:hover:to-indigo-600 disabled:from-gray-400 disabled:to-gray-400 dark:disabled:from-gray-600 dark:disabled:to-gray-600 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2 flex-shrink-0 relative"
           >
             {isProcessing ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span>{t('chat.processing')}</span>
+                {/* Pulsing ring indicator */}
+                <span className="absolute inset-0 rounded-xl border-2 border-blue-300 dark:border-blue-400 animate-pulse" />
               </>
             ) : (
               <>

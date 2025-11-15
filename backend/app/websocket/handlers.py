@@ -306,38 +306,62 @@ async def handle_session_sync(session_id: str, message: dict):
     
     Similar to update but with specific sync semantics:
     - Always sets connection_status to 'online'
-    - Requires session_data and sync_timestamp
+    - Loads session_data from DB if not provided
+    - Auto-generates sync_timestamp if missing
     """
     request_id = message.get('request_id')
     
     try:
-        ws_manager:WebSocketManager = get_ws_manager()
+        ws_manager: WebSocketManager = get_ws_manager()
         session_data = message.get('session_data')
         sync_timestamp = message.get('sync_timestamp')
         
-        if not session_data or not sync_timestamp:
-            await ws_manager.send_to_session(session_id, {
-                'type': 'response',
-                'request_id': request_id,
-                'status': 'error',
-                'error': 'session_data and sync_timestamp are required'
-            })
-            return
+        # Load session from database if needed
+        if not session_data:
+            logger.info(f"Loading session data from database for {session_id}")
+            with get_db_context() as db:
+                db_session = db.query(SessionModel).filter(
+                    SessionModel.session_id == session_id
+                ).first()
+                
+                if not db_session or not db_session.session_data:
+                    await ws_manager.send_to_session(session_id, {
+                        'type': 'response',
+                        'request_id': request_id,
+                        'status': 'error',
+                        'error': 'Session not found or empty'
+                    })
+                    return
+                
+                session_data = db_session.session_data
+        
+        # Use current timestamp if not provided
+        if not sync_timestamp:
+            sync_timestamp = datetime.now(timezone.utc).isoformat()
 
-        # state.sessionData.studyConfig.group
-        study_group_id = session_data.get('studyConfig', {}).get('group')
+        # Determine study group (with fallback chain)
+        study_group_id = None
+        study_config = session_data.get('studyConfig')
+        
+        if study_config and isinstance(study_config, dict):
+            study_group_id = study_config.get('group')
 
         if not study_group_id:
-            await ws_manager.send_to_session(session_id, {
-                    'type': 'response',
-                    'request_id': request_id,
-                    'status': 'error',
-                    'error': 'Study Group id not found'
-                })
+            with get_db_context() as db:
+                db_session = db.query(SessionModel).filter(
+                    SessionModel.session_id == session_id
+                ).first()
+                
+                if db_session:
+                    # Try study_group column, then calculate from participant_id
+                    study_group_id = (
+                        db_session.study_group or
+                        (((db_session.participant_id - 1) % 4) + 1 if db_session.participant_id else None) or
+                        1  # Default fallback
+                    )
 
-        # Use async context manager
+        # Update session in database
         with get_db_context() as db:
-            # Direct UPDATE query
             stmt = (
                 update(SessionModel)
                 .where(SessionModel.session_id == session_id)

@@ -1,6 +1,7 @@
 // frontend/src/components/workflow/nodes/NodeEditor.jsx
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { X as XIcon, Info as InfoIcon, Lock as LockIcon, ChevronDown, ChevronRight, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { getWorkflowFilterableColumns } from '../../../config/columnConfig';
@@ -775,7 +776,7 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
   
   if (!isOpen || !node) return null;
 
-  return (
+  return createPortal(
     <div 
       className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50 p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -880,7 +881,8 @@ const NodeEditor = memo(({ node, isOpen, onClose, onSave, nodes, edges }) => {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 });
 

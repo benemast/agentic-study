@@ -173,15 +173,13 @@ class AIAssistantAgent:
     def __init__(
         self,
         state_manager,
-        category: Literal['shoes','wireless'],
-        should_stream:bool = False,
         websocket_manager: Optional[Any] = None
     ):
-        self.category = category
-        self.should_stream = should_stream
-        self.agent = self.create_ai_assistant_agent(category=category,should_stream=should_stream)
+        self.state_manager = state_manager
+        self.websocket_manager = websocket_manager
+        
     
-    def _build_system_prompt(self, category: Optional[str] = None) -> str:
+    def _build_system_prompt(self, category: str) -> str:
 
         # Define system prompt
         system_prompt_initial = f"""You are a helpful, friendly AI assistant with two primary responsibilities:
@@ -256,6 +254,7 @@ Return the complete tool output as a Markdown table:
         Returns:
             Compiled agent graph ready for invocation
         """
+
         model = ChatOpenAI(
             api_key=settings.openai_api_key,
             model=settings.llm_model,
@@ -415,27 +414,28 @@ Return the complete tool output as a Markdown table:
         task_description: str,
         session_id: str,
         execution_id: int,
+        category: str,
         initial_state: Optional[Dict[str, Any]] = None,
-        passed_context:Optional[Any] = None,
-        config:Optional[Any] = None
+        langsmith_config:Optional[Any] = None,
+        should_stream: bool = False
     ):
-        if self.should_stream and session_id and get_ws_manager().is_connected(session_id=session_id):
+        if should_stream and session_id and get_ws_manager().is_connected(session_id=session_id):
             return await self.stream(
                 task_description=task_description,
                 session_id=session_id,
                 execution_id=execution_id,
+                category=category,
                 initial_state=initial_state,
-                passed_context=passed_context,
-                config=config
+                langsmith_config=langsmith_config
             )
         else:
             return await self.run(
                 task_description=task_description,
                 session_id=session_id,
                 execution_id=execution_id,
+                category=category,
                 initial_state=initial_state,
-                passed_context=passed_context,
-                config=config
+                langsmith_config=langsmith_config
             )
 
     async def run(
@@ -443,11 +443,11 @@ Return the complete tool output as a Markdown table:
         task_description: str,
         session_id: str,
         execution_id: int,
-        initial_state: Optional[Dict[str, Any]] = None,
-        passed_context:Optional[Any] = None,
-        config:Optional[Any] = None
+        category: str,
+        initial_state: Dict[str, Any] = None,
+        langsmith_config: Any = None
     ):
-    
+        
         ws_manager=get_ws_manager()
 
         await ws_manager.send_agent_progress(
@@ -462,12 +462,12 @@ Return the complete tool output as a Markdown table:
 
         data_mng = InputDataManager(key=redis_key)
         data_mng._save(serialize_for_logging(initial_state))
-        
+
         # Create context if not provided
         agent_context = AIAssistantContext(
             session_id=session_id,
             execution_id=execution_id,
-            category=self.category,
+            category=category,
             redis_key=redis_key
         )
 
@@ -479,14 +479,19 @@ Return the complete tool output as a Markdown table:
             {"role": "user", "content": task_description}
         )
 
-        initial_agent_state= AIAssistantState(
-            messages= messages,
-            session_id= session_id,
+        initial_agent_state = AIAssistantState(
+            messages=messages,
+            session_id=session_id,
             execution_id=execution_id
         )
 
+        agent = self.create_ai_assistant_agent(
+            category=category,
+            should_stream=False
+        )        
+
         # Invoke agent with user's task
-        result = await self.agent.ainvoke(
+        result = await agent.ainvoke(
             initial_agent_state,
             context=agent_context,
             config={
@@ -540,9 +545,9 @@ Return the complete tool output as a Markdown table:
         task_description: str,
         session_id: str,
         execution_id: int,
+        category: str,
         initial_state: Optional[Dict[str, Any]] = None,
-        passed_context:Optional[Any] = None,
-        config:Optional[Any] = None
+        langsmith_config:Optional[Any] = None
     ):
         """
         Stream agent execution with real-time updates
@@ -577,7 +582,7 @@ Return the complete tool output as a Markdown table:
         context = AIAssistantContext(
             session_id=session_id,
             execution_id=execution_id,
-            category=self.category,
+            category=category,
             redis_key=redis_key
         )
 
@@ -600,14 +605,18 @@ Return the complete tool output as a Markdown table:
                 "execution_id": execution_id
             }
         
+        agent = self.create_ai_assistant_agent(
+            category=category,
+            should_stream=True
+        )
+
         """
         TODO: Double check streaming configuration throughout the messaging chain!
         """
-
         full_response = ""
         final_state = initial_state
         # Stream agent execution
-        async for chunk in self.agent.astream(
+        async for chunk in agent.astream(
            initial_state,
             config={
                 "configurable": {
@@ -665,8 +674,6 @@ Return the complete tool output as a Markdown table:
 
 def create_ai_assistant_agent(
     state_manager,
-    category: Literal['shoes','wireless'],
-    should_stream:bool = False,
     websocket_manager: Optional[Any] = None,
 ) -> AIAssistantAgent:
     """
@@ -701,8 +708,6 @@ def create_ai_assistant_agent(
     """
     return AIAssistantAgent(
         state_manager=state_manager,
-        category=category,
-        should_stream=should_stream,
         websocket_manager=websocket_manager
     )
 

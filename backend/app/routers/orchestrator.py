@@ -1,12 +1,12 @@
 # backend/app/routers/orchestrator.py
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
 import logging
 
 from app.database import get_db, get_db_context
 from app.models.session import Session as SessionModel
-from app.models.execution import WorkflowExecution, ExecutionCheckpoint
+from app.models.execution import WorkflowExecution
 from app.orchestrator.service import orchestrator
 
 from app.schemas.orchestrator import (
@@ -131,16 +131,19 @@ async def execute_workflow(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# THE BELOW ENDPOINTS ARE NOT ACTIVELY USED IN FRONTEND
+# DISABLED TO REDUCE CHANCE OF MISUSE
+"""
 @router.get("/execution/{execution_id}/status", response_model=ExecutionStatusResponse)
 async def get_execution_status(
     execution_id: int,
     db: Session = Depends(get_db)
 ):
     """
-    Get current execution status
+    #Get current execution status
     
-    Poll this endpoint to track execution progress
-    """
+    #Poll this endpoint to track execution progress
+"""
     try:
         status = await orchestrator.get_execution_status(db, execution_id)
         
@@ -163,10 +166,10 @@ async def get_execution_detail(
     db: Session = Depends(get_db)
 ):
     """
-    Get full execution details
+    #Get full execution details
     
-    Returns complete execution record including results
-    """
+    #Returns complete execution record including results
+"""
     try:
         execution = db.query(WorkflowExecution).filter(
             WorkflowExecution.id == execution_id
@@ -205,10 +208,10 @@ async def get_execution_checkpoints(
     db: Session = Depends(get_db)
 ):
     """
-    Get execution checkpoints for analysis
+    #Get execution checkpoints for analysis
     
-    Returns all state snapshots taken during execution
-    """
+    #Returns all state snapshots taken during execution
+"""
     try:
         checkpoints = orchestrator.state_manager.get_checkpoint_history(
             db, execution_id, limit
@@ -238,10 +241,10 @@ async def cancel_execution(
     db: Session = Depends(get_db)
 ):
     """
-    Cancel a running execution
+    #Cancel a running execution
     
-    User intervention - tracked for study metrics
-    """
+    #User intervention - tracked for study metrics
+"""
     try:
         success = await orchestrator.cancel_execution(db, execution_id)
         
@@ -267,10 +270,10 @@ async def get_session_executions(
     db: Session = Depends(get_db)
 ):
     """
-    Get all executions for a session
+    #Get all executions for a session
     
-    Returns execution history for analytics
-    """
+    #Returns execution history for analytics
+"""
     try:
         executions = db.query(WorkflowExecution).filter(
             WorkflowExecution.session_id == session_id
@@ -292,3 +295,5 @@ async def get_session_executions(
     except Exception as e:
         logger.exception(f"Error getting session executions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+"""

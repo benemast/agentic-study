@@ -1,5 +1,6 @@
 # backend/app/routers/demographics.py
 from fastapi import APIRouter, Depends, HTTPException
+from httpx import request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from typing import Optional
@@ -145,6 +146,10 @@ async def create_demographics(
 @router.get("/{session_id}", response_model=DemographicsResponse)
 async def get_demographics(session_id: str, db: Session = Depends(get_db)):
     """Get demographics data for a session"""
+
+    request_session_id = request.headers.get('X-Session-ID')
+    if request_session_id and request_session_id != session_id:
+        raise HTTPException(403, "Access denied")
     
     demographics = db.query(Demographics).filter(
         Demographics.session_id == session_id

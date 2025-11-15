@@ -39,7 +39,7 @@ from .state_manager import HybridStateManager
 from .graphs.workflow_builder import WorkflowBuilderGraph
 
 from app.orchestrator.graphs.ai_assistant_agent import (
-    AIAssistantAgent ,
+    AIAssistantAgent,
     AIAssistantContext, 
     create_ai_assistant_agent
 )
@@ -52,37 +52,21 @@ class OrchestrationService:
     
     def __init__(self):
         ws_manager = get_ws_manager()
-        self.state_manager:HybridStateManager = HybridStateManager()
-        self.ws_manager:WebSocketManager = ws_manager        
-        self.degradation:DegradationConfig = graceful_degradation
+        self.state_manager: HybridStateManager = HybridStateManager()
+        self.ws_manager: WebSocketManager = ws_manager        
+        self.degradation: DegradationConfig = graceful_degradation
 
         # establish streaming for LangChain based LLM calls
         initialize_callback_factory(self.ws_manager) 
 
-        # Lazy-initialized AI Assistant Agent (singleton) to avoid startup overhead
-        self._ai_assistant_agent: Optional[AIAssistantAgent] = None
-
         logger.info("Orchestration service initialized")
     
-    def _get_ai_assistant_agent(self, category: Literal['shoes','wireless'], stream:bool = False) -> AIAssistantAgent:
-        """
-        Get or create AI Assistant Agent (lazy initialization)
-        
-        Returns:
-            AIAssistantAgent instance
-        """
+    def _create_ai_assistant_agent(self) -> AIAssistantAgent:
+       return create_ai_assistant_agent(
+           state_manager=self.state_manager,
+           websocket_manager=self.ws_manager
+       )
 
-        if self._ai_assistant_agent is None:
-            logger.info("Initializing AI Assistant Agent (first use)")
-            #self._ai_assistant_agent = create_ai_assistant_agent(
-            self._ai_assistant_agent = create_ai_assistant_agent(
-                state_manager=self.state_manager,
-                websocket_manager=self.ws_manager,
-                category = category,
-                should_stream = stream
-            )
-        return self._ai_assistant_agent
-    
     async def execute_workflow(
         self,
         db: Session,
@@ -525,14 +509,30 @@ class OrchestrationService:
         try:
             # Get AI Assistant Agent (lazy init)
 
-            category = task_data.get('input_data', {}).get('category')      
+            category = task_data.get('input_data', {}).get('category') 
+            
+            if not category:
+                raise ValueError(
+                    "Category must be provided in task_data.input_data.category. "
+                    "Expected 'shoes' or 'wireless'"
+                )
+            
+            if category not in ['shoes', 'wireless']:
+                raise ValueError(
+                    f"Invalid category '{category}'. Must be 'shoes' or 'wireless'"
+                )
+            
+            logger.info(
+                f"AI Assistant execution: execution_id={execution_id}, "
+                f"category={category}, session={session_id}"
+            )
             
             # Initialize state (same as workflow_builder)
             initial_state = self._initialize_state(execution, task_data)
             
             logger.info(
                 f"Initial state created for AI Assistant: "
-                f"execution_id={execution.id}, "
+                f"execution_id={execution.id}, category={category},  "
                 f"task_description={task_data.get('task_description', 'N/A')[:50]}..."
             )
 
@@ -546,7 +546,10 @@ class OrchestrationService:
                 step_number=0,
                 checkpoint_type='execution_start',
                 state=initial_state,
-                metadata={'condition': condition},
+                metadata={
+                    'condition': condition,
+                    'category': category
+                },
                 buffered=True
             )
             
@@ -562,7 +565,8 @@ class OrchestrationService:
                 status='start',
                 data={
                     'step': 0,
-                    'task_description': task_data.get('task_description')
+                    'task_description': task_data.get('task_description'),
+                    'category': category
                 }
             )
             
@@ -604,21 +608,16 @@ class OrchestrationService:
                 status='running'
             )
 
-            # Create runtime context for agent
-            context = AIAssistantContext(
-                session_id=session_id,
-                execution_id=execution_id
-            )
-
-            agent = self._get_ai_assistant_agent(category=category,stream=settings.langchain_stream)
+            agent = self._create_ai_assistant_agent()
             
             final_state = await agent.invoker(
                 task_description=task_data.get('task_description', ''),
                 session_id=session_id,
                 execution_id=execution_id,
+                category=category,
                 initial_state=initial_state,
-                passed_context=context,
-                config=langsmith_config
+                langsmith_config=langsmith_config,
+                should_stream=settings.langchain_stream
             )
 
             # RUN AGENT (this is the LangChain equivalent of graph.ainvoke)

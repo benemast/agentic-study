@@ -77,6 +77,8 @@ class BaseTool(LangChainBaseTool):
     
     def __init__(self, **data):
         super().__init__(**data)
+        # Add lock for thread-safe metrics updates
+        self._metrics_lock = asyncio.Lock()
         logger.debug(
             f"Tool initialized: {self.name} "
             f"(timeout={self.default_timeout}s, override={self.allow_timeout_override})"
@@ -1179,7 +1181,8 @@ class BaseTool(LangChainBaseTool):
             effective_timeout = self.default_timeout
         
         # Update metrics
-        self.total_executions += 1
+        async with self._metrics_lock:
+            self.total_executions += 1
         
         # Extract session info for progress updates
         session_id, execution_id, condition = self._extract_session_info(input_data)
@@ -1211,10 +1214,12 @@ class BaseTool(LangChainBaseTool):
             self.total_execution_time_ms += execution_time_ms
             
             # Update metrics
-            if result.get('success'):
-                self.total_successes += 1
-            else:
-                self.total_failures += 1
+            async with self._metrics_lock:
+                self.total_execution_time_ms += execution_time_ms
+                if result.get('success'):
+                    self.total_successes += 1
+                else:
+                    self.total_failures += 1
             
             # Add execution time to result if not present
             if 'execution_time_ms' not in result:
@@ -1247,7 +1252,8 @@ class BaseTool(LangChainBaseTool):
             
         except asyncio.TimeoutError:
             # Tool execution timeout
-            self.total_timeouts += 1
+            async with self._metrics_lock:
+                self.total_timeouts += 1
             execution_time_ms = int((time.time() - start_time) * 1000)
             
             logger.error(
@@ -1288,7 +1294,8 @@ class BaseTool(LangChainBaseTool):
             
         except Exception as e:
             # Tool execution error
-            self.total_failures += 1
+            async with self._metrics_lock:
+                self.total_failures += 1
             execution_time_ms = int((time.time() - start_time) * 1000)
             
             logger.error(
@@ -1296,7 +1303,7 @@ class BaseTool(LangChainBaseTool):
                 extra={
                     'tool_name': self.name,
                     'error_type': e.__class__.__name__,
-                    'error_message': str(e)[:500],  # ✅ Increased from 200 to 500
+                    'error_message': str(e)[:500],
                     'execution_time_ms': execution_time_ms,
                     'session_id': session_id,
                     'execution_id': execution_id

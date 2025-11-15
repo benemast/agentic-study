@@ -1,14 +1,14 @@
 # backend/app/routers/sessions.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, true
-from typing import List, Optional, Dict, Any
+from sqlalchemy import func, desc, text
+from typing import List, Optional
 import json
 from datetime import datetime, timedelta
 import logging
-import traceback
 
 from app.database import get_db
+from app.core.bot_detection import is_bot_request
 from app.models.session import Session as SessionModel, Interaction as InteractionModel
 from app.schemas.session import (
     SessionCreate, SessionResponse, InteractionCreate, InteractionResponse, 
@@ -70,12 +70,30 @@ def log_and_capture_error(error: Exception, context: str, session_id: str = None
 
 @router.post("/", response_model=SessionResponse)
 async def create_session(
-    session_data: SessionCreate, 
+    session_data: SessionCreate,
+    request: Request,
     db: Session = Depends(get_db)
     ):
     """Create a new user session with enhanced metadata"""
     
     try:
+        # Bot detection - ADD THIS BLOCK
+        user_agent = request.headers.get("user-agent")
+        screen_resolution = session_data.screen_resolution
+        
+        is_bot, bot_reason = is_bot_request(user_agent, screen_resolution)
+        if is_bot:
+            logger.warning(
+                f"Bot request rejected - Reason: {bot_reason}, "
+                f"User-Agent: {user_agent}, Resolution: {screen_resolution}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Automated requests are not allowed for this study"
+            )
+        # Lock table during ID generation
+        db.execute(text("LOCK TABLE sessions IN SHARE ROW EXCLUSIVE MODE"))
+
         # Get next participant ID
         last_participant = db.query(func.max(SessionModel.participant_id)).scalar()
         next_participant_id = (last_participant or 0) + 1

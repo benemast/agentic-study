@@ -24,4 +24,4 @@ RUN mkdir -p /app/logs
 EXPOSE 8000
 
 # Production: Wait for postgres, then start with multiple workers
-CMD ["/wait-for-postgres.sh", "postgres", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3"]
+CMD ["/wait-for-postgres.sh", "postgres", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "6"]

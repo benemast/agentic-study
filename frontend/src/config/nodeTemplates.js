@@ -546,7 +546,11 @@ export const NODE_TEMPLATES = [
         dependsOn: 'include_sections.data_preview',
         help: 'workflow.builder.nodes.showResults.config.maxDataItems.help'
       }
-    ]
+    ],
+    defaultConfig: {
+      focus_area: null,
+      max_data_items: 200
+    }
   },
   
   // ============================================

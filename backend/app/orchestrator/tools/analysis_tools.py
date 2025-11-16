@@ -185,7 +185,9 @@ Return JSON with analysis for each review."""
         condition: str,
         batch_num: int = 1,
         total_batches: int = 1,
-        language: Literal['en','de'] = 'en'
+        language: Literal['en','de'] = 'en',
+        retry_count: int = 0,
+        max_retries: int = 3
     ) -> Dict[str, Any]:
         """
         Analyze batch of reviews for sentiment AND themes using LLM
@@ -229,10 +231,46 @@ Return JSON with analysis for each review."""
                 'analyzed_reviews': analyzed_reviews,
                 'batch_themes': themes
             }
+        
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            logger.warning(f"LLM batch analysis failed (attempt {retry_count + 1}/{max_retries}): {e}")
             
+            # RETRY
+            if retry_count < max_retries - 1:
+                return await self._analyze_batch_with_themes(
+                    reviews_batch=reviews_batch,
+                    extract_themes=extract_themes,
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    condition=condition,
+                    batch_num=batch_num,
+                    total_batches=total_batches,
+                    language=language,
+                    retry_count=retry_count + 1,
+                    max_retries=max_retries
+                )
+            
+            # MAX RETRIES EXCEEDED - THROW ERROR
+            logger.error(f"Max retries ({max_retries}) exceeded for batch {batch_num}/{total_batches}")
+            return {
+                'analyzed_reviews': [
+                    {
+                        **review,
+                        'theme_analysis': {
+                            'themes': [],
+                            'theme_count': 0,
+                            'model': self.llm_client.model,
+                            'analyzed_at': time.time(),
+                            'error': 'LLM analysis failed after retries'
+                        }
+                    }
+                    for review in reviews_batch
+                ],
+                'batch_themes': []
+            }
+                
         except Exception as e:
-            logger.error(f"LLM batch analysis failed: {e}", exc_info=True)
-            
+            logger.error(f"LLM batch analysis failed: {e}", exc_info=True)            
 
             # Fallback: rating-based sentiment
             return {
@@ -277,6 +315,11 @@ Return JSON with analysis for each review."""
             content = content.split('```')[1].split('```')[0].strip()
         
         parsed = json.loads(content)
+            
+        # VALIDATE STRUCTURE
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Expected dict, got {type(parsed)}")
+        
         
         # Transform to structured format
         analyzed_reviews = []
@@ -297,6 +340,8 @@ Return JSON with analysis for each review."""
             # Parse themes as tuples
             theme_tuples = []
             for theme_data in themes_data:
+                if not isinstance(theme_data, (list, tuple)) or len(theme_data) != 3:
+                    raise ValueError(f"Invalid theme format: {theme_data}")
                 topic, importance, sentiment_score = theme_data
                 theme_tuples.append((topic, importance, sentiment_score))
             
@@ -1149,7 +1194,9 @@ Generate insights now."""
         session_id: str | None = None,
         execution_id: int | None = None,
         condition: str | None = None,
-        language: Literal['en','de'] = 'en'
+        language: Literal['en','de'] = 'en',
+        retry_count: int = 0,
+        max_retries: int = 3
     ) -> List[Dict[str, Any]]:
         """
         Generate insights using streaming LLM
@@ -1210,6 +1257,9 @@ Generate insights now."""
             
             parsed = json.loads(content)
             insights = parsed.get('insights', [])
+
+            if not isinstance(insights, dict):
+                raise ValueError(f"Expected dict, got {type(insights)}")
             
             if not insights:
                 logger.warning("LLM returned empty insights")
@@ -1219,6 +1269,30 @@ Generate insights now."""
             
             return insights
             
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"LLM returned invalid response (attempt {retry_count + 1}/{max_retries}): {e}")
+            
+            # RETRY
+            if retry_count < max_retries:
+                return await self._generate_insights_with_llm(
+                    focus_areas=focus_areas,
+                    max_insights=max_insights,
+                    sentiment_statistics=sentiment_statistics,
+                    theme_analysis=theme_analysis,
+                    reviews=reviews,
+                    total_reviews=total_reviews,
+                    session_id=session_id,
+                    execution_id=execution_id,
+                    condition=condition,
+                    language=language,
+                    retry_count=retry_count + 1,
+                    max_retries=max_retries
+                )
+            
+            # MAX RETRIES EXCEEDED - THROW ERROR
+            logger.error(f"Max retries ({max_retries}) exceeded for insight generation")
+            raise RuntimeError(f"Failed to generate valid insights after {max_retries} attempts: {e}")
+
         except Exception as e:
             logger.error(f"LLM insight generation failed: {e}", exc_info=True)
             return self._generate_fallback_insights(
@@ -1357,7 +1431,7 @@ Generate insights now."""
             # Count total insights across all categories
             total_insights = sum(
                 sum(1 for insight in insights if "Insufficient data" not in insight)
-                for insights in insights
+                for insights in insights.values()
             )
 
             # By category, excluding "Insufficient data"
